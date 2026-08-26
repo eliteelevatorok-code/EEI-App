@@ -180,13 +180,71 @@ const GROUPS = {
 const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"];
 
 const PIN = "0508";
+
+/* ---------- sync between devices (Cloudflare Worker + KV) ----------
+   Fill in SYNC_URL once the Worker in worker/sync-worker.js is deployed
+   (see worker/SETUP.md). Until then this is a no-op and the app behaves
+   exactly like before it - one copy of the data, local to whichever
+   device you're using.
+
+   Whole-object last-write-wins: whichever device syncs most recently
+   wins. Fine for how this actually gets used - field entry on the phone,
+   computer work after - not fine for the same report being edited on
+   both devices at once. Protected by the same 0508 code the app already
+   uses, sent as a header. That is deliberately simple, not real
+   security - good enough for keeping this private between Robert's own
+   devices, nothing more. */
+const SYNC_URL = "";
+const SYNC_TS_KEY = "eei_sync_ts_v1";
+function getSyncTs(k){ try{ return (JSON.parse(localStorage.getItem(SYNC_TS_KEY)||"{}"))[k]||0; }catch(e){ return 0; } }
+function setSyncTs(k,ts){ try{ const m=JSON.parse(localStorage.getItem(SYNC_TS_KEY)||"{}"); m[k]=ts; localStorage.setItem(SYNC_TS_KEY,JSON.stringify(m)); }catch(e){} }
+function syncPush(key,data){
+  if(!SYNC_URL || !navigator.onLine) return;
+  const ts=Date.now();
+  fetch(`${SYNC_URL}/${key}`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json","X-EEI-PIN":PIN},
+    body:JSON.stringify({data,updatedAt:ts})
+  }).then(()=>setSyncTs(key,ts)).catch(()=>{ /* offline or unreachable - local copy is still safe */ });
+}
+async function syncPull(key){
+  if(!SYNC_URL) return null;
+  try{
+    const res=await fetch(`${SYNC_URL}/${key}`,{headers:{"X-EEI-PIN":PIN}});
+    if(!res.ok) return null;
+    const text=await res.text();
+    if(!text||text==="null") return null;
+    return JSON.parse(text);
+  }catch(e){ return null; }
+}
+async function syncBoot(){
+  if(!SYNC_URL) return;
+  const [cloudDb,cloudRoster]=await Promise.all([syncPull("db"),syncPull("roster")]);
+  let changed=false;
+  if(cloudDb && cloudDb.updatedAt>getSyncTs("db")){
+    db=cloudDb.data||{}; writeDb(); changed=true;
+  } else if(Object.keys(db).length){
+    syncPush("db",db);
+  }
+  if(cloudRoster && cloudRoster.updatedAt>getSyncTs("roster")){
+    setRoster(cloudRoster.data||[]); changed=true;
+  } else if(ELEVATORS.length){
+    syncPush("roster",ELEVATORS);
+  }
+  if(changed){
+    boot();
+    if(cur) pick(cur.okla);
+    setStatus("Synced with your other device.","ok");
+  }
+}
+
 const $ = id => document.getElementById(id);
 const esc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
 /* ---------- storage that never dies silently ---------- */
 const STORE="eei_field_v2"; let STORAGE_OK=true;
 function loadDb(){ try{ return JSON.parse(localStorage.getItem(STORE)||"{}"); }catch(e){ STORAGE_OK=false; return {}; } }
-function writeDb(){ try{ localStorage.setItem(STORE,JSON.stringify(db)); return true; }catch(e){ STORAGE_OK=false; return false; } }
+function writeDb(){ try{ localStorage.setItem(STORE,JSON.stringify(db)); }catch(e){ STORAGE_OK=false; return false; } syncPush("db",db); return true; }
 let db = loadDb();
 
 let cur=null, rep=null, acct=null, phoneMode=false, override=null, deferredPrompt=null;
@@ -225,6 +283,7 @@ function setRoster(list){
   ELEVATORS = list;
   try{ localStorage.setItem(ROSTER_KEY, JSON.stringify(list)); }catch(e){ STORAGE_OK=false; }
   ACCOUNTS = buildAccounts();
+  syncPush("roster", list);
 }
 
 /* Reads their spreadsheet exported as CSV. Column order is the one their sheet uses:
@@ -274,7 +333,7 @@ $("pad").addEventListener("click", e=>{
     else { $("gateMsg").textContent="That code is not right. Try again."; drawDots(true); entry=""; setTimeout(()=>drawDots(false),700); }
   }
 });
-function unlock(){ $("gate").classList.add("hide"); $("shell").classList.remove("hide"); boot(); }
+function unlock(){ $("gate").classList.add("hide"); $("shell").classList.remove("hide"); boot(); syncBoot(); }
 $("lockBtn").onclick = ()=>{ try{ sessionStorage.removeItem("eei_ok"); }catch(e){}
   entry=""; drawDots(false); $("gate").classList.remove("hide"); $("shell").classList.add("hide"); };
 try{ if(sessionStorage.getItem("eei_ok")==="1") unlock(); }catch(e){}
@@ -325,7 +384,7 @@ $("acctList").addEventListener("click",e=>{
   acct=ACCOUNTS.find(a=>a.key===b.dataset.acct);
   $("acctVal").textContent=acct.label; $("acctVal").classList.remove("empty");
   $("stAcct").classList.add("done");
-  cur=null; rep=null; $("plate").classList.remove("on");
+  cur=null; rep=null; $("plate").classList.remove("on"); showReport(false);
   $("unitVal").textContent="Choose an elevator"; $("unitVal").classList.add("empty");
   $("stUnit").classList.remove("done");
   openStage("stUnit");
@@ -393,6 +452,14 @@ $("wholeBody").addEventListener("click",e=>{
 /* ---------- select an elevator ---------- */
 function dueLate(d){ const p=String(d).split("/"); if(p.length!==3) return false;
   return new Date(+p[2],+p[0]-1,+p[1]) < new Date(); }
+/* The report form (dates, violations, notes, carried over) only shows once an
+   account AND a specific elevator have both been picked - never a blank form
+   that isn't tied to anything. */
+function showReport(on){
+  $("noPick").classList.toggle("hide",on);
+  $("mainReport").classList.toggle("hide",!on);
+  $("actionbar").classList.toggle("hide",!on);
+}
 function pick(okla){
   cur=ELEVATORS.find(x=>x.okla===okla); if(!cur) return;
   const saved=(db[okla]||{}).current;
@@ -412,6 +479,7 @@ function pick(okla){
      <b>Maintenance</b> ${esc(cur.prov||"none on file")} &middot; <b>Last inspected</b> ${esc(cur.last||"not recorded")}</div>
      <div class="duechip${late?" late":""}">${late?"Past due":"Due"} ${esc(cur.due)}</div>`;
   $("plate").classList.add("on");
+  showReport(true);
   renderAll();
   setStatus(saved?"Report already started on this device":"New report started","ok");
 }
@@ -423,6 +491,7 @@ function save(){
   if(!cur) return;
   db[cur.okla]=db[cur.okla]||{}; db[cur.okla].current=rep; writeDb();
   if(!STORAGE_OK) return setStatus("This browser is blocking storage. Nothing is being kept.","bad");
+  if(!SYNC_URL) return setStatus("Saved on this device.","ok");
   setStatus(navigator.onLine?"Saved and synced":"Saved on this phone. It will sync on wifi.",navigator.onLine?"ok":"wait");
 }
 
@@ -589,7 +658,7 @@ $("installBtn").onclick=async ()=>{
 };
 
 /* ---------- connection ---------- */
-window.addEventListener("online",()=>setStatus("Back on wifi. Anything held on this phone would sync now.","ok"));
+window.addEventListener("online",()=>{ setStatus("Back on wifi. Checking your other device...","wait"); syncBoot(); });
 window.addEventListener("offline",()=>setStatus("No connection. Keep working, it is held on this phone.","wait"));
 
 /* ---------- boot ---------- */
@@ -624,6 +693,6 @@ $("clearRoster").onclick = ()=>{
   if(!confirm("Remove the elevator list from this device? You will need the spreadsheet again to reload it.")) return;
   try{ localStorage.removeItem(ROSTER_KEY); }catch(e){}
   ELEVATORS=[]; cur=null; rep=null; acct=null;
-  $("plate").classList.remove("on");
+  $("plate").classList.remove("on"); showReport(false);
   boot();
 };

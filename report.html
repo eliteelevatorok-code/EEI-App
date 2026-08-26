@@ -87,7 +87,12 @@
   <div class="plate" id="plate"></div>
   <div class="tagbar" id="tagBar"></div>
 
-  <main>
+  <section class="card" id="noPick">
+    <h2>Start here</h2>
+    <p class="importlead">Pick an account, then an elevator, above — the report opens once both are chosen.</p>
+  </section>
+
+  <main id="mainReport" class="hide">
     <div id="paneNew">
       <section class="card">
         <h2>This visit</h2>
@@ -138,7 +143,7 @@
     </div>
   </main>
 
-  <div class="actionbar">
+  <div class="actionbar hide" id="actionbar">
     <div class="st"><span class="dot" id="stDot"></span><span id="status">Ready</span></div>
     <div class="btns">
       <button id="btnSave">Save</button>
