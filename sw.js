@@ -4,11 +4,12 @@
    screen it opens and runs with no signal at all. Bump CACHE when any file
    changes - the old cache is thrown away and the new files take over. */
 
-const CACHE = "eei-field-v5";
+const CACHE = "eei-field-v6";
 
 const SHELL = [
   "./",
   "./index.html",
+  "./report.html",
   "./styles.css",
   "./app.js",
   "./manifest.webmanifest",

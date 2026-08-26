@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Elite Elevator Field Report</title>
-<meta name="description" content="Field inspection reports for Elite Elevator Inspectors.">
+<meta name="description" content="Install the Elite Elevator field report app.">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#1F4B45">
 <meta name="mobile-web-app-capable" content="yes">
@@ -13,169 +13,77 @@
 <meta name="apple-mobile-web-app-title" content="Elite Field">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" href="icon-192.png">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-<div id="gate">
+<div id="landing">
   <div class="mark">ELITE ELEVATOR<span>FIELD REPORT</span></div>
-  <div class="dots" id="dots"><i></i><i></i><i></i><i></i></div>
-  <div id="gateMsg"></div>
-  <div class="pad" id="pad">
-    <button>1</button><button>2</button><button>3</button>
-    <button>4</button><button>5</button><button>6</button>
-    <button>7</button><button>8</button><button>9</button>
-    <button class="wide" data-act="clear">Clear</button><button>0</button>
-    <button class="wide" data-act="back">Back</button>
+  <p class="landlead">This only works as an installed app. Install it below, then open it from your home screen — that's where it'll ask for the code.</p>
+
+  <button class="filebtn" id="installBtn">Install the app</button>
+
+  <div class="instr hide" id="iosInstr">
+    <h4>iPhone or iPad — Safari</h4>
+    <ol>
+      <li>Tap <b>Continue to the app</b> below first.</li>
+      <li>Tap the Share button at the bottom of Safari.</li>
+      <li>Scroll down and tap <b>Add to Home Screen</b>, then tap <b>Add</b>.</li>
+    </ol>
+    <a class="filebtn" id="iosContinue" href="report.html">Continue to the app</a>
   </div>
+
+  <div class="instr hide" id="manualInstr">
+    <h4>Install manually</h4>
+    <ol>
+      <li>Look for an <b>Install</b> or <b>Add to Home screen</b> option in your browser's menu.</li>
+      <li>Or just continue in the browser below — it still works, it just won't sit on your home screen.</li>
+    </ol>
+  </div>
+
+  <p class="hint" id="doneMsg"></p>
+  <p class="hint"><a id="continueLink" href="report.html">Continue in the browser instead &rarr;</a></p>
 </div>
 
-<div id="shell" class="hide">
-
-  <header class="chrome">
-    <div class="bar">
-      <div class="wordmark">ELITE<b>/</b>FIELD</div>
-      <div class="grow"></div>
-      <div class="pill" id="modeTag">Computer</div>
-    </div>
-    <div class="sub">
-      <button class="tiny hot" id="installBtn">Add to phone</button>
-      <button class="tiny" id="modeToggle">Switch phone / computer</button>
-      <button class="tiny" id="wholeListBtn">Whole list</button>
-      <button class="tiny" id="lockBtn">Lock</button>
-      <button class="tiny" id="clearRoster">Clear list</button>
-    </div>
-  </header>
-
-  <section class="card importcard hide" id="importCard">
-    <h2>Load the elevator list</h2>
-    <p class="importlead">This app ships empty on purpose, so no customer names, emails or phone numbers sit on the web. Load their spreadsheet once and it stays on this device.</p>
-    <label class="filebtn" for="importFile">Choose the spreadsheet (.csv)</label>
-    <input id="importFile" type="file" accept=".csv,text/csv" hidden>
-    <p class="importmsg" id="importMsg"></p>
-    <p class="hint">Open their sheet, choose Save As or Download, and pick CSV. Rows marked scrapped, inactive or without a due date are left out.</p>
-  </section>
-
-  <div class="selector">
-    <div class="stage open" id="stAcct">
-      <button class="stagehead" data-stage="stAcct">
-        <span class="num">1</span>
-        <span class="stagelabel"><span class="k">Account</span><span class="v empty" id="acctVal">Choose an account</span></span>
-        <span class="chev">&#9662;</span>
-      </button>
-      <div class="stagebody">
-        <input id="acctSearch" placeholder="Search account or contact">
-        <div class="optlist" id="acctList"></div>
-        <p class="hint" id="acctHint"></p>
-      </div>
-    </div>
-
-    <div class="stage" id="stUnit">
-      <button class="stagehead" data-stage="stUnit">
-        <span class="num">2</span>
-        <span class="stagelabel"><span class="k">Elevator</span><span class="v empty" id="unitVal">Choose an elevator</span></span>
-        <span class="chev">&#9662;</span>
-      </button>
-      <div class="stagebody">
-        <input id="unitSearch" placeholder="Search building or Oklahoma number">
-        <div class="optlist" id="unitList"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="plate" id="plate"></div>
-  <div class="tagbar" id="tagBar"></div>
-
-  <main>
-    <div id="paneNew">
-      <section class="card">
-        <h2>This visit</h2>
-        <div class="grid2">
-          <div class="f"><label>Date inspected</label><input id="dateInsp" type="date"></div>
-          <div class="f"><label>Cert expires</label><input id="certExp" type="date"></div>
-        </div>
-        <div class="f"><label>Inspection type</label><div class="chips" id="inspType"></div></div>
-        <div class="f"><label>Inspection cycle</label><div class="chips" id="inspCycle"></div></div>
-        <div class="grid2">
-          <div class="f"><label>One year test</label><input id="test1" placeholder="MM/YYYY"></div>
-          <div class="f"><label>Five year test</label><input id="test5" placeholder="MM/YYYY"></div>
-        </div>
-        <div class="f"><label>Certificate issue</label><div class="chips" id="certIssue"></div></div>
-        <div class="f"><label>Temp certificate</label><div class="chips" id="certTemp"></div></div>
-        <div class="f"><label>Temp cert of operation</label><div class="chips" id="tempDays"></div></div>
-        <div class="f"><label>Certificate to</label><div class="chips" id="certTo"></div></div>
-        <div class="f"><label>Condition</label><div class="chips" id="cond"></div></div>
-      </section>
-
-      <section class="card">
-        <h2>Violations, recommendations, comments</h2>
-        <div class="tally">
-          <div class="v"><span id="cV">0</span><small>Violations</small></div>
-          <div class="r"><span id="cR">0</span><small>Recommend</small></div>
-          <div class="c"><span id="cC">0</span><small>Comments</small></div>
-        </div>
-        <div id="vlist"></div>
-        <button class="bigbtn" id="openOv">+ Add from the list</button>
-      </section>
-
-      <section class="card">
-        <h2>Field notes</h2>
-        <div class="f">
-          <label>Anything to fix on the computer later</label>
-          <textarea id="notes" placeholder="Owner changed hands, serial on file is wrong, new gate code&hellip;"></textarea>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>Carried over</h2>
-        <div class="lockbar hide" id="lockBar">
-          <b>Locked</b>
-          <span>These stay put in the field so nothing gets changed by accident. Note it above and edit it on the computer.</span>
-        </div>
-        <div id="carryFields"></div>
-      </section>
-    </div>
-  </main>
-
-  <div class="actionbar">
-    <div class="st"><span class="dot" id="stDot"></span><span id="status">Ready</span></div>
-    <div class="btns">
-      <button id="btnSave">Save</button>
-      <button id="btnFinal" class="go">Finalize &amp; send</button>
-    </div>
-  </div>
-</div>
-
-<div class="sheet" id="ov">
-  <div class="sheettop">
-    <div class="sheetrow"><h3>Violation list</h3><button class="donebtn" id="ovClose">Done</button></div>
-    <input id="ovSearch" placeholder="Search the list">
-  </div>
-  <div class="sheetbody" id="ovList"></div>
-</div>
-
-<div class="sheet" id="instSheet">
-  <div class="sheettop">
-    <div class="sheetrow"><h3>Put it on the phone</h3><button class="donebtn" id="instClose">Done</button></div>
-  </div>
-  <div class="sheetbody" id="instBody"></div>
-</div>
-
-<div class="sheet" id="wholeSheet">
-  <div class="sheettop">
-    <div class="sheetrow"><h3>Whole list</h3><button class="donebtn" id="wholeClose">Done</button></div>
-    <input id="wholeSearch" placeholder="Search Oklahoma #, building, account, or tag">
-  </div>
-  <div class="sheetbody" id="wholeBody"></div>
-</div>
-
-<script src="app.js"></script>
 <script>
-if("serviceWorker" in navigator){
-  window.addEventListener("load", function(){
-    navigator.serviceWorker.register("sw.js").catch(function(){ /* offline install just will not be available */ });
-  });
+if (window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone) {
+  location.replace("report.html");
+}
+
+let deferredPrompt = null;
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault();
+  deferredPrompt = e;
+});
+window.addEventListener("appinstalled", () => {
+  document.getElementById("doneMsg").textContent = "Installed. Open it from your home screen or app list.";
+});
+
+const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+document.getElementById("installBtn").onclick = async () => {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    if (choice.outcome !== "accepted") {
+      document.getElementById("doneMsg").textContent = "Install was cancelled — you can try again anytime.";
+    }
+    return;
+  }
+  if (ios) {
+    document.getElementById("iosInstr").classList.remove("hide");
+    document.getElementById("manualInstr").classList.add("hide");
+  } else {
+    document.getElementById("manualInstr").classList.remove("hide");
+    document.getElementById("iosInstr").classList.add("hide");
+  }
+};
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 </script>
 </body>

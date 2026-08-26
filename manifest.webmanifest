@@ -2,7 +2,7 @@
   "name": "Elite Elevator Field Report",
   "short_name": "Elite Field",
   "description": "Inspection reports in the field for Elite Elevator Inspectors.",
-  "start_url": "./index.html",
+  "start_url": "./report.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
