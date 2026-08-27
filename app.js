@@ -455,7 +455,6 @@ function dueLate(d){ const p=String(d).split("/"); if(p.length!==3) return false
    account AND a specific elevator have both been picked - never a blank form
    that isn't tied to anything. */
 function showReport(on){
-  $("noPick").classList.toggle("hide",on);
   $("mainReport").classList.toggle("hide",!on);
   $("actionbar").classList.toggle("hide",!on);
 }

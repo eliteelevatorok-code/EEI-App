@@ -280,3 +280,16 @@ main{ padding:0 .8rem 8rem; }
 .filebtn:active{ opacity:.85; }
 .importmsg{ margin:.7rem 0 0; font-size:.9rem; color:var(--alert); font-weight:600; }
 .importcard .hint{ margin-top:.7rem; }
+
+/* ======================= COMPUTER LAYOUT (wide screens) =======================
+   On a monitor, keep the report in a centered column instead of stretching
+   edge to edge. Same 900px line the app uses to tell phone from computer. */
+@media (min-width:900px){
+  .chrome .bar, .chrome .sub,
+  .selector, .plate, .tagbar, .importcard,
+  main, .actionbar .st, .actionbar .btns{
+    max-width:44rem;
+    margin-left:auto;
+    margin-right:auto;
+  }
+}

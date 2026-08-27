@@ -1,6 +1,6 @@
 {
-  "name": "Elite Elevator Field Report",
-  "short_name": "Elite Field",
+  "name": "EEI Reports",
+  "short_name": "EEI Reports",
   "description": "Inspection reports in the field for Elite Elevator Inspectors.",
   "start_url": "./report.html",
   "scope": "./",
