@@ -247,7 +247,7 @@ function loadDb(){ try{ return JSON.parse(localStorage.getItem(STORE)||"{}"); }c
 function writeDb(){ try{ localStorage.setItem(STORE,JSON.stringify(db)); }catch(e){ STORAGE_OK=false; return false; } syncPush("db",db); return true; }
 let db = loadDb();
 
-let cur=null, rep=null, acct=null, phoneMode=false, override=null, deferredPrompt=null;
+let cur=null, rep=null, acct=null, phoneMode=false;
 
 /* ---------- the roster ----------
    Order of preference:
@@ -334,12 +334,15 @@ $("pad").addEventListener("click", e=>{
   }
 });
 function unlock(){ $("gate").classList.add("hide"); $("shell").classList.remove("hide"); boot(); syncBoot(); }
-$("lockBtn").onclick = ()=>{ try{ sessionStorage.removeItem("eei_ok"); }catch(e){}
-  entry=""; drawDots(false); $("gate").classList.remove("hide"); $("shell").classList.add("hide"); };
+function lockApp(){ try{ sessionStorage.removeItem("eei_ok"); }catch(e){}
+  entry=""; drawDots(false); $("gate").classList.remove("hide"); $("shell").classList.add("hide"); }
 try{ if(sessionStorage.getItem("eei_ok")==="1") unlock(); }catch(e){}
 
-/* ---------- phone vs computer ---------- */
-const calcMode=()=> override!==null ? override : window.innerWidth<900;
+/* ---------- phone vs computer ----------
+   Mode is decided by screen size, nothing to switch by hand. Phone = the field
+   (carried-over equipment fields locked so nothing gets changed by accident);
+   computer = the desk (those fields editable). */
+const calcMode=()=> window.innerWidth<900;
 function applyMode(){
   phoneMode=calcMode();
   $("modeTag").textContent = phoneMode?"Phone · field":"Computer";
@@ -349,14 +352,10 @@ function applyMode(){
     if(phoneMode){ el.setAttribute("readonly","readonly"); el.setAttribute("disabled","disabled"); }
     else { el.removeAttribute("readonly"); el.removeAttribute("disabled"); }
   });
-  const b=$("btnFinal");
-  b.classList.toggle("go",!phoneMode); b.classList.toggle("off",phoneMode);
-  b.textContent = phoneMode ? "Finalize on computer" : "Finalize & send";
   $("wholeListBtn").classList.toggle("hide", phoneMode);
   if(cur) renderTags();
 }
 window.addEventListener("resize",applyMode);
-$("modeToggle").onclick=()=>{ override=!calcMode(); applyMode(); };
 
 /* ---------- two stage picker ---------- */
 document.querySelectorAll(".stagehead").forEach(h=>{
@@ -620,41 +619,13 @@ function renderAll(){
 ["dateInsp","certExp","test1","test5","notes"].forEach(k=>
   $(k).addEventListener("input",()=>{ if(rep){ rep[k]=$(k).value; save(); } }));
 
-/* ---------- save / finalize ---------- */
+/* ---------- save / save & lock ---------- */
 $("btnSave").onclick=()=>{ if(!cur) return openStage("stAcct"); save(); };
-$("btnFinal").onclick=()=>{
+$("btnLock").onclick=()=>{
   if(!cur) return openStage("stAcct");
-  if(phoneMode){ alert("Finalizing is locked out on the phone.\n\nThe report is saved here and syncs when you get wifi. Open it on the computer to check the carried-over details and send it."); return; }
-  const n=k=>rep.viol.filter(x=>x.kind===k).length;
-  if(!confirm(`Finalize ${cur.loc} (Oklahoma #${cur.okla})?\n\n${n("V")} violations, ${n("R")} recommendations, ${n("C")} comments\n\nIn the real app this would then:\n  • fill the inspection report form\n  • back it up to their Drive\n  • email it to ODOL\n  • email it to ${cur.email||"the customer"}\n  • post the invoice to QuickBooks\n  • set the next due date from the inspection cycle\n\nThis prototype does none of that. It files the report as last year's so you can see the loop close.`)) return;
-  db[cur.okla]=db[cur.okla]||{};
-  db[cur.okla].archived=JSON.parse(JSON.stringify(rep));
-  db[cur.okla].current=null; writeDb();
-  pick(cur.okla);
-  setStatus("Finalized. Violations and the carried-over details are ready as the starting point next time.","ok");
-};
-
-/* ---------- add to phone ---------- */
-window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; });
-$("instClose").onclick=()=>$("instSheet").classList.remove("on");
-$("installBtn").onclick=async ()=>{
-  if(deferredPrompt){ deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; return; }
-  const ios=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
-  $("instBody").innerHTML =
-    `<div class="instr"><h4>${ios?"iPhone or iPad — Safari":"Android — Chrome"}</h4><ol>` +
-    (ios ? `<li>Tap the Share button at the bottom of Safari.</li>
-            <li>Scroll down and tap <b>Add to Home Screen</b>.</li>
-            <li>Tap <b>Add</b>. It lands on the home screen like any app.</li>`
-         : `<li>Tap the three dots at the top right of Chrome.</li>
-            <li>Tap <b>Add to Home screen</b> or <b>Install app</b>.</li>
-            <li>Confirm. It lands on the home screen like any app.</li>`) +
-    `</ol></div>
-     <div class="instr"><h4>Either way</h4><ol>
-       <li>Opening it from the home screen runs it full screen, no browser bar.</li>
-       <li>It asks for the code each time it is opened fresh.</li>
-       <li>Reports are kept on that phone until it reaches wifi.</li>
-     </ol></div>`;
-  $("instSheet").classList.add("on");
+  if(!confirm(`Save ${cur.loc} (Oklahoma #${cur.okla}) and lock the app?`)) return;
+  save();
+  lockApp();
 };
 
 /* ---------- connection ---------- */
@@ -689,10 +660,3 @@ $("importFile").addEventListener("change", e=>{
   fr.onerror = ()=>{ $("importMsg").textContent = "That file could not be read. Try saving it as CSV again."; };
   fr.readAsText(f);
 });
-$("clearRoster").onclick = ()=>{
-  if(!confirm("Remove the elevator list from this device? You will need the spreadsheet again to reload it.")) return;
-  try{ localStorage.removeItem(ROSTER_KEY); }catch(e){}
-  ELEVATORS=[]; cur=null; rep=null; acct=null;
-  $("plate").classList.remove("on"); showReport(false);
-  boot();
-};
