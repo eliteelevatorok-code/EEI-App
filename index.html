@@ -15,6 +15,21 @@
 <link rel="icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap">
 <link rel="stylesheet" href="styles.css">
+<script>
+/* If this is the installed app (any standalone-ish launch), skip the install
+   page and go straight to the passcode. Runs before the page renders so the
+   install page never flashes. Broad check covers desktop + mobile installs. */
+(function () {
+  var standalone =
+    (window.matchMedia && (
+      window.matchMedia("(display-mode: standalone)").matches ||
+      window.matchMedia("(display-mode: minimal-ui)").matches ||
+      window.matchMedia("(display-mode: fullscreen)").matches ||
+      window.matchMedia("(display-mode: window-controls-overlay)").matches
+    )) || window.navigator.standalone === true;
+  if (standalone) location.replace("report.html");
+})();
+</script>
 </head>
 <body>
 
@@ -43,14 +58,12 @@
   </div>
 
   <p class="hint" id="doneMsg"></p>
-  <p class="hint"><a id="continueLink" href="report.html">Continue in the browser instead &rarr;</a></p>
+
+  <a class="openlink" href="report.html">Open the app now &rarr;</a>
+  <p class="hint">Use this if you'd rather not install it — it works the same in the browser, it just won't have a home-screen icon.</p>
 </div>
 
 <script>
-if (window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone) {
-  location.replace("report.html");
-}
-
 let deferredPrompt = null;
 window.addEventListener("beforeinstallprompt", e => {
   e.preventDefault();
