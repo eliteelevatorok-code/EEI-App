@@ -194,7 +194,7 @@ const PIN = "0508";
    uses, sent as a header. That is deliberately simple, not real
    security - good enough for keeping this private between Robert's own
    devices, nothing more. */
-const SYNC_URL = "";
+const SYNC_URL = "https://eei-sync.elite-elevator-ok.workers.dev";
 const SYNC_TS_KEY = "eei_sync_ts_v1";
 function getSyncTs(k){ try{ return (JSON.parse(localStorage.getItem(SYNC_TS_KEY)||"{}"))[k]||0; }catch(e){ return 0; } }
 function setSyncTs(k,ts){ try{ const m=JSON.parse(localStorage.getItem(SYNC_TS_KEY)||"{}"); m[k]=ts; localStorage.setItem(SYNC_TS_KEY,JSON.stringify(m)); }catch(e){} }
