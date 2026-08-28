@@ -234,10 +234,32 @@ async function syncBoot(){
   if(!SYNC_URL) return;
   const [cloudDb,cloudRoster]=await Promise.all([syncPull("db"),syncPull("roster")]);
   let changed=false;
-  if(cloudDb && cloudDb.updatedAt>getSyncTs("db")){
-    db=cloudDb.data||{}; writeDb(); changed=true;
-  } else if(Object.keys(db).length){
-    syncPush("db",db);
+  if(cloudDb){
+    /* Merge, don't blindly replace or blindly push.
+       - archived (LAST YEAR's report) is managed centrally, never edited in the
+         app - so the cloud copy always wins. This is what stops a stale device
+         from pushing an empty/old archived over the real one.
+       - current (THIS YEAR's draft) and tags are app-edited - newer side wins. */
+    const cloudData = cloudDb.data||{};
+    const cloudNewer = (cloudDb.updatedAt||0) > getSyncTs("db");
+    const merged = {};
+    const keys = new Set([...Object.keys(cloudData), ...Object.keys(db)]);
+    keys.forEach(k=>{
+      const c = cloudData[k]||{}, l = db[k]||{}, rec = {};
+      const arch = (c.archived!==undefined) ? c.archived : l.archived;
+      if(arch!==undefined) rec.archived = arch;
+      const cur = cloudNewer ? (c.current!==undefined ? c.current : l.current)
+                             : (l.current!==undefined ? l.current : c.current);
+      if(cur!==undefined && cur!==null) rec.current = cur;
+      const tg = cloudNewer ? (c.tags!==undefined ? c.tags : l.tags)
+                            : (l.tags!==undefined ? l.tags : c.tags);
+      if(tg!==undefined) rec.tags = tg;
+      merged[k]=rec;
+    });
+    db = merged;
+    try{ localStorage.setItem(STORE,JSON.stringify(db)); }catch(e){ STORAGE_OK=false; }
+    syncPush("db", db);   // push the merged truth so the cloud carries archived+current unified
+    changed=true;
   }
   if(cloudRoster && cloudRoster.updatedAt>getSyncTs("roster")){
     setRoster(cloudRoster.data||[]); changed=true;
@@ -845,6 +867,12 @@ function renderOv(q){
   });
   $("ovList").innerHTML = any ? html : `<p class="empty">Nothing matches.</p>`;
 }
+/* Carried-over section is collapsed by default (it's reference, rarely edited) */
+$("carryToggle") && ($("carryToggle").onclick=()=>{
+  const open = $("carryBody").classList.toggle("hide")===false;
+  $("carryToggle").setAttribute("aria-expanded", open?"true":"false");
+});
+
 $("openOv").onclick=()=>{ if(!cur) return openStage("stAcct");
   $("ovSearch").value=""; renderOv(""); $("ov").classList.add("on"); };
 $("ovClose").onclick=()=>$("ov").classList.remove("on");

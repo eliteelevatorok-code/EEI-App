@@ -180,6 +180,13 @@ main{ padding:0 .8rem .5rem; }
 .card > h2{ font-family:var(--disp); font-size:.72rem; font-weight:700; letter-spacing:.14em;
   text-transform:uppercase; color:var(--muted); margin:0 0 .8rem;
   padding-bottom:.5rem; border-bottom:0.08rem solid var(--hair); }
+.cardtoggle{ display:flex; align-items:center; justify-content:space-between; width:100%;
+  background:none; border:none; padding:0; text-align:left; }
+.cardtoggle h2{ margin:0; padding:0; border:none; }
+.cardtoggle .chev{ color:var(--muted); font-family:var(--mono); font-size:.9rem;
+  transition:transform .15s ease; }
+.cardtoggle[aria-expanded="true"] .chev{ transform:rotate(180deg); }
+.collapsible{ margin-top:.8rem; }
 .f{ margin-bottom:.9rem; }
 .f:last-child{ margin-bottom:0; }
 .f > label{ display:block; font-family:var(--disp); font-size:.65rem; font-weight:700;

@@ -186,12 +186,16 @@
       </section>
 
       <section class="card">
-        <h2>Carried over</h2>
-        <div class="lockbar hide" id="lockBar">
-          <b>Locked</b>
-          <span>These stay put in the field so nothing gets changed by accident. Note it above and edit it on the computer.</span>
+        <button class="cardtoggle" id="carryToggle" aria-expanded="false">
+          <h2>Carried over</h2><span class="chev" id="carryChev">&#9662;</span>
+        </button>
+        <div class="collapsible hide" id="carryBody">
+          <div class="lockbar hide" id="lockBar">
+            <b>Locked</b>
+            <span>These stay put in the field so nothing gets changed by accident. Note it above and edit it on the computer.</span>
+          </div>
+          <div id="carryFields"></div>
         </div>
-        <div id="carryFields"></div>
       </section>
     </div>
   </main>
