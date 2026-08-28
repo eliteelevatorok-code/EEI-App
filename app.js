@@ -181,40 +181,49 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-08-27 14:40";
+const APP_VERSION = "2026-08-28 v16";
 
-const PIN = "0508";
+/* No code lives here anymore - it's a Cloudflare secret, checked by the
+   Worker, never shipped to any browser or committed to this public repo.
+   The gate posts what's typed to /gate-check; a correct code earns a
+   session token, cached below, which is what every sync call actually
+   authenticates with. */
+const AUTH_TOKEN_KEY = "eei_auth_token_v1";
+function getAuthToken(){ try{ return localStorage.getItem(AUTH_TOKEN_KEY); }catch(e){ return null; } }
+function setAuthToken(t){ try{ localStorage.setItem(AUTH_TOKEN_KEY, t); }catch(e){} }
 
 /* ---------- sync between devices (Cloudflare Worker + KV) ----------
-   Fill in SYNC_URL once the Worker in worker/sync-worker.js is deployed
-   (see worker/SETUP.md). Until then this is a no-op and the app behaves
-   exactly like before it - one copy of the data, local to whichever
-   device you're using.
-
    Whole-object last-write-wins: whichever device syncs most recently
    wins. Fine for how this actually gets used - field entry on the phone,
    computer work after - not fine for the same report being edited on
-   both devices at once. Protected by the same 0508 code the app already
-   uses, sent as a header. That is deliberately simple, not real
-   security - good enough for keeping this private between Robert's own
-   devices, nothing more. */
+   both devices at once. */
 const SYNC_URL = "https://eei-sync.elite-elevator-ok.workers.dev";
+/* WRITES to the live data only happen when the app is running on the real
+   published site. On a local test, a file opened off disk, or a preview
+   server, WRITES_ALLOWED is false and syncPush does nothing - a test can
+   never overwrite the real reports. Reads and login still work everywhere
+   (they can't damage anything). This sits on top of the server-side
+   gut-write guard and automatic backups, not instead of them. */
+const LIVE_HOST = "eliteelevatorok-code.github.io";
+const WRITES_ALLOWED = (location.hostname === LIVE_HOST);
 const SYNC_TS_KEY = "eei_sync_ts_v1";
 function getSyncTs(k){ try{ return (JSON.parse(localStorage.getItem(SYNC_TS_KEY)||"{}"))[k]||0; }catch(e){ return 0; } }
 function setSyncTs(k,ts){ try{ const m=JSON.parse(localStorage.getItem(SYNC_TS_KEY)||"{}"); m[k]=ts; localStorage.setItem(SYNC_TS_KEY,JSON.stringify(m)); }catch(e){} }
 function syncPush(key,data){
-  if(!SYNC_URL || !navigator.onLine) return;
+  if(!SYNC_URL || !navigator.onLine || !WRITES_ALLOWED) return;
+  const token = getAuthToken(); if(!token) return;
   const ts=Date.now();
   fetch(`${SYNC_URL}/${key}`,{
     method:"POST",
-    headers:{"Content-Type":"application/json","X-EEI-PIN":PIN},
+    headers:{"Content-Type":"application/json","X-EEI-TOKEN":token},
     body:JSON.stringify({data,updatedAt:ts})
   }).then(()=>setSyncTs(key,ts)).catch(()=>{ /* offline or unreachable - local copy is still safe */ });
 }
 async function syncPull(key){
   if(!SYNC_URL) return null;
+  const token = getAuthToken(); if(!token) return null;
   try{
-    const res=await fetch(`${SYNC_URL}/${key}`,{headers:{"X-EEI-PIN":PIN}});
+    const res=await fetch(`${SYNC_URL}/${key}`,{headers:{"X-EEI-TOKEN":token}});
     if(!res.ok) return null;
     const text=await res.text();
     if(!text||text==="null") return null;
@@ -324,9 +333,10 @@ function parseCsv(text){
   return out;
 }
 
-/* ---------- Face ID / fingerprint (WebAuthn, this device's own OS - no
-   server, nobody else can flip it on or read it). PIN stays as the fallback
-   whenever biometrics aren't available or don't work, never removed. ---------- */
+/* ---------- Face ID / fingerprint (WebAuthn, this device's own OS) ----------
+   Only offered after a full code + email login has already issued a token,
+   so a biometric can never be registered on a device that wasn't properly
+   let in first. The code is always the fallback if biometrics fail. */
 const BIO_KEY="eei_bio_cred_v1", BIO_DECLINED_KEY="eei_bio_declined_v1";
 function b64uEncode(buf){ return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
 function b64uDecode(str){ str=str.replace(/-/g,"+").replace(/_/g,"/"); while(str.length%4) str+="=";
@@ -347,11 +357,12 @@ async function bioRegister(){
       timeout: 60000
     }});
     if(cred){ localStorage.setItem(BIO_KEY, b64uEncode(cred.rawId)); return true; }
-  }catch(e){ /* cancelled or unsupported - the code still works, that's the point of a fallback */ }
+  }catch(e){ /* cancelled or unsupported - the code still works */ }
   return false;
 }
 async function bioUnlock(){
   const id=bioCredId(); if(!id) return false;
+  if(!getAuthToken()) return false;   // no trusted session - must go through code + email
   try{
     const cred = await navigator.credentials.get({ publicKey: {
       challenge: crypto.getRandomValues(new Uint8Array(32)),
@@ -365,45 +376,140 @@ async function bioUnlock(){
 async function maybeOfferBioSetup(){
   if(bioCredId()) return;
   try{ if(localStorage.getItem(BIO_DECLINED_KEY)==="1") return; }catch(e){}
-  if(await bioAvailable()) $("bioSetupSheet").classList.add("on");
+  if(await bioAvailable()){ $("bioSetupMsg").textContent=""; $("bioSetupSheet").classList.add("on"); }
 }
-(async function setupGateBio(){
-  if(bioCredId() && await bioAvailable()){
-    $("bioUnlockBtn").classList.remove("hide");
-    $("bioFallbackHint").classList.remove("hide");
-  }
-})();
+$("bioSetupSkip").onclick = ()=>{ try{ localStorage.setItem(BIO_DECLINED_KEY,"1"); }catch(e){} $("bioSetupSheet").classList.remove("on"); };
+$("bioSetupBtn").onclick = async ()=>{
+  const ok = await bioRegister();
+  $("bioSetupSheet").classList.remove("on");
+  if(ok) setStatus("Set up. This device opens with its own lock from now on.","ok");
+};
 $("bioUnlockBtn").onclick = async ()=>{
   $("bioUnlockBtn").textContent="Checking...";
   const ok = await bioUnlock();
-  $("bioUnlockBtn").textContent="Unlock with Face ID / Fingerprint";
+  $("bioUnlockBtn").textContent="Unlock this device";
   if(ok){ try{ sessionStorage.setItem("eei_ok","1"); }catch(e){} unlock(); }
-  else { $("gateMsg").textContent="Didn't work - enter the code instead."; }
-};
-$("bioSetupSkip").onclick = ()=>{ try{ localStorage.setItem(BIO_DECLINED_KEY,"1"); }catch(e){} $("bioSetupSheet").classList.remove("on"); };
-$("bioSetupBtn").onclick = async ()=>{
-  await bioRegister();
-  $("bioSetupSheet").classList.remove("on");
+  else { $("gateMsg").textContent="Didn't work - use your code."; }
 };
 
-/* ---------- PIN gate ---------- */
+/* ---------- the gate: first-run setup, or login (code + emailed code) ----------
+   No code is ever stored in this app. Cloudflare holds a hash of the one
+   Robert picks; the app only sends what's typed and gets back a token. */
+let gateChallenge=null, gatePendingNewCode=null, gateMode="login";
+function showGate(which){
+  $("gateSetup").classList.toggle("hide", which!=="setup");
+  $("gateStep1").classList.toggle("hide", which!=="login");
+  $("gateStep2").classList.toggle("hide", which!=="email");
+}
+(async function initGate(){
+  let bioReady=false;
+  try{ bioReady = bioCredId() && await bioAvailable() && getAuthToken(); }catch(e){}
+  if(bioReady){ $("bioUnlockBtn").classList.remove("hide"); $("bioFallbackHint").classList.remove("hide"); }
+  try{
+    const res = await fetch(`${SYNC_URL}/has-code`);
+    const out = await res.json();
+    showGate(out.set ? "login" : "setup");
+  }catch(e){ showGate("login"); } // offline: assume login; the code+email step will retry
+})();
+
+// first-run: pick a code -> email -> confirm
+$("setupStartBtn").onclick = async ()=>{
+  const c1=$("setupCodeInput").value.trim(), c2=$("setupCodeConfirm").value.trim();
+  if(!/^\d{4,8}$/.test(c1)){ $("setupMsg").textContent="Pick a 4-to-8 digit code."; return; }
+  if(c1!==c2){ $("setupMsg").textContent="The two codes don't match."; return; }
+  $("setupStartBtn").textContent="Sending...";
+  try{
+    const res = await fetch(`${SYNC_URL}/setup-start`, {method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+    const out = await res.json();
+    $("setupStartBtn").textContent="Continue";
+    if(out.ok){ gateChallenge=out.challenge; gatePendingNewCode=c1; gateMode="setup"; $("gateEmailInput").value=""; $("gateEmailMsg").textContent=""; showGate("email"); }
+    else if(out.locked){ $("setupMsg").textContent="Too many tries - wait a bit."; }
+    else { $("setupMsg").textContent="Couldn't send the email - try again in a moment."; }
+  }catch(e){ $("setupStartBtn").textContent="Continue"; $("setupMsg").textContent="No connection - try again online."; }
+};
+
+// login: enter the code -> email
 let entry="";
 function drawDots(bad){
   const d=$("dots"); d.className="dots"+(bad?" bad":"");
   [...d.children].forEach((el,i)=> el.className = i<entry.length ? "on":"" );
 }
+async function submitCode(){
+  if(entry.length<4){ $("gateMsg").textContent="Enter your code, then Enter."; return; }
+  const code = entry;
+  try{
+    const res = await fetch(`${SYNC_URL}/gate-check`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code})});
+    const out = await res.json();
+    if(out.ok){ gateChallenge=out.challenge; gateMode="login"; $("gateEmailInput").value=""; $("gateEmailMsg").textContent=""; entry=""; drawDots(false); showGate("email"); }
+    else if(out.locked){ $("gateMsg").textContent="Too many tries - wait about 15 minutes."; drawDots(true); entry=""; setTimeout(()=>drawDots(false),700); }
+    else { $("gateMsg").textContent="That code is not right."; drawDots(true); entry=""; setTimeout(()=>drawDots(false),700); }
+  }catch(e){ $("gateMsg").textContent="No connection - try again online."; entry=""; drawDots(false); }
+}
 $("pad").addEventListener("click", e=>{
   const b=e.target.closest("button"); if(!b) return;
   const act=b.dataset.act;
-  if(act==="clear") entry="";
-  else if(act==="back") entry=entry.slice(0,-1);
-  else if(entry.length<4) entry+=b.textContent.trim();
-  $("gateMsg").textContent="";
-  drawDots(false);
-  if(entry.length===4){
-    if(entry===PIN){ try{ sessionStorage.setItem("eei_ok","1"); }catch(e){} unlock(); maybeOfferBioSetup(); }
-    else { $("gateMsg").textContent="That code is not right. Try again."; drawDots(true); entry=""; setTimeout(()=>drawDots(false),700); }
-  }
+  if(act==="clear"){ entry=""; }
+  else if(act==="ok"){ submitCode(); return; }
+  else if(entry.length<8){ entry+=b.textContent.trim(); }
+  $("gateMsg").textContent=""; drawDots(false);
+});
+
+// the emailed code -> token (finishes either setup or login)
+$("gateEmailBack").onclick = ()=>{ gateChallenge=null; showGate(gateMode==="setup" ? "setup" : "login"); };
+$("gateEmailBtn").onclick = async ()=>{
+  const code=$("gateEmailInput").value.trim();
+  if(code.length!==6){ $("gateEmailMsg").textContent="Enter the 6-digit code."; return; }
+  $("gateEmailBtn").textContent="Checking...";
+  const path = gateMode==="setup" ? "/setup-finish" : "/gate-verify";
+  const payload = gateMode==="setup"
+    ? {challenge:gateChallenge, code, newCode:gatePendingNewCode}
+    : {challenge:gateChallenge, code};
+  try{
+    const res = await fetch(`${SYNC_URL}${path}`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    const out = await res.json();
+    $("gateEmailBtn").textContent="Continue";
+    if(out.ok){
+      if(out.token) setAuthToken(out.token);
+      gatePendingNewCode=null; gateChallenge=null;
+      try{ sessionStorage.setItem("eei_ok","1"); }catch(e){}
+      unlock(); maybeOfferBioSetup();
+    } else if(out.locked){ $("gateEmailMsg").textContent="Too many tries - wait a bit."; }
+    else { $("gateEmailMsg").textContent="That code's not right."; }
+  }catch(e){ $("gateEmailBtn").textContent="Continue"; $("gateEmailMsg").textContent="No connection - try again online."; }
+};
+
+/* ---------- Settings: change the code (needs the emailed code too) ---------- */
+let chgChallenge=null, chgPendingNewCode=null;
+$("settingsBtn") && ($("settingsBtn").onclick = ()=>{
+  $("chgStep1").classList.remove("hide"); $("chgStep2").classList.add("hide");
+  $("chgCodeInput").value=""; $("chgCodeConfirm").value=""; $("chgEmailInput").value=""; $("chgMsg").textContent="";
+  $("settingsSheet").classList.add("on");
+});
+$("settingsClose") && ($("settingsClose").onclick = ()=> $("settingsSheet").classList.remove("on"));
+$("chgStartBtn") && ($("chgStartBtn").onclick = async ()=>{
+  const c1=$("chgCodeInput").value.trim(), c2=$("chgCodeConfirm").value.trim();
+  if(!/^\d{4,8}$/.test(c1)){ $("chgMsg").textContent="Pick a 4-to-8 digit code."; return; }
+  if(c1!==c2){ $("chgMsg").textContent="The two codes don't match."; return; }
+  $("chgStartBtn").textContent="Sending...";
+  try{
+    const res = await fetch(`${SYNC_URL}/change-start`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:getAuthToken()})});
+    const out = await res.json();
+    $("chgStartBtn").textContent="Send confirmation code";
+    if(out.ok){ chgChallenge=out.challenge; chgPendingNewCode=c1; $("chgStep1").classList.add("hide"); $("chgStep2").classList.remove("hide"); $("chgMsg").textContent=""; }
+    else { $("chgMsg").textContent = out.locked ? "Too many tries - wait a bit." : "Couldn't send the email."; }
+  }catch(e){ $("chgStartBtn").textContent="Send confirmation code"; $("chgMsg").textContent="No connection - try again online."; }
+});
+$("chgVerifyBtn") && ($("chgVerifyBtn").onclick = async ()=>{
+  const code=$("chgEmailInput").value.trim();
+  if(code.length!==6){ $("chgMsg").textContent="Enter the 6-digit code."; return; }
+  $("chgVerifyBtn").textContent="Checking...";
+  try{
+    const res = await fetch(`${SYNC_URL}/change-finish`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:getAuthToken(), challenge:chgChallenge, code, newCode:chgPendingNewCode})});
+    const out = await res.json();
+    $("chgVerifyBtn").textContent="Confirm the change";
+    if(out.ok){ chgChallenge=null; chgPendingNewCode=null; $("settingsSheet").classList.remove("on"); setStatus("Code changed.","ok"); }
+    else { $("chgMsg").textContent="That code's not right."; }
+  }catch(e){ $("chgVerifyBtn").textContent="Confirm the change"; $("chgMsg").textContent="No connection - try again online."; }
 });
 function unlock(){ $("gate").classList.add("hide"); $("shell").classList.remove("hide"); boot(); syncBoot();
   if($("verfoot")) $("verfoot").textContent = `Build ${APP_VERSION}`;

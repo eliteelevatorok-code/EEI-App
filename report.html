@@ -21,17 +21,60 @@
 <div id="gate">
   <div class="mark">EEI<span>REPORTS</span></div>
 
-  <button class="filebtn hide" id="bioUnlockBtn">Unlock with Face ID / Fingerprint</button>
-  <p class="hint hide" id="bioFallbackHint">Or enter the code below.</p>
+  <button class="filebtn hide" id="bioUnlockBtn">Unlock this device</button>
+  <p class="hint hide" id="bioFallbackHint">Or use your code.</p>
 
-  <div class="dots" id="dots"><i></i><i></i><i></i><i></i></div>
-  <div id="gateMsg"></div>
-  <div class="pad" id="pad">
-    <button>1</button><button>2</button><button>3</button>
-    <button>4</button><button>5</button><button>6</button>
-    <button>7</button><button>8</button><button>9</button>
-    <button class="wide" data-act="clear">Clear</button><button>0</button>
-    <button class="wide" data-act="back">Back</button>
+  <!-- first-time setup: pick a code (only when none is set yet) -->
+  <div id="gateSetup" class="hide">
+    <p class="hint" style="max-width:22rem">No code has been set yet. Pick a 4-to-8 digit code to unlock the app. A one-time code will go to Robert's email to confirm it's you.</p>
+    <div class="f"><input id="setupCodeInput" inputmode="numeric" maxlength="8" placeholder="New code"></div>
+    <div class="f"><input id="setupCodeConfirm" inputmode="numeric" maxlength="8" placeholder="Enter it again"></div>
+    <button class="filebtn" id="setupStartBtn">Continue</button>
+    <p class="hint" id="setupMsg"></p>
+  </div>
+
+  <!-- login: enter the code -->
+  <div id="gateStep1" class="hide">
+    <div class="dots" id="dots"><i></i><i></i><i></i><i></i></div>
+    <div id="gateMsg"></div>
+    <div class="pad" id="pad">
+      <button>1</button><button>2</button><button>3</button>
+      <button>4</button><button>5</button><button>6</button>
+      <button>7</button><button>8</button><button>9</button>
+      <button class="wide" data-act="clear">Clear</button><button>0</button>
+      <button class="wide" data-act="ok">Enter</button>
+    </div>
+  </div>
+
+  <!-- the emailed code (used by both setup and login) -->
+  <div id="gateStep2" class="hide">
+    <p class="hint" style="max-width:22rem">A code was emailed to Robert. Enter it to finish.</p>
+    <div class="f"><input id="gateEmailInput" inputmode="numeric" maxlength="6" placeholder="6-digit code"></div>
+    <button class="filebtn" id="gateEmailBtn">Continue</button>
+    <p class="hint" id="gateEmailMsg"></p>
+    <button class="tiny" id="gateEmailBack">Start over</button>
+  </div>
+</div>
+
+<div class="sheet" id="settingsSheet">
+  <div class="sheettop">
+    <div class="sheetrow"><h3>Settings</h3><button class="donebtn" id="settingsClose">Done</button></div>
+  </div>
+  <div class="sheetbody">
+    <div class="instr" id="chgStep1">
+      <h4>Change your unlock code</h4>
+      <p>Pick a new 4-to-8 digit code. A one-time code goes to Robert's email to confirm the change.</p>
+      <div class="f"><input id="chgCodeInput" inputmode="numeric" maxlength="8" placeholder="New code"></div>
+      <div class="f"><input id="chgCodeConfirm" inputmode="numeric" maxlength="8" placeholder="Enter it again"></div>
+      <button class="filebtn" id="chgStartBtn">Send confirmation code</button>
+    </div>
+    <div class="instr hide" id="chgStep2">
+      <h4>Check the email</h4>
+      <p>Enter the 6-digit code that was just sent.</p>
+      <div class="f"><input id="chgEmailInput" inputmode="numeric" maxlength="6" placeholder="6-digit code"></div>
+      <button class="filebtn" id="chgVerifyBtn">Confirm the change</button>
+    </div>
+    <p class="hint" id="chgMsg"></p>
   </div>
 </div>
 
@@ -41,10 +84,11 @@
   </div>
   <div class="sheetbody">
     <div class="instr">
-      <h4>Use Face ID / Fingerprint instead of the code</h4>
-      <p>This device can do it. Set it up once and every unlock after this uses your face or finger instead of typing 0508.</p>
+      <h4>Open with this device's own lock next time</h4>
+      <p>Use your face, fingerprint, or screen lock to open the app on this device from now on — no codes to type again.</p>
     </div>
     <button class="filebtn" id="bioSetupBtn">Set it up</button>
+    <p class="hint" id="bioSetupMsg"></p>
   </div>
 </div>
 
@@ -58,6 +102,7 @@
     </div>
     <div class="sub">
       <button class="tiny" id="wholeListBtn">Whole list</button>
+      <button class="tiny" id="settingsBtn">Settings</button>
     </div>
   </header>
 
