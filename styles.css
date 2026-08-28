@@ -77,7 +77,12 @@ button{ cursor:pointer; }
 .icobtn{ width:2.3rem; height:2.3rem; border-radius:var(--r); border:0.1rem solid var(--hair);
   background:var(--surface); font-family:var(--disp); font-weight:700; font-size:.85rem;
   display:inline-flex; align-items:center; justify-content:center; }
-.chrome .sub{ display:flex; gap:.4rem; padding:0 .8rem .55rem; flex-wrap:wrap; }
+.chrome .sub{ display:flex; align-items:center; gap:.4rem; padding:0 .8rem .55rem; flex-wrap:wrap; }
+.sizer{ display:flex; align-items:center; gap:.4rem; margin-left:auto; color:var(--muted); }
+.sizer span{ font-family:var(--disp); font-weight:700; line-height:1; }
+.sizer span:first-child{ font-size:.7rem; }
+.sizer span.big{ font-size:1.1rem; }
+.sizer input[type=range]{ width:5.5rem; accent-color:var(--accent); }
 .tiny{ font-size:.68rem; font-family:var(--disp); font-weight:600; letter-spacing:.06em;
   text-transform:uppercase; padding:.35rem .6rem; border-radius:999px;
   border:0.1rem solid var(--hair); background:transparent; color:var(--muted); }
@@ -156,6 +161,9 @@ button{ cursor:pointer; }
 .wholerow .t{ font-weight:600; font-size:.95rem; }
 .wholerow .s{ font-size:.76rem; color:var(--muted); margin-top:.2rem; line-height:1.4; }
 .wholerow .n{ font-family:var(--mono); font-size:.76rem; color:var(--accent); font-weight:500; }
+.wholerow .ly{ display:block; font-family:var(--disp); font-size:.62rem; font-weight:700;
+  letter-spacing:.06em; text-transform:uppercase; margin-top:.2rem; }
+.wholerow .ly.on{ color:var(--ok); } .wholerow .ly.off{ color:var(--muted); }
 .wholerow .tg{ display:inline-block; font-family:var(--disp); font-size:.6rem; font-weight:700;
   letter-spacing:.06em; text-transform:uppercase; padding:.15rem .4rem; border-radius:999px;
   background:var(--accent-soft); color:var(--accent); margin-right:.3rem; margin-top:.3rem; }
@@ -171,7 +179,7 @@ button{ cursor:pointer; }
   box-shadow:inset 0 0.18rem 0 var(--accent); }
 
 /* ======================= CARDS / FORM ======================= */
-main{ padding:0 .8rem 8rem; }
+main{ padding:0 .8rem .5rem; }
 .card{ background:var(--surface); border:0.08rem solid var(--hair); border-radius:var(--r);
   padding:.9rem; margin-bottom:.8rem; }
 .card > h2{ font-family:var(--disp); font-size:.72rem; font-weight:700; letter-spacing:.14em;
@@ -257,8 +265,8 @@ main{ padding:0 .8rem 8rem; }
 .instr ol{ margin:0; padding-left:1.2rem; font-size:.92rem; line-height:1.6; }
 
 /* ======================= ACTION BAR ======================= */
-.actionbar{ position:fixed; left:0; right:0; bottom:0; z-index:70; background:var(--surface);
-  border-top:0.08rem solid var(--hair); }
+.actionbar{ background:var(--surface); border-top:0.08rem solid var(--hair);
+  border-radius:var(--r); margin:0 .8rem 1.2rem; overflow:hidden; }
 .actionbar .st{ font-size:.72rem; color:var(--muted); padding:.45rem .8rem;
   border-bottom:0.08rem solid var(--hair); display:flex; align-items:center; gap:.4rem; }
 .dot{ width:.5rem; height:.5rem; border-radius:50%; background:var(--ok); flex:none; }
@@ -270,6 +278,9 @@ main{ padding:0 .8rem 8rem; }
 .actionbar button.go{ background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
 .actionbar button.off{ background:var(--sunk); color:var(--muted); border-style:dashed; }
 .hide{ display:none !important; }
+
+.verfoot{ text-align:center; font-family:var(--mono); font-size:.62rem; color:var(--muted);
+  padding:.4rem 0 1.2rem; opacity:.6; }
 
 /* ======================= FIRST RUN IMPORT ======================= */
 .importcard{ margin:.8rem; }

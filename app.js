@@ -179,6 +179,10 @@ const GROUPS = {
    remembers which rule he's working under without re-deriving it each time. */
 const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"];
 
+/* Bump this on every deploy - it's the only way to tell which build is
+   actually running on a given phone/computer. */
+const APP_VERSION = "2026-08-27 14:40";
+
 const PIN = "0508";
 
 /* ---------- sync between devices (Cloudflare Worker + KV) ----------
@@ -270,12 +274,18 @@ function buildAccounts(){
     m.get(key).units.push(e);
   });
   return [...m.values()].map(a=>{
-    /* Label the account by its most common building prefix, shortest wins a tie.
-       Longest would pick one odd building name and call the whole account that. */
-    const stems = a.units.map(u=>u.loc.split(/\s[-#]/)[0].trim()).filter(Boolean);
+    /* Strip a trailing elevator/car tag (" #2", " Elevator #2", " PE-1", " FE-1")
+       to get the actual building name - "Google 5A PE-1" and "Google 5A FE-1"
+       are two elevators in the same building, not two buildings. Label the
+       account by its most common building name, shortest wins a tie. */
+    const stems = a.units.map(u=>
+      u.loc.replace(/\s*(?:elevator\s*)?#\s*[A-Za-z0-9]{1,4}\s*$/i,"")
+           .replace(/\s+[A-Za-z]{1,3}-\d+\s*$/,"")
+           .trim()
+    ).filter(Boolean);
     const freq = {}; stems.forEach(s=> freq[s]=(freq[s]||0)+1 );
     a.label = Object.keys(freq).sort((x,y)=> freq[y]-freq[x] || x.length-y.length)[0] || a.name;
-    a.sites = new Set(a.units.map(u=>u.loc)).size;
+    a.sites = new Set(stems).size;
     return a;
   }).sort((a,b)=> b.units.length - a.units.length);
 }
@@ -333,7 +343,26 @@ $("pad").addEventListener("click", e=>{
     else { $("gateMsg").textContent="That code is not right. Try again."; drawDots(true); entry=""; setTimeout(()=>drawDots(false),700); }
   }
 });
-function unlock(){ $("gate").classList.add("hide"); $("shell").classList.remove("hide"); boot(); syncBoot(); }
+function unlock(){ $("gate").classList.add("hide"); $("shell").classList.remove("hide"); boot(); syncBoot();
+  if($("verfoot")) $("verfoot").textContent = `Build ${APP_VERSION}`;
+}
+
+/* ---------- text size (slider, not steps - the whole UI is built in rem
+   off this one root value, so this scales everything together) ---------- */
+const SIZE_KEY = "eei_size_v1";
+function applySize(px){
+  document.documentElement.style.setProperty("--fs", px+"px");
+  try{ localStorage.setItem(SIZE_KEY, px); }catch(e){}
+}
+(function initSize(){
+  let px = 20;
+  try{ const s = localStorage.getItem(SIZE_KEY); if(s) px = +s; }catch(e){}
+  applySize(px);
+  if($("sizeSlider")){
+    $("sizeSlider").value = px;
+    $("sizeSlider").addEventListener("input", e=> applySize(+e.target.value));
+  }
+})();
 function lockApp(){ try{ sessionStorage.removeItem("eei_ok"); }catch(e){}
   entry=""; drawDots(false); $("gate").classList.remove("hide"); $("shell").classList.add("hide"); }
 try{ if(sessionStorage.getItem("eei_ok")==="1") unlock(); }catch(e){}
@@ -410,6 +439,7 @@ $("unitList").addEventListener("click",e=>{
    opposite: every elevator loaded on this device, in one scrolling list, so
    Robert can scan across accounts, see due dates and tags at a glance, and
    jump straight to one without going through account first. */
+function hasLastYear(okla){ return !!((db[okla]||{}).archived); }
 function renderWhole(q){
   q=(q||"").trim().toLowerCase();
   const hits=ELEVATORS.filter(u=>{
@@ -421,13 +451,16 @@ function renderWhole(q){
   });
   hits.sort((a,b)=> a.loc.localeCompare(b.loc) || a.okla.localeCompare(b.okla));
   $("wholeBody").innerHTML = hits.map(u=>{
-    const tags=getTags(u.okla), late=dueLate(u.due);
+    const tags=getTags(u.okla), late=dueLate(u.due), ly=hasLastYear(u.okla);
     return `<button class="wholerow" data-pick="${esc(u.okla)}">
       <span class="t">${esc(u.loc)}</span> <span class="n">#${esc(u.okla)}</span>
+      <span class="ly ${ly?"on":"off"}">${ly?"Last year on file":"No last year on file"}</span>
       <div class="s">Due <span class="${late?"late":""}">${esc(u.due)}</span> &middot; ${esc(u.prov||"no maintenance company on file")}</div>
       ${tags.length?`<div>${tags.map(t=>`<span class="tg">${esc(t)}</span>`).join("")}</div>`:""}
     </button>`;
   }).join("") || `<p class="empty">Nothing matches.</p>`;
+  const withLY = ELEVATORS.filter(u=>hasLastYear(u.okla)).length;
+  $("wholeSummary").textContent = `${withLY} of ${ELEVATORS.length} elevators have last year's report on file.`;
 }
 function pickFromWhole(okla){
   acct=ACCOUNTS.find(a=>a.units.some(u=>u.okla===okla));
@@ -466,7 +499,15 @@ function pick(okla){
     viol: archived ? JSON.parse(JSON.stringify(archived.viol)) : [],
     groups:{},
     carry: archived ? JSON.parse(JSON.stringify(archived.carry||{})) : {},
-    dateInsp:"",certExp:"",test1:"",test5:"",notes:""
+    /* Test dates often don't change year to year (the 5-year test only
+       happens once every 5 years) - carry them forward as a starting point,
+       editable if this visit actually redid one. Date inspected / cert
+       expires are NOT carried - those are this visit's own dates and a
+       stale one showing here could get submitted by accident. */
+    dateInsp:"", certExp:"",
+    test1: archived ? (archived.test1||"") : "",
+    test5: archived ? (archived.test5||"") : "",
+    notes:""
   };
   $("unitVal").textContent=cur.loc; $("unitVal").classList.remove("empty");
   const late=dueLate(cur.due);

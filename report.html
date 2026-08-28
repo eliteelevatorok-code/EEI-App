@@ -19,7 +19,7 @@
 <body>
 
 <div id="gate">
-  <div class="mark">ELITE ELEVATOR<span>FIELD REPORT</span></div>
+  <div class="mark">EEI<span>REPORTS</span></div>
   <div class="dots" id="dots"><i></i><i></i><i></i><i></i></div>
   <div id="gateMsg"></div>
   <div class="pad" id="pad">
@@ -35,12 +35,17 @@
 
   <header class="chrome">
     <div class="bar">
-      <div class="wordmark">ELITE<b>/</b>FIELD</div>
+      <div class="wordmark">EEI<b>/</b>REPORTS</div>
       <div class="grow"></div>
       <div class="pill" id="modeTag">Computer</div>
     </div>
     <div class="sub">
       <button class="tiny" id="wholeListBtn">Whole list</button>
+      <div class="sizer">
+        <span>A</span>
+        <input type="range" id="sizeSlider" min="14" max="28" step="1">
+        <span class="big">A</span>
+      </div>
     </div>
   </header>
 
@@ -94,8 +99,8 @@
         <div class="f"><label>Inspection type</label><div class="chips" id="inspType"></div></div>
         <div class="f"><label>Inspection cycle</label><div class="chips" id="inspCycle"></div></div>
         <div class="grid2">
-          <div class="f"><label>One year test</label><input id="test1" placeholder="MM/YYYY"></div>
-          <div class="f"><label>Five year test</label><input id="test5" placeholder="MM/YYYY"></div>
+          <div class="f"><label>One year test</label><input id="test1"></div>
+          <div class="f"><label>Five year test</label><input id="test5"></div>
         </div>
         <div class="f"><label>Certificate issue</label><div class="chips" id="certIssue"></div></div>
         <div class="f"><label>Temp certificate</label><div class="chips" id="certTemp"></div></div>
@@ -119,7 +124,7 @@
         <h2>Field notes</h2>
         <div class="f">
           <label>Anything to fix on the computer later</label>
-          <textarea id="notes" placeholder="Owner changed hands, serial on file is wrong, new gate code&hellip;"></textarea>
+          <textarea id="notes"></textarea>
         </div>
       </section>
 
@@ -141,6 +146,8 @@
       <button id="btnLock" class="go">Save &amp; lock</button>
     </div>
   </div>
+
+  <div class="verfoot" id="verfoot"></div>
 </div>
 
 <div class="sheet" id="ov">
@@ -155,6 +162,7 @@
   <div class="sheettop">
     <div class="sheetrow"><h3>Whole list</h3><button class="donebtn" id="wholeClose">Done</button></div>
     <input id="wholeSearch" placeholder="Search Oklahoma #, building, account, or tag">
+    <p class="hint" id="wholeSummary"></p>
   </div>
   <div class="sheetbody" id="wholeBody"></div>
 </div>
