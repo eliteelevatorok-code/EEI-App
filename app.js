@@ -324,6 +324,68 @@ function parseCsv(text){
   return out;
 }
 
+/* ---------- Face ID / fingerprint (WebAuthn, this device's own OS - no
+   server, nobody else can flip it on or read it). PIN stays as the fallback
+   whenever biometrics aren't available or don't work, never removed. ---------- */
+const BIO_KEY="eei_bio_cred_v1", BIO_DECLINED_KEY="eei_bio_declined_v1";
+function b64uEncode(buf){ return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
+function b64uDecode(str){ str=str.replace(/-/g,"+").replace(/_/g,"/"); while(str.length%4) str+="=";
+  const bin=atob(str), buf=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i); return buf.buffer; }
+async function bioAvailable(){
+  try{ return !!(window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()); }
+  catch(e){ return false; }
+}
+function bioCredId(){ try{ return localStorage.getItem(BIO_KEY); }catch(e){ return null; } }
+async function bioRegister(){
+  try{
+    const cred = await navigator.credentials.create({ publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      rp: { name: "EEI Reports" },
+      user: { id: crypto.getRandomValues(new Uint8Array(16)), name: "field", displayName: "EEI field app" },
+      pubKeyCredParams: [{alg:-7,type:"public-key"},{alg:-257,type:"public-key"}],
+      authenticatorSelection: { authenticatorAttachment:"platform", userVerification:"required" },
+      timeout: 60000
+    }});
+    if(cred){ localStorage.setItem(BIO_KEY, b64uEncode(cred.rawId)); return true; }
+  }catch(e){ /* cancelled or unsupported - the code still works, that's the point of a fallback */ }
+  return false;
+}
+async function bioUnlock(){
+  const id=bioCredId(); if(!id) return false;
+  try{
+    const cred = await navigator.credentials.get({ publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: [{ id: b64uDecode(id), type:"public-key" }],
+      userVerification: "required",
+      timeout: 60000
+    }});
+    return !!cred;
+  }catch(e){ return false; }
+}
+async function maybeOfferBioSetup(){
+  if(bioCredId()) return;
+  try{ if(localStorage.getItem(BIO_DECLINED_KEY)==="1") return; }catch(e){}
+  if(await bioAvailable()) $("bioSetupSheet").classList.add("on");
+}
+(async function setupGateBio(){
+  if(bioCredId() && await bioAvailable()){
+    $("bioUnlockBtn").classList.remove("hide");
+    $("bioFallbackHint").classList.remove("hide");
+  }
+})();
+$("bioUnlockBtn").onclick = async ()=>{
+  $("bioUnlockBtn").textContent="Checking...";
+  const ok = await bioUnlock();
+  $("bioUnlockBtn").textContent="Unlock with Face ID / Fingerprint";
+  if(ok){ try{ sessionStorage.setItem("eei_ok","1"); }catch(e){} unlock(); }
+  else { $("gateMsg").textContent="Didn't work - enter the code instead."; }
+};
+$("bioSetupSkip").onclick = ()=>{ try{ localStorage.setItem(BIO_DECLINED_KEY,"1"); }catch(e){} $("bioSetupSheet").classList.remove("on"); };
+$("bioSetupBtn").onclick = async ()=>{
+  await bioRegister();
+  $("bioSetupSheet").classList.remove("on");
+};
+
 /* ---------- PIN gate ---------- */
 let entry="";
 function drawDots(bad){
@@ -339,7 +401,7 @@ $("pad").addEventListener("click", e=>{
   $("gateMsg").textContent="";
   drawDots(false);
   if(entry.length===4){
-    if(entry===PIN){ try{ sessionStorage.setItem("eei_ok","1"); }catch(e){} unlock(); }
+    if(entry===PIN){ try{ sessionStorage.setItem("eei_ok","1"); }catch(e){} unlock(); maybeOfferBioSetup(); }
     else { $("gateMsg").textContent="That code is not right. Try again."; drawDots(true); entry=""; setTimeout(()=>drawDots(false),700); }
   }
 });
@@ -358,10 +420,34 @@ function applySize(px){
   let px = 20;
   try{ const s = localStorage.getItem(SIZE_KEY); if(s) px = +s; }catch(e){}
   applySize(px);
-  if($("sizeSlider")){
-    $("sizeSlider").value = px;
-    $("sizeSlider").addEventListener("input", e=> applySize(+e.target.value));
-  }
+})();
+
+/* Real two-finger pinch: spread apart to grow, pinch together to shrink,
+   live while your fingers move - same as resizing text in a messaging app.
+   No button, no slider. Only engages with exactly two fingers down, so
+   normal one-finger scrolling and tapping are never touched. preventDefault
+   on the two-finger move is what stops the browser's own pinch-zoom from
+   fighting this - without it both would try to run at once. */
+(function initPinch(){
+  const MIN=14, MAX=32;
+  let startDist=null, startPx=null;
+  const dist=(a,b)=>Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+  document.addEventListener("touchstart", e=>{
+    if(e.touches.length===2){
+      startDist = dist(e.touches[0], e.touches[1]);
+      startPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--fs")) || 20;
+    }
+  }, {passive:true});
+  document.addEventListener("touchmove", e=>{
+    if(e.touches.length===2 && startDist){
+      e.preventDefault();
+      const d = dist(e.touches[0], e.touches[1]);
+      const px = Math.max(MIN, Math.min(MAX, Math.round(startPx * (d/startDist))));
+      applySize(px);
+    }
+  }, {passive:false});
+  document.addEventListener("touchend", e=>{ if(e.touches.length<2){ startDist=null; startPx=null; } });
+  document.addEventListener("touchcancel", ()=>{ startDist=null; startPx=null; });
 })();
 function lockApp(){ try{ sessionStorage.removeItem("eei_ok"); }catch(e){}
   entry=""; drawDots(false); $("gate").classList.remove("hide"); $("shell").classList.add("hide"); }

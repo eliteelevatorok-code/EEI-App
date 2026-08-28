@@ -20,6 +20,10 @@
 
 <div id="gate">
   <div class="mark">EEI<span>REPORTS</span></div>
+
+  <button class="filebtn hide" id="bioUnlockBtn">Unlock with Face ID / Fingerprint</button>
+  <p class="hint hide" id="bioFallbackHint">Or enter the code below.</p>
+
   <div class="dots" id="dots"><i></i><i></i><i></i><i></i></div>
   <div id="gateMsg"></div>
   <div class="pad" id="pad">
@@ -28,6 +32,19 @@
     <button>7</button><button>8</button><button>9</button>
     <button class="wide" data-act="clear">Clear</button><button>0</button>
     <button class="wide" data-act="back">Back</button>
+  </div>
+</div>
+
+<div class="sheet" id="bioSetupSheet">
+  <div class="sheettop">
+    <div class="sheetrow"><h3>Faster unlock</h3><button class="donebtn" id="bioSetupSkip">Not now</button></div>
+  </div>
+  <div class="sheetbody">
+    <div class="instr">
+      <h4>Use Face ID / Fingerprint instead of the code</h4>
+      <p>This device can do it. Set it up once and every unlock after this uses your face or finger instead of typing 0508.</p>
+    </div>
+    <button class="filebtn" id="bioSetupBtn">Set it up</button>
   </div>
 </div>
 
@@ -41,11 +58,6 @@
     </div>
     <div class="sub">
       <button class="tiny" id="wholeListBtn">Whole list</button>
-      <div class="sizer">
-        <span>A</span>
-        <input type="range" id="sizeSlider" min="14" max="28" step="1">
-        <span class="big">A</span>
-      </div>
     </div>
   </header>
 

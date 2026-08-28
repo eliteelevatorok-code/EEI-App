@@ -78,11 +78,6 @@ button{ cursor:pointer; }
   background:var(--surface); font-family:var(--disp); font-weight:700; font-size:.85rem;
   display:inline-flex; align-items:center; justify-content:center; }
 .chrome .sub{ display:flex; align-items:center; gap:.4rem; padding:0 .8rem .55rem; flex-wrap:wrap; }
-.sizer{ display:flex; align-items:center; gap:.4rem; margin-left:auto; color:var(--muted); }
-.sizer span{ font-family:var(--disp); font-weight:700; line-height:1; }
-.sizer span:first-child{ font-size:.7rem; }
-.sizer span.big{ font-size:1.1rem; }
-.sizer input[type=range]{ width:5.5rem; accent-color:var(--accent); }
 .tiny{ font-size:.68rem; font-family:var(--disp); font-weight:600; letter-spacing:.06em;
   text-transform:uppercase; padding:.35rem .6rem; border-radius:999px;
   border:0.1rem solid var(--hair); background:transparent; color:var(--muted); }
