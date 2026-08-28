@@ -4,7 +4,7 @@
    screen it opens and runs with no signal at all. Bump CACHE when any file
    changes - the old cache is thrown away and the new files take over. */
 
-const CACHE = "eei-field-v16";
+const CACHE = "eei-field-v17";
 
 const SHELL = [
   "./",

@@ -674,6 +674,16 @@ $("wholeBody").addEventListener("click",e=>{
 });
 
 /* ---------- select an elevator ---------- */
+/* native <input type=date> wants YYYY-MM-DD; last year's reports store
+   MM/DD/YYYY. Convert one way for display; leave already-correct or blank
+   values alone. */
+function toDateInput(s){
+  s=String(s||"").trim(); if(!s) return "";
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;              // already right
+  const m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(m){ return `${m[3]}-${m[1].padStart(2,"0")}-${m[2].padStart(2,"0")}`; }
+  return "";                                               // unrecognized -> leave blank
+}
 function dueLate(d){ const p=String(d).split("/"); if(p.length!==3) return false;
   return new Date(+p[2],+p[0]-1,+p[1]) < new Date(); }
 /* The report form (dates, violations, notes, carried over) only shows once an
@@ -687,20 +697,23 @@ function pick(okla){
   cur=ELEVATORS.find(x=>x.okla===okla); if(!cur) return;
   const saved=(db[okla]||{}).current;
   const archived=(db[okla]||{}).archived;
-  rep = saved || {
-    viol: archived ? JSON.parse(JSON.stringify(archived.viol)) : [],
-    groups:{},
-    carry: archived ? JSON.parse(JSON.stringify(archived.carry||{})) : {},
-    /* Test dates often don't change year to year (the 5-year test only
-       happens once every 5 years) - carry them forward as a starting point,
-       editable if this visit actually redid one. Date inspected / cert
-       expires are NOT carried - those are this visit's own dates and a
-       stale one showing here could get submitted by accident. */
-    dateInsp:"", certExp:"",
-    test1: archived ? (archived.test1||"") : "",
-    test5: archived ? (archived.test5||"") : "",
+  /* This year's report starts as a full copy of last year's - every field
+     pre-filled - because most elevators don't change year to year. Robert
+     just edits what's different (usually only the inspection date) and saves.
+     Saving stores this as db[okla].current (this year), never touching
+     db[okla].archived (last year), so a new report is made, not last year's
+     overwritten. Field notes are the one thing not carried - they're reminders
+     to himself, not part of the elevator's record. */
+  rep = saved || (archived ? {
+    viol:   JSON.parse(JSON.stringify(archived.viol||[])),
+    groups: JSON.parse(JSON.stringify(archived.groups||{})),
+    carry:  JSON.parse(JSON.stringify(archived.carry||{})),
+    /* the date-inspected field is a native date picker, which needs
+       YYYY-MM-DD; last year's reports store MM/DD/YYYY, so convert. */
+    dateInsp: toDateInput(archived.dateInsp||""), certExp: archived.certExp||"",
+    test1: archived.test1||"", test5: archived.test5||"",
     notes:""
-  };
+  } : { viol:[], groups:{}, carry:{}, dateInsp:"", certExp:"", test1:"", test5:"", notes:"" });
   $("unitVal").textContent=cur.loc; $("unitVal").classList.remove("empty");
   const late=dueLate(cur.due);
   $("plate").innerHTML =
