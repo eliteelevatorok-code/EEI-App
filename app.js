@@ -181,7 +181,7 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-08-29 v19";
+const APP_VERSION = "2026-08-29 v20 · SANDBOX (test data)";
 
 /* No code lives here anymore - it's a Cloudflare secret, checked by the
    Worker, never shipped to any browser or committed to this public repo.
@@ -197,7 +197,8 @@ function setAuthToken(t){ try{ localStorage.setItem(AUTH_TOKEN_KEY, t); }catch(e
    wins. Fine for how this actually gets used - field entry on the phone,
    computer work after - not fine for the same report being edited on
    both devices at once. */
-const SYNC_URL = "https://eei-sync.elite-elevator-ok.workers.dev";
+// const SYNC_URL = "https://eei-sync.elite-elevator-ok.workers.dev";        // REAL data — bring this line back when sandbox testing is done
+const SYNC_URL = "https://eei-sync-sandbox.elite-elevator-ok.workers.dev";  // SANDBOX (fake test data) — delete this line to return to real
 /* WRITES to the live data only happen when the app is running on the real
    published site. On a local test, a file opened off disk, or a preview
    server, WRITES_ALLOWED is false and syncPush does nothing - a test can
