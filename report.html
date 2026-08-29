@@ -24,12 +24,13 @@
   <button class="filebtn hide" id="bioUnlockBtn">Unlock this device</button>
   <p class="hint hide" id="bioFallbackHint">Or use your code.</p>
 
-  <!-- first-time setup: pick a code (only when none is set yet) -->
+  <!-- set up a code: the first person, or any new person added later -->
   <div id="gateSetup" class="hide">
-    <p class="hint" style="max-width:22rem">No code has been set yet. Pick a 4-to-8 digit code to unlock the app. A one-time code will go to Robert's email to confirm it's you.</p>
-    <div class="f"><input id="setupCodeInput" inputmode="numeric" maxlength="8" placeholder="New code"></div>
+    <p class="hint" style="max-width:22rem">Pick your own 4-to-8 digit code. Each person has their own. A one-time code goes to Robert's email to confirm it's allowed &mdash; so his inbox lets every new code in.</p>
+    <div class="f"><input id="setupCodeInput" inputmode="numeric" maxlength="8" placeholder="Your new code"></div>
     <div class="f"><input id="setupCodeConfirm" inputmode="numeric" maxlength="8" placeholder="Enter it again"></div>
     <button class="filebtn" id="setupStartBtn">Continue</button>
+    <button class="tiny" id="gateLoginLink">Already have a code? Sign in</button>
     <p class="hint" id="setupMsg"></p>
   </div>
 
@@ -44,6 +45,7 @@
       <button class="wide" data-act="clear">Clear</button><button>0</button>
       <button class="wide" data-act="ok">Enter</button>
     </div>
+    <button class="tiny" id="gateSetupLink">New person? Set up your own code</button>
   </div>
 
   <!-- the emailed code (used by both setup and login) -->
@@ -62,8 +64,9 @@
   </div>
   <div class="sheetbody">
     <div class="instr" id="chgStep1">
-      <h4>Change your unlock code</h4>
-      <p>Pick a new 4-to-8 digit code. A one-time code goes to Robert's email to confirm the change.</p>
+      <h4>Change your own unlock code</h4>
+      <p>This changes only your code &mdash; everyone else's stays the same. A one-time code goes to Robert's email to confirm the change.</p>
+      <div class="f"><input id="chgCurInput" inputmode="numeric" maxlength="8" placeholder="Your current code"></div>
       <div class="f"><input id="chgCodeInput" inputmode="numeric" maxlength="8" placeholder="New code"></div>
       <div class="f"><input id="chgCodeConfirm" inputmode="numeric" maxlength="8" placeholder="Enter it again"></div>
       <button class="filebtn" id="chgStartBtn">Send confirmation code</button>

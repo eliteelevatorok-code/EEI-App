@@ -57,30 +57,65 @@ async function validToken(env, token) {
   return !!(await env.EEI_KV.get("tok:" + token));
 }
 
-/* ---------- the unlock code ----------
-   Robert sets his own; it's never hardcoded and never stored in plain text.
-   KV holds only a salted SHA-256 hash of it. Setting or changing it always
-   requires the emailed code, so only whoever controls Robert's inbox can. */
+/* ---------- the unlock codes ----------
+   Each person picks their OWN code. There can be several at once (Robert,
+   Stephen, mom...), and every one of them is confirmed the same way: a
+   one-time code emailed to Robert's inbox. So each person has a code, but
+   Robert's email is still the single gate that lets any new code in or out.
+
+   Codes are never hardcoded and never stored in plain text. KV holds one
+   "codes" blob: a list where each entry is { id, salt, hash } - a salted
+   SHA-256 hash, not the code itself. */
 async function sha256hex(str) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
 }
-async function codeIsSet(env) {
-  return !!(await env.EEI_KV.get("pin_hash"));
-}
-async function setCode(env, newCode) {
-  const salt = randomToken();
-  const hash = await sha256hex(salt + ":" + newCode);
-  await env.EEI_KV.put("pin_salt", salt);
-  await env.EEI_KV.put("pin_hash", hash);
-}
-async function codeMatches(env, code) {
+// Read the list. Falls back to the older single-code keys so an account that
+// was set up before this change keeps working and its code becomes entry #1.
+async function getCodes(env) {
+  const raw = await env.EEI_KV.get("codes");
+  if (raw) { try { const a = JSON.parse(raw); if (Array.isArray(a)) return a; } catch (e) {} }
   const salt = await env.EEI_KV.get("pin_salt");
   const hash = await env.EEI_KV.get("pin_hash");
-  if (!salt || !hash) return false;
-  return (await sha256hex(salt + ":" + code)) === hash;
+  if (salt && hash) return [{ id: "legacy", salt, hash }];
+  return [];
 }
+async function saveCodes(env, arr) { await env.EEI_KV.put("codes", JSON.stringify(arr)); }
+async function codeIsSet(env) { return (await getCodes(env)).length > 0; }
 function validNewCode(c) { return typeof c === "string" && /^\d{4,8}$/.test(c); }
+async function entryMatches(entry, code) {
+  return (await sha256hex(entry.salt + ":" + code)) === entry.hash;
+}
+// does the typed code match ANY person's code?
+async function codeMatches(env, code) {
+  for (const e of await getCodes(env)) { if (await entryMatches(e, code)) return true; }
+  return false;
+}
+// add a new person's code. Refuses a code already in use so two people can't
+// collide on the same digits. Returns false if it's a duplicate.
+async function addCode(env, newCode) {
+  const arr = await getCodes(env);
+  for (const e of arr) { if (await entryMatches(e, newCode)) return false; }
+  const salt = randomToken();
+  const hash = await sha256hex(salt + ":" + newCode);
+  arr.push({ id: randomToken().slice(0, 12), salt, hash });
+  await saveCodes(env, arr);
+  return true;
+}
+// change one person's own code, leaving everyone else's alone. Needs the
+// person's current code so we know which entry to replace.
+// Returns "nocur" (current code wrong), "dup" (new code taken), or "ok".
+async function changeCode(env, curCode, newCode) {
+  const arr = await getCodes(env);
+  let idx = -1;
+  for (let i = 0; i < arr.length; i++) { if (await entryMatches(arr[i], curCode)) { idx = i; break; } }
+  if (idx < 0) return "nocur";
+  for (let i = 0; i < arr.length; i++) { if (i !== idx && await entryMatches(arr[i], newCode)) return "dup"; }
+  const salt = randomToken();
+  arr[idx] = { id: arr[idx].id || randomToken().slice(0, 12), salt, hash: await sha256hex(salt + ":" + newCode) };
+  await saveCodes(env, arr);
+  return "ok";
+}
 
 // issue + email a one-time code tied to a fresh challenge id
 async function startEmailChallenge(env) {
@@ -175,11 +210,11 @@ export default {
       return json({ ok: true, set: await codeIsSet(env) });
     }
 
-    /* ---------- FIRST-TIME SETUP (only when no code exists yet) ----------
-       Robert picks his own code. Gated by the emailed code so a stranger
-       can't be the one to set it. */
+    /* ---------- SET UP A CODE (first person, or any new person) ----------
+       Each person picks their own code here. Whether it's the very first
+       code or an added one, it's gated by the code emailed to Robert, so a
+       stranger can never add themselves without his inbox. */
     if (url.pathname === "/setup-start" && request.method === "POST") {
-      if (await codeIsSet(env)) return json({ ok: false, alreadySet: true }, 409);
       const allowed = await checkRateLimit(env, ip);
       if (!allowed) return json({ ok: false, locked: true }, 429);
       const { sent, challenge } = await startEmailChallenge(env);
@@ -187,11 +222,10 @@ export default {
       return json({ ok: true, challenge });
     }
     if (url.pathname === "/setup-finish" && request.method === "POST") {
-      if (await codeIsSet(env)) return json({ ok: false, alreadySet: true }, 409);
       let body; try { body = await request.json(); } catch (e) { return json({ ok: false }, 400); }
       if (!validNewCode(body.newCode)) return json({ ok: false, badCode: true });
       if (!(await checkEmailChallenge(env, body.challenge, body.code))) return json({ ok: false });
-      await setCode(env, body.newCode);
+      if (!(await addCode(env, body.newCode))) return json({ ok: false, dupCode: true });
       await clearRateLimit(env, ip);
       return json({ ok: true, token: await issueToken(env) });
     }
@@ -217,9 +251,11 @@ export default {
       return json({ ok: true, token: await issueToken(env) });
     }
 
-    /* ---------- CHANGE CODE (from Settings, while logged in) ----------
-       Needs a valid session AND the emailed code, so it can't be changed
-       out from under Robert by someone who just grabbed an unlocked device. */
+    /* ---------- CHANGE YOUR OWN CODE (from Settings, while logged in) ------
+       Needs a valid session, your CURRENT code (so we change the right
+       person's, not someone else's), AND the emailed code - so it can't be
+       changed out from under anyone by someone who grabbed an unlocked
+       device. Everyone else's codes are left untouched. */
     if (url.pathname === "/change-start" && request.method === "POST") {
       let body; try { body = await request.json(); } catch (e) { return json({ ok: false }, 400); }
       if (!(await validToken(env, body.token))) return json({ ok: false }, 401);
@@ -231,8 +267,11 @@ export default {
       let body; try { body = await request.json(); } catch (e) { return json({ ok: false }, 400); }
       if (!(await validToken(env, body.token))) return json({ ok: false }, 401);
       if (!validNewCode(body.newCode)) return json({ ok: false, badCode: true });
+      if (!(await codeMatches(env, body.curCode))) return json({ ok: false, badCurrent: true });
       if (!(await checkEmailChallenge(env, body.challenge, body.code))) return json({ ok: false });
-      await setCode(env, body.newCode);
+      const r = await changeCode(env, body.curCode, body.newCode);
+      if (r === "dup") return json({ ok: false, dupCode: true });
+      if (r === "nocur") return json({ ok: false, badCurrent: true });
       return json({ ok: true });
     }
 

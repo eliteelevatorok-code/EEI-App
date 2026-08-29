@@ -181,7 +181,7 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-08-28 v16";
+const APP_VERSION = "2026-08-29 v19";
 
 /* No code lives here anymore - it's a Cloudflare secret, checked by the
    Worker, never shipped to any browser or committed to this public repo.
@@ -434,7 +434,11 @@ function showGate(which){
   }catch(e){ showGate("login"); } // offline: assume login; the code+email step will retry
 })();
 
-// first-run: pick a code -> email -> confirm
+// jump between "sign in" and "set up a new person's code"
+$("gateSetupLink") && ($("gateSetupLink").onclick = ()=>{ gateMode="setup"; $("setupCodeInput").value=""; $("setupCodeConfirm").value=""; $("setupMsg").textContent=""; showGate("setup"); });
+$("gateLoginLink") && ($("gateLoginLink").onclick = ()=>{ gateMode="login"; entry=""; drawDots(false); $("gateMsg").textContent=""; showGate("login"); });
+
+// set up a code (first person, or a new one added later) -> email -> confirm
 $("setupStartBtn").onclick = async ()=>{
   const c1=$("setupCodeInput").value.trim(), c2=$("setupCodeConfirm").value.trim();
   if(!/^\d{4,8}$/.test(c1)){ $("setupMsg").textContent="Pick a 4-to-8 digit code."; return; }
@@ -496,22 +500,26 @@ $("gateEmailBtn").onclick = async ()=>{
       try{ sessionStorage.setItem("eei_ok","1"); }catch(e){}
       unlock(); maybeOfferBioSetup();
     } else if(out.locked){ $("gateEmailMsg").textContent="Too many tries - wait a bit."; }
+    else if(out.dupCode){ $("gateEmailMsg").textContent="That code is already in use - pick different digits."; gateChallenge=null; showGate("setup"); }
     else { $("gateEmailMsg").textContent="That code's not right."; }
   }catch(e){ $("gateEmailBtn").textContent="Continue"; $("gateEmailMsg").textContent="No connection - try again online."; }
 };
 
 /* ---------- Settings: change the code (needs the emailed code too) ---------- */
 let chgChallenge=null, chgPendingNewCode=null;
+let chgCurCode=null;
 $("settingsBtn") && ($("settingsBtn").onclick = ()=>{
   $("chgStep1").classList.remove("hide"); $("chgStep2").classList.add("hide");
-  $("chgCodeInput").value=""; $("chgCodeConfirm").value=""; $("chgEmailInput").value=""; $("chgMsg").textContent="";
+  $("chgCurInput").value=""; $("chgCodeInput").value=""; $("chgCodeConfirm").value=""; $("chgEmailInput").value=""; $("chgMsg").textContent="";
   $("settingsSheet").classList.add("on");
 });
 $("settingsClose") && ($("settingsClose").onclick = ()=> $("settingsSheet").classList.remove("on"));
 $("chgStartBtn") && ($("chgStartBtn").onclick = async ()=>{
-  const c1=$("chgCodeInput").value.trim(), c2=$("chgCodeConfirm").value.trim();
-  if(!/^\d{4,8}$/.test(c1)){ $("chgMsg").textContent="Pick a 4-to-8 digit code."; return; }
-  if(c1!==c2){ $("chgMsg").textContent="The two codes don't match."; return; }
+  const cur=$("chgCurInput").value.trim(), c1=$("chgCodeInput").value.trim(), c2=$("chgCodeConfirm").value.trim();
+  if(!/^\d{4,8}$/.test(cur)){ $("chgMsg").textContent="Enter your current code."; return; }
+  if(!/^\d{4,8}$/.test(c1)){ $("chgMsg").textContent="Pick a 4-to-8 digit new code."; return; }
+  if(c1!==c2){ $("chgMsg").textContent="The two new codes don't match."; return; }
+  chgCurCode=cur;
   $("chgStartBtn").textContent="Sending...";
   try{
     const res = await fetch(`${SYNC_URL}/change-start`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:getAuthToken()})});
@@ -526,11 +534,13 @@ $("chgVerifyBtn") && ($("chgVerifyBtn").onclick = async ()=>{
   if(code.length!==6){ $("chgMsg").textContent="Enter the 6-digit code."; return; }
   $("chgVerifyBtn").textContent="Checking...";
   try{
-    const res = await fetch(`${SYNC_URL}/change-finish`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:getAuthToken(), challenge:chgChallenge, code, newCode:chgPendingNewCode})});
+    const res = await fetch(`${SYNC_URL}/change-finish`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:getAuthToken(), curCode:chgCurCode, challenge:chgChallenge, code, newCode:chgPendingNewCode})});
     const out = await res.json();
     $("chgVerifyBtn").textContent="Confirm the change";
-    if(out.ok){ chgChallenge=null; chgPendingNewCode=null; $("settingsSheet").classList.remove("on"); setStatus("Code changed.","ok"); }
-    else { $("chgMsg").textContent="That code's not right."; }
+    if(out.ok){ chgChallenge=null; chgPendingNewCode=null; chgCurCode=null; $("settingsSheet").classList.remove("on"); setStatus("Code changed.","ok"); }
+    else if(out.badCurrent){ $("chgMsg").textContent="Your current code wasn't right."; }
+    else if(out.dupCode){ $("chgMsg").textContent="That new code is already in use - pick different digits."; }
+    else { $("chgMsg").textContent="That confirmation code's not right."; }
   }catch(e){ $("chgVerifyBtn").textContent="Confirm the change"; $("chgMsg").textContent="No connection - try again online."; }
 });
 function unlock(){ $("gate").classList.add("hide"); $("shell").classList.remove("hide"); boot(); syncBoot();
