@@ -1,10 +1,13 @@
 /* Service worker for the Elite Elevator field app.
 
-   Everything the app needs is cached on install, so once it is on the home
-   screen it opens and runs with no signal at all. Bump CACHE when any file
-   changes - the old cache is thrown away and the new files take over. */
+   Strategy: NETWORK-FIRST for the app's own files, so a new version is picked up
+   the instant there's a signal (updates land like a normal app - no clearing, no
+   reinstall). The cache is the OFFLINE fallback only, so the app still opens and
+   runs in a machine room with no signal. Fonts stay cache-first (they never
+   change and we don't want a dead signal swapping the typeface).
+   Bump CACHE on any change so the old offline copy is thrown away. */
 
-const CACHE = "eei-field-v21-google";
+const CACHE = "eei-field-v22";
 
 const SHELL = [
   "./",
@@ -21,7 +24,6 @@ const SHELL = [
 self.addEventListener("install", event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE);
-    // Added one at a time so one missing file cannot fail the whole install.
     await Promise.all(SHELL.map(url =>
       cache.add(new Request(url, { cache: "reload" })).catch(() => {})
     ));
@@ -42,35 +44,34 @@ self.addEventListener("fetch", event => {
   if (req.method !== "GET") return;
 
   const url = new URL(req.url);
-
-  // The Google Fonts stylesheet and font files: use the cached copy first so a
-  // dead signal never leaves the app in a fallback face, refresh it in the
-  // background when there is a connection.
   const isFont = url.hostname === "fonts.googleapis.com" || url.hostname === "fonts.gstatic.com";
-
   if (url.origin !== self.location.origin && !isFont) return;
 
+  // Fonts: cache-first.
+  if (isFont) {
+    event.respondWith((async () => {
+      const cache = await caches.open(CACHE);
+      const hit = await cache.match(req);
+      if (hit) return hit;
+      try { const res = await fetch(req); if (res && res.ok) cache.put(req, res.clone()); return res; }
+      catch (e) { return new Response("", { status: 504 }); }
+    })());
+    return;
+  }
+
+  // The app's own files: NETWORK-FIRST. Always try the latest; cache is only the
+  // fallback when the network is unreachable (offline in the field).
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    const hit = await cache.match(req, { ignoreSearch: false });
-
-    if (hit) {
-      // Refresh quietly for next time; failure here is fine, we already served.
-      event.waitUntil(
-        fetch(req).then(res => { if (res && res.ok) cache.put(req, res.clone()); }).catch(() => {})
-      );
-      return hit;
-    }
-
     try {
       const res = await fetch(req);
       if (res && res.ok) cache.put(req, res.clone());
       return res;
     } catch (e) {
-      // Offline and never cached. For a page request, hand back the app itself
-      // so the home screen icon always opens to something that works.
+      const hit = await cache.match(req);
+      if (hit) return hit;
       if (req.mode === "navigate") {
-        const shell = await cache.match("./index.html");
+        const shell = await cache.match("./report.html") || await cache.match("./index.html");
         if (shell) return shell;
       }
       return new Response("", { status: 504, statusText: "Offline" });
