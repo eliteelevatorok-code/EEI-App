@@ -181,7 +181,7 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-09-04 v23 · SANDBOX (Google backend)";
+const APP_VERSION = "2026-09-04 v24 · SANDBOX (Google backend)";
 
 /* No code lives here anymore - it's a Cloudflare secret, checked by the
    Worker, never shipped to any browser or committed to this public repo.
@@ -600,7 +600,11 @@ try{ if(sessionStorage.getItem("eei_ok")==="1") unlock(); }catch(e){}
    Mode is decided by screen size, nothing to switch by hand. Phone = the field
    (carried-over equipment fields locked so nothing gets changed by accident);
    computer = the desk (those fields editable). */
-const calcMode=()=> window.innerWidth<900;
+// Read a media query, NOT a one-off innerWidth: innerWidth can briefly report the
+// device's raw pixel width on load / during a pull-to-refresh and wrongly flip us to
+// "computer". matchMedia is stable, and we re-check after load settles (below).
+const MODE_MQ = window.matchMedia("(max-width: 899px)");
+const calcMode=()=> MODE_MQ.matches;
 function applyMode(){
   phoneMode=calcMode();
   $("modeTag").textContent = phoneMode?"Phone · field":"Computer";
@@ -614,6 +618,9 @@ function applyMode(){
   if(cur) renderTags();
 }
 window.addEventListener("resize",applyMode);
+if(MODE_MQ.addEventListener) MODE_MQ.addEventListener("change", applyMode);
+window.addEventListener("load", ()=> setTimeout(applyMode, 60));
+window.addEventListener("orientationchange", ()=> setTimeout(applyMode, 200));
 
 /* ---------- two stage picker ---------- */
 document.querySelectorAll(".stagehead").forEach(h=>{
