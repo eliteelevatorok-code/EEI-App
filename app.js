@@ -181,7 +181,10 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-09-04 v24 · SANDBOX (Google backend)";
+const APP_VERSION = "2026-09-04 v25 · SANDBOX (Google backend)";
+// Stamp the version the moment the app loads, so it can never go missing regardless
+// of login state, sync, or errors later on.
+try { var _vf = document.getElementById("verfoot"); if(_vf) _vf.textContent = "Build " + APP_VERSION; } catch(e){}
 
 /* No code lives here anymore - it's a Cloudflare secret, checked by the
    Worker, never shipped to any browser or committed to this public repo.
