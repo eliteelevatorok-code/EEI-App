@@ -181,7 +181,7 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-09-04 v22 · SANDBOX (Google backend)";
+const APP_VERSION = "2026-09-04 v23 · SANDBOX (Google backend)";
 
 /* No code lives here anymore - it's a Cloudflare secret, checked by the
    Worker, never shipped to any browser or committed to this public repo.
@@ -429,9 +429,9 @@ function showGate(which){
   $("gateStep2").classList.toggle("hide", which!=="email");
 }
 (async function initGate(){
-  let bioReady=false;
-  try{ bioReady = bioCredId() && await bioAvailable() && getAuthToken(); }catch(e){}
-  if(bioReady){ $("bioUnlockBtn").classList.remove("hide"); $("bioFallbackHint").classList.remove("hide"); }
+  // Trusted device stays logged in — no code + email every time. The email code is
+  // only needed once, to sign in a NEW device; after that this device just opens.
+  if(getAuthToken()){ unlock(); return; }
   try{
     const res = await fetch(`${SYNC_URL}?action=has-code`);
     const out = await res.json();
@@ -503,7 +503,7 @@ $("gateEmailBtn").onclick = async ()=>{
       if(out.token) setAuthToken(out.token);
       gatePendingNewCode=null; gateChallenge=null;
       try{ sessionStorage.setItem("eei_ok","1"); }catch(e){}
-      unlock(); maybeOfferBioSetup();
+      unlock();
     } else if(out.locked){ $("gateEmailMsg").textContent="Too many tries - wait a bit."; }
     else if(out.dupCode){ $("gateEmailMsg").textContent="That code is already in use - pick different digits."; gateChallenge=null; showGate("setup"); }
     else { $("gateEmailMsg").textContent="That code's not right."; }
