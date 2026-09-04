@@ -181,7 +181,7 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-08-29 v20 · SANDBOX (test data)";
+const APP_VERSION = "2026-09-04 v21 · SANDBOX (Google backend)";
 
 /* No code lives here anymore - it's a Cloudflare secret, checked by the
    Worker, never shipped to any browser or committed to this public repo.
@@ -197,8 +197,9 @@ function setAuthToken(t){ try{ localStorage.setItem(AUTH_TOKEN_KEY, t); }catch(e
    wins. Fine for how this actually gets used - field entry on the phone,
    computer work after - not fine for the same report being edited on
    both devices at once. */
-// const SYNC_URL = "https://eei-sync.elite-elevator-ok.workers.dev";        // REAL data — bring this line back when sandbox testing is done
-const SYNC_URL = "https://eei-sync-sandbox.elite-elevator-ok.workers.dev";  // SANDBOX (fake test data) — delete this line to return to real
+// Backend moved off Cloudflare to an all-Google Apps Script web app (your account, no
+// third party). Update it later WITHOUT changing this URL via Deploy > Manage deployments.
+const SYNC_URL = "https://script.google.com/macros/s/AKfycbxP_D_Jamw9MAPn9agvUUBQdMhpMYwjSaWR2mQ6cEg9pZ8wes5PR_lfk6feQXfg3ScW/exec";  // Google backend — SANDBOX (fake test data)
 /* WRITES to the live data only happen when the app is running on the real
    published site. On a local test, a file opened off disk, or a preview
    server, WRITES_ALLOWED is false and syncPush does nothing - a test can
@@ -210,13 +211,16 @@ const WRITES_ALLOWED = (location.hostname === LIVE_HOST);
 const SYNC_TS_KEY = "eei_sync_ts_v1";
 function getSyncTs(k){ try{ return (JSON.parse(localStorage.getItem(SYNC_TS_KEY)||"{}"))[k]||0; }catch(e){ return 0; } }
 function setSyncTs(k,ts){ try{ const m=JSON.parse(localStorage.getItem(SYNC_TS_KEY)||"{}"); m[k]=ts; localStorage.setItem(SYNC_TS_KEY,JSON.stringify(m)); }catch(e){} }
+/* Backend is a Google Apps Script web app: it only accepts "simple" cross-origin
+   requests, so no custom headers (token rides in the query string) and POST bodies
+   go as text/plain to avoid a CORS preflight the web app can't answer. */
 function syncPush(key,data){
   if(!SYNC_URL || !navigator.onLine || !WRITES_ALLOWED) return;
   const token = getAuthToken(); if(!token) return;
   const ts=Date.now();
-  fetch(`${SYNC_URL}/${key}`,{
+  fetch(`${SYNC_URL}?key=${key}&token=${encodeURIComponent(token)}`,{
     method:"POST",
-    headers:{"Content-Type":"application/json","X-EEI-TOKEN":token},
+    headers:{"Content-Type":"text/plain;charset=utf-8"},
     body:JSON.stringify({data,updatedAt:ts})
   }).then(()=>setSyncTs(key,ts)).catch(()=>{ /* offline or unreachable - local copy is still safe */ });
 }
@@ -224,7 +228,7 @@ async function syncPull(key){
   if(!SYNC_URL) return null;
   const token = getAuthToken(); if(!token) return null;
   try{
-    const res=await fetch(`${SYNC_URL}/${key}`,{headers:{"X-EEI-TOKEN":token}});
+    const res=await fetch(`${SYNC_URL}?key=${key}&token=${encodeURIComponent(token)}`);
     if(!res.ok) return null;
     const text=await res.text();
     if(!text||text==="null") return null;
@@ -429,7 +433,7 @@ function showGate(which){
   try{ bioReady = bioCredId() && await bioAvailable() && getAuthToken(); }catch(e){}
   if(bioReady){ $("bioUnlockBtn").classList.remove("hide"); $("bioFallbackHint").classList.remove("hide"); }
   try{
-    const res = await fetch(`${SYNC_URL}/has-code`);
+    const res = await fetch(`${SYNC_URL}?action=has-code`);
     const out = await res.json();
     showGate(out.set ? "login" : "setup");
   }catch(e){ showGate("login"); } // offline: assume login; the code+email step will retry
@@ -446,7 +450,7 @@ $("setupStartBtn").onclick = async ()=>{
   if(c1!==c2){ $("setupMsg").textContent="The two codes don't match."; return; }
   $("setupStartBtn").textContent="Sending...";
   try{
-    const res = await fetch(`${SYNC_URL}/setup-start`, {method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+    const res = await fetch(`${SYNC_URL}?action=setup-start`, {method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:"{}"});
     const out = await res.json();
     $("setupStartBtn").textContent="Continue";
     if(out.ok){ gateChallenge=out.challenge; gatePendingNewCode=c1; gateMode="setup"; $("gateEmailInput").value=""; $("gateEmailMsg").textContent=""; showGate("email"); }
@@ -465,7 +469,7 @@ async function submitCode(){
   if(entry.length<4){ $("gateMsg").textContent="Enter your code, then Enter."; return; }
   const code = entry;
   try{
-    const res = await fetch(`${SYNC_URL}/gate-check`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code})});
+    const res = await fetch(`${SYNC_URL}?action=gate-check`, {method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({code})});
     const out = await res.json();
     if(out.ok){ gateChallenge=out.challenge; gateMode="login"; $("gateEmailInput").value=""; $("gateEmailMsg").textContent=""; entry=""; drawDots(false); showGate("email"); }
     else if(out.locked){ $("gateMsg").textContent="Too many tries - wait about 15 minutes."; drawDots(true); entry=""; setTimeout(()=>drawDots(false),700); }
@@ -487,12 +491,12 @@ $("gateEmailBtn").onclick = async ()=>{
   const code=$("gateEmailInput").value.trim();
   if(code.length!==6){ $("gateEmailMsg").textContent="Enter the 6-digit code."; return; }
   $("gateEmailBtn").textContent="Checking...";
-  const path = gateMode==="setup" ? "/setup-finish" : "/gate-verify";
+  const path = gateMode==="setup" ? "?action=setup-finish" : "?action=gate-verify";
   const payload = gateMode==="setup"
     ? {challenge:gateChallenge, code, newCode:gatePendingNewCode}
     : {challenge:gateChallenge, code};
   try{
-    const res = await fetch(`${SYNC_URL}${path}`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    const res = await fetch(`${SYNC_URL}${path}`, {method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
     const out = await res.json();
     $("gateEmailBtn").textContent="Continue";
     if(out.ok){
@@ -523,7 +527,7 @@ $("chgStartBtn") && ($("chgStartBtn").onclick = async ()=>{
   chgCurCode=cur;
   $("chgStartBtn").textContent="Sending...";
   try{
-    const res = await fetch(`${SYNC_URL}/change-start`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:getAuthToken()})});
+    const res = await fetch(`${SYNC_URL}?action=change-start`, {method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({token:getAuthToken()})});
     const out = await res.json();
     $("chgStartBtn").textContent="Send confirmation code";
     if(out.ok){ chgChallenge=out.challenge; chgPendingNewCode=c1; $("chgStep1").classList.add("hide"); $("chgStep2").classList.remove("hide"); $("chgMsg").textContent=""; }
@@ -535,7 +539,7 @@ $("chgVerifyBtn") && ($("chgVerifyBtn").onclick = async ()=>{
   if(code.length!==6){ $("chgMsg").textContent="Enter the 6-digit code."; return; }
   $("chgVerifyBtn").textContent="Checking...";
   try{
-    const res = await fetch(`${SYNC_URL}/change-finish`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:getAuthToken(), curCode:chgCurCode, challenge:chgChallenge, code, newCode:chgPendingNewCode})});
+    const res = await fetch(`${SYNC_URL}?action=change-finish`, {method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({token:getAuthToken(), curCode:chgCurCode, challenge:chgChallenge, code, newCode:chgPendingNewCode})});
     const out = await res.json();
     $("chgVerifyBtn").textContent="Confirm the change";
     if(out.ok){ chgChallenge=null; chgPendingNewCode=null; chgCurCode=null; $("settingsSheet").classList.remove("on"); setStatus("Code changed.","ok"); }
