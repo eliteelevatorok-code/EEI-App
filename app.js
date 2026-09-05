@@ -181,7 +181,7 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-09-05 v33 · SANDBOX (Google backend)";
+const APP_VERSION = "2026-09-05 v34 · SANDBOX (Google backend)";
 // Stamp the version the moment the app loads, so it can never go missing regardless
 // of login state, sync, or errors later on.
 try { var _vf = document.getElementById("verfoot"); if(_vf) _vf.textContent = "Build " + APP_VERSION; } catch(e){}
@@ -273,9 +273,12 @@ function jsonpPull(key){
 
 async function syncPull(key){
   if(!SYNC_URL) return null;
-  const viaFetch = await fetchPull_(key);
-  if(viaFetch) return viaFetch;
-  return await jsonpPull(key);   // fallback that works where a cross-origin fetch doesn't
+  // The <script>-load works the same way a browser page load does, so it's the
+  // reliable path on every device tested - and it's fast. Do it FIRST. Fetch is only
+  // a fallback (in v33 fetch ran first, so its slow timeout hid the working path).
+  const viaJsonp = await jsonpPull(key);
+  if(viaJsonp) return viaJsonp;
+  return await fetchPull_(key);
 }
 async function syncBoot(){
   if(!SYNC_URL) return;
