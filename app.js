@@ -181,7 +181,7 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-09-05 v31 · SANDBOX (Google backend)";
+const APP_VERSION = "2026-09-05 v32 · SANDBOX (Google backend)";
 // Stamp the version the moment the app loads, so it can never go missing regardless
 // of login state, sync, or errors later on.
 try { var _vf = document.getElementById("verfoot"); if(_vf) _vf.textContent = "Build " + APP_VERSION; } catch(e){}
@@ -227,23 +227,33 @@ function syncPush(key,data){
     body:JSON.stringify({data,updatedAt:ts})
   }).then(()=>setSyncTs(key,ts)).catch(()=>{ /* offline or unreachable - local copy is still safe */ });
 }
+let LAST_PULL = {};   // remembers exactly how the most recent pull went, for the on-screen reason
 async function syncPull(key){
   if(!SYNC_URL) return null;
-  // Reads don't depend on a token (the sandbox backend ignores it, and the roster
-  // is public-to-the-app once unlocked). Requiring one only blocked a device whose
-  // token wasn't saved. Send whatever we have, empty is fine.
+  // Reads don't depend on a token (the sandbox backend ignores it). Try twice: a
+  // cross-origin redirect can hiccup once on some devices, and a second, cache-busted
+  // try clears it. Record the exact status/error so the screen can say what happened.
   const token = getAuthToken() || "";
-  const ctrl = (typeof AbortController!=="undefined") ? new AbortController() : null;
-  const timer = ctrl ? setTimeout(()=>ctrl.abort(), 12000) : null;   // never hang forever
-  try{
-    const res=await fetch(`${SYNC_URL}?key=${key}&token=${encodeURIComponent(token)}`,
-      ctrl ? {signal:ctrl.signal, cache:"no-store"} : {cache:"no-store"});
-    if(!res.ok) return null;
-    const text=await res.text();
-    if(!text||text==="null") return null;
-    return JSON.parse(text);
-  }catch(e){ return null; }
-  finally{ if(timer) clearTimeout(timer); }
+  let info = {};
+  for(let attempt=0; attempt<2; attempt++){
+    const ctrl = (typeof AbortController!=="undefined") ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(()=>{ try{ctrl.abort();}catch(e){} }, 12000) : null;
+    const t0 = Date.now();
+    try{
+      const bust = attempt ? ("&_="+Date.now()) : "";
+      const res = await fetch(`${SYNC_URL}?key=${key}&token=${encodeURIComponent(token)}${bust}`,
+        Object.assign({redirect:"follow", cache:"no-store"}, ctrl?{signal:ctrl.signal}:{}));
+      info = {status:res.status, ms:Date.now()-t0, attempt};
+      if(res.ok){
+        const text = await res.text();
+        info.len = text.length;
+        if(text && text!=="null"){ if(timer) clearTimeout(timer); LAST_PULL=info; return JSON.parse(text); }
+      }
+    }catch(e){ info = {err:((e&&e.name)||"")+" "+((e&&e.message)||String(e)), ms:Date.now()-t0, attempt}; }
+    finally{ if(timer) clearTimeout(timer); }
+  }
+  LAST_PULL = info;
+  return null;
 }
 async function syncBoot(){
   if(!SYNC_URL) return;
@@ -294,9 +304,10 @@ async function syncBoot(){
      needed. Tells us plainly: is there a login token, and what did the sheet return. */
   if(!ELEVATORS.length){
     const reason = cloudRoster ? ((cloudRoster.data||[]).length+" rows returned")
-                 : (pullErr ? "network error" : "no response from the backend");
+      : (LAST_PULL.err ? ("network error — "+LAST_PULL.err)
+        : ("backend status "+(LAST_PULL.status!=null?LAST_PULL.status:"?")+" in "+(LAST_PULL.ms!=null?LAST_PULL.ms:"?")+"ms"));
     const al=$("acctList");
-    if(al) al.innerHTML = '<div style="padding:.6rem"><b>Couldn\'t load your list.</b><br>'+reason+'</div>'
+    if(al) al.innerHTML = '<div style="padding:.6rem;font-size:1.05rem"><b>Couldn\'t load your list.</b><br><span style="color:#a00">'+esc(reason)+'</span></div>'
       + '<button class="filebtn" id="reloadList2">Try again</button>';
     const rb=$("reloadList2"); if(rb) rb.onclick=()=>{ if(al) al.innerHTML='<p class="hint" style="padding:.6rem">Loading…</p>'; syncBoot(); };
     const vf=$("verfoot"); if(vf) vf.textContent = "Build "+APP_VERSION+" — sync: "+reason;
