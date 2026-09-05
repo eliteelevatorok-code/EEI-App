@@ -181,7 +181,7 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-09-05 v32 · SANDBOX (Google backend)";
+const APP_VERSION = "2026-09-05 v33 · SANDBOX (Google backend)";
 // Stamp the version the moment the app loads, so it can never go missing regardless
 // of login state, sync, or errors later on.
 try { var _vf = document.getElementById("verfoot"); if(_vf) _vf.textContent = "Build " + APP_VERSION; } catch(e){}
@@ -228,11 +228,9 @@ function syncPush(key,data){
   }).then(()=>setSyncTs(key,ts)).catch(()=>{ /* offline or unreachable - local copy is still safe */ });
 }
 let LAST_PULL = {};   // remembers exactly how the most recent pull went, for the on-screen reason
-async function syncPull(key){
-  if(!SYNC_URL) return null;
-  // Reads don't depend on a token (the sandbox backend ignores it). Try twice: a
-  // cross-origin redirect can hiccup once on some devices, and a second, cache-busted
-  // try clears it. Record the exact status/error so the screen can say what happened.
+
+// A normal cross-origin fetch (works on most devices, fast).
+async function fetchPull_(key){
   const token = getAuthToken() || "";
   let info = {};
   for(let attempt=0; attempt<2; attempt++){
@@ -243,17 +241,41 @@ async function syncPull(key){
       const bust = attempt ? ("&_="+Date.now()) : "";
       const res = await fetch(`${SYNC_URL}?key=${key}&token=${encodeURIComponent(token)}${bust}`,
         Object.assign({redirect:"follow", cache:"no-store"}, ctrl?{signal:ctrl.signal}:{}));
-      info = {status:res.status, ms:Date.now()-t0, attempt};
+      info = {status:res.status, ms:Date.now()-t0, attempt, via:"fetch"};
       if(res.ok){
         const text = await res.text();
         info.len = text.length;
         if(text && text!=="null"){ if(timer) clearTimeout(timer); LAST_PULL=info; return JSON.parse(text); }
       }
-    }catch(e){ info = {err:((e&&e.name)||"")+" "+((e&&e.message)||String(e)), ms:Date.now()-t0, attempt}; }
+    }catch(e){ info = {err:((e&&e.name)||"")+" "+((e&&e.message)||String(e)), ms:Date.now()-t0, attempt, via:"fetch"}; }
     finally{ if(timer) clearTimeout(timer); }
   }
   LAST_PULL = info;
   return null;
+}
+
+// A plain <script> load (JSONP) - the SAME way opening the URL in a browser works,
+// so it sails through the cross-origin redirect that a fetch trips over on some phones.
+// Needs the backend to wrap its JSON in callback(...) when ?callback= is present.
+function jsonpPull(key){
+  return new Promise((resolve)=>{
+    let done=false;
+    const cbName = "eeiCb_"+String(key).replace(/\W/g,"")+"_"+Date.now();
+    const s = document.createElement("script");
+    const cleanup=()=>{ try{ delete window[cbName]; }catch(e){ try{ window[cbName]=undefined; }catch(_){} } if(s.parentNode) s.parentNode.removeChild(s); };
+    window[cbName]=(data)=>{ if(done) return; done=true; cleanup(); LAST_PULL={via:"jsonp",ok:true}; resolve(data); };
+    s.onerror=()=>{ if(!done){ done=true; cleanup(); LAST_PULL={via:"jsonp",err:"script error"}; resolve(null); } };
+    setTimeout(()=>{ if(!done){ done=true; cleanup(); LAST_PULL={via:"jsonp",err:"timeout"}; resolve(null); } }, 12000);
+    s.src = `${SYNC_URL}?key=${encodeURIComponent(key)}&callback=${cbName}&_=${Date.now()}`;
+    (document.head||document.documentElement).appendChild(s);
+  });
+}
+
+async function syncPull(key){
+  if(!SYNC_URL) return null;
+  const viaFetch = await fetchPull_(key);
+  if(viaFetch) return viaFetch;
+  return await jsonpPull(key);   // fallback that works where a cross-origin fetch doesn't
 }
 async function syncBoot(){
   if(!SYNC_URL) return;
