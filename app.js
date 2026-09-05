@@ -181,7 +181,7 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-09-05 v28 · SANDBOX (Google backend)";
+const APP_VERSION = "2026-09-05 v29 · SANDBOX (Google backend)";
 // Stamp the version the moment the app loads, so it can never go missing regardless
 // of login state, sync, or errors later on.
 try { var _vf = document.getElementById("verfoot"); if(_vf) _vf.textContent = "Build " + APP_VERSION; } catch(e){}
@@ -240,45 +240,56 @@ async function syncPull(key){
 }
 async function syncBoot(){
   if(!SYNC_URL) return;
-  const [cloudDb,cloudRoster]=await Promise.all([syncPull("db"),syncPull("roster")]);
+  let cloudDb=null, cloudRoster=null, pullErr=null;
+  try{ [cloudDb,cloudRoster]=await Promise.all([syncPull("db"),syncPull("roster")]); }
+  catch(e){ pullErr=e; }
   let changed=false;
-  if(cloudDb){
-    /* Merge, don't blindly replace or blindly push.
-       - archived (LAST YEAR's report) is managed centrally, never edited in the
-         app - so the cloud copy always wins. This is what stops a stale device
-         from pushing an empty/old archived over the real one.
-       - current (THIS YEAR's draft) and tags are app-edited - newer side wins. */
-    const cloudData = cloudDb.data||{};
-    const cloudNewer = (cloudDb.updatedAt||0) > getSyncTs("db");
-    const merged = {};
-    const keys = new Set([...Object.keys(cloudData), ...Object.keys(db)]);
-    keys.forEach(k=>{
-      const c = cloudData[k]||{}, l = db[k]||{}, rec = {};
-      const arch = (c.archived!==undefined) ? c.archived : l.archived;
-      if(arch!==undefined) rec.archived = arch;
-      const cur = cloudNewer ? (c.current!==undefined ? c.current : l.current)
-                             : (l.current!==undefined ? l.current : c.current);
-      if(cur!==undefined && cur!==null) rec.current = cur;
-      const tg = cloudNewer ? (c.tags!==undefined ? c.tags : l.tags)
-                            : (l.tags!==undefined ? l.tags : c.tags);
-      if(tg!==undefined) rec.tags = tg;
-      merged[k]=rec;
-    });
-    db = merged;
-    try{ localStorage.setItem(STORE,JSON.stringify(db)); }catch(e){ STORAGE_OK=false; }
-    syncPush("db", db);   // push the merged truth so the cloud carries archived+current unified
-    changed=true;
-  }
-  // The dashboard sheet is the master for the roster (the app never edits it), so
-  // whenever the backend hands back a non-empty list, adopt it outright. No
-  // timestamp comparison to get stuck behind, no pushing the local copy back.
-  if(cloudRoster && Array.isArray(cloudRoster.data) && cloudRoster.data.length){
-    setRoster(cloudRoster.data); changed=true;
-  }
-  if(changed){
-    boot();
-    if(cur) pick(cur.okla);
-    setStatus("Synced with your other device.","ok");
+
+  /* Load the roster FIRST and on its own, so a problem anywhere else can never stop
+     the list from showing. The dashboard sheet is the master (the app never edits
+     it), so adopt whatever non-empty list the backend returns. */
+  try{
+    if(cloudRoster && Array.isArray(cloudRoster.data) && cloudRoster.data.length){
+      setRoster(cloudRoster.data); changed=true;
+    }
+  }catch(e){ pullErr=e; }
+
+  /* Then merge the reports (last year's data), isolated in its own try so a bad
+     record here can't take the roster down with it. */
+  try{
+    if(cloudDb){
+      const cloudData = cloudDb.data||{};
+      const cloudNewer = (cloudDb.updatedAt||0) > getSyncTs("db");
+      const merged = {};
+      const keys = new Set([...Object.keys(cloudData), ...Object.keys(db)]);
+      keys.forEach(k=>{
+        const c = cloudData[k]||{}, l = db[k]||{}, rec = {};
+        const arch = (c.archived!==undefined) ? c.archived : l.archived;
+        if(arch!==undefined) rec.archived = arch;
+        const cur = cloudNewer ? (c.current!==undefined ? c.current : l.current)
+                               : (l.current!==undefined ? l.current : c.current);
+        if(cur!==undefined && cur!==null) rec.current = cur;
+        const tg = cloudNewer ? (c.tags!==undefined ? c.tags : l.tags)
+                              : (l.tags!==undefined ? l.tags : c.tags);
+        if(tg!==undefined) rec.tags = tg;
+        merged[k]=rec;
+      });
+      db = merged;
+      try{ localStorage.setItem(STORE,JSON.stringify(db)); }catch(e){ STORAGE_OK=false; }
+      syncPush("db", db);
+      changed=true;
+    }
+  }catch(e){ pullErr=e; }
+
+  if(changed){ boot(); if(cur) pick(cur.okla); }
+
+  /* Honest on-screen readout, shown right where an empty list would be - no console
+     needed. Tells us plainly: is there a login token, and what did the sheet return. */
+  if(!ELEVATORS.length){
+    const h=$("acctHint");
+    if(h) h.textContent = "Sync check — token:"+(getAuthToken()?"yes":"no")
+      +" · list:"+(cloudRoster ? ((cloudRoster.data||[]).length+" rows") : (pullErr?"error":"no response"))
+      +(pullErr?(" ("+String(pullErr).slice(0,70)+")"):"");
   }
 }
 
@@ -874,7 +885,8 @@ function boot(){
   ACCOUNTS = buildAccounts();
   applyMode();
   if(!ELEVATORS.length){
-    $("shell").querySelector(".selector").classList.add("hide");
+    $("shell").querySelector(".selector").classList.remove("hide");
+    if($("acctHint")) $("acctHint").textContent = "Loading your list from the dashboard…";
     setStatus("Loading your list from the dashboard…","wait");
     return;
   }
