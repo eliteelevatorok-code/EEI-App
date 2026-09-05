@@ -181,7 +181,7 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-09-05 v29 · SANDBOX (Google backend)";
+const APP_VERSION = "2026-09-05 v30 · SANDBOX (Google backend)";
 // Stamp the version the moment the app loads, so it can never go missing regardless
 // of login state, sync, or errors later on.
 try { var _vf = document.getElementById("verfoot"); if(_vf) _vf.textContent = "Build " + APP_VERSION; } catch(e){}
@@ -229,7 +229,10 @@ function syncPush(key,data){
 }
 async function syncPull(key){
   if(!SYNC_URL) return null;
-  const token = getAuthToken(); if(!token) return null;
+  // Reads don't depend on a token (the sandbox backend ignores it, and the roster
+  // is public-to-the-app once unlocked). Requiring one only blocked a device whose
+  // token wasn't saved. Send whatever we have, empty is fine.
+  const token = getAuthToken() || "";
   try{
     const res=await fetch(`${SYNC_URL}?key=${key}&token=${encodeURIComponent(token)}`);
     if(!res.ok) return null;
@@ -286,10 +289,9 @@ async function syncBoot(){
   /* Honest on-screen readout, shown right where an empty list would be - no console
      needed. Tells us plainly: is there a login token, and what did the sheet return. */
   if(!ELEVATORS.length){
-    const h=$("acctHint");
-    if(h) h.textContent = "Sync check — token:"+(getAuthToken()?"yes":"no")
-      +" · list:"+(cloudRoster ? ((cloudRoster.data||[]).length+" rows") : (pullErr?"error":"no response"))
-      +(pullErr?(" ("+String(pullErr).slice(0,70)+")"):"");
+    const vf=$("verfoot");
+    if(vf) vf.textContent = "Build "+APP_VERSION+" — sync: list "
+      +(cloudRoster ? ((cloudRoster.data||[]).length+" rows") : (pullErr?"error":"no response"));
   }
 }
 
