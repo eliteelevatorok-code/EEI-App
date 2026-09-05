@@ -181,7 +181,7 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-09-05 v27 · SANDBOX (Google backend)";
+const APP_VERSION = "2026-09-05 v28 · SANDBOX (Google backend)";
 // Stamp the version the moment the app loads, so it can never go missing regardless
 // of login state, sync, or errors later on.
 try { var _vf = document.getElementById("verfoot"); if(_vf) _vf.textContent = "Build " + APP_VERSION; } catch(e){}
@@ -269,10 +269,11 @@ async function syncBoot(){
     syncPush("db", db);   // push the merged truth so the cloud carries archived+current unified
     changed=true;
   }
-  if(cloudRoster && cloudRoster.updatedAt>getSyncTs("roster")){
-    setRoster(cloudRoster.data||[]); changed=true;
-  } else if(ELEVATORS.length){
-    syncPush("roster",ELEVATORS);
+  // The dashboard sheet is the master for the roster (the app never edits it), so
+  // whenever the backend hands back a non-empty list, adopt it outright. No
+  // timestamp comparison to get stuck behind, no pushing the local copy back.
+  if(cloudRoster && Array.isArray(cloudRoster.data) && cloudRoster.data.length){
+    setRoster(cloudRoster.data); changed=true;
   }
   if(changed){
     boot();

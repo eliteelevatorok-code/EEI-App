@@ -7,7 +7,7 @@
    change and we don't want a dead signal swapping the typeface).
    Bump CACHE on any change so the old offline copy is thrown away. */
 
-const CACHE = "eei-field-v27";
+const CACHE = "eei-field-v28";
 
 const SHELL = [
   "./",
