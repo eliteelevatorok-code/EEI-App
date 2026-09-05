@@ -181,7 +181,7 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-09-05 v26 · SANDBOX (Google backend)";
+const APP_VERSION = "2026-09-05 v27 · SANDBOX (Google backend)";
 // Stamp the version the moment the app loads, so it can never go missing regardless
 // of login state, sync, or errors later on.
 try { var _vf = document.getElementById("verfoot"); if(_vf) _vf.textContent = "Build " + APP_VERSION; } catch(e){}
@@ -342,11 +342,21 @@ function buildAccounts(){
     return a;
   }).sort((a,b)=> b.units.length - a.units.length);
 }
+/* The sheet returns date cells as full JS date strings ("Tue Oct 20 2026 02:00:00
+   GMT-0500..."). Normalize any date-like value back to M/D/YYYY, which is what the
+   app displays and what dueLate() expects. Already-formatted values pass through. */
+function normDate(v){
+  if(!v) return "";
+  const s=String(v).trim();
+  if(/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) return s;
+  const d=new Date(s); if(isNaN(d)) return s;
+  return (d.getMonth()+1)+"/"+d.getDate()+"/"+d.getFullYear();
+}
 function setRoster(list){
-  ELEVATORS = list;
-  try{ localStorage.setItem(ROSTER_KEY, JSON.stringify(list)); }catch(e){ STORAGE_OK=false; }
+  ELEVATORS = (list||[]).map(e=>{ const r=Object.assign({},e); r.due=normDate(r.due); if(r.last) r.last=normDate(r.last); return r; });
+  try{ localStorage.setItem(ROSTER_KEY, JSON.stringify(ELEVATORS)); }catch(e){ STORAGE_OK=false; }
   ACCOUNTS = buildAccounts();
-  syncPush("roster", list);
+  syncPush("roster", ELEVATORS);
 }
 
 
