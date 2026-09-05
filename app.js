@@ -181,7 +181,7 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-09-05 v30 · SANDBOX (Google backend)";
+const APP_VERSION = "2026-09-05 v31 · SANDBOX (Google backend)";
 // Stamp the version the moment the app loads, so it can never go missing regardless
 // of login state, sync, or errors later on.
 try { var _vf = document.getElementById("verfoot"); if(_vf) _vf.textContent = "Build " + APP_VERSION; } catch(e){}
@@ -233,13 +233,17 @@ async function syncPull(key){
   // is public-to-the-app once unlocked). Requiring one only blocked a device whose
   // token wasn't saved. Send whatever we have, empty is fine.
   const token = getAuthToken() || "";
+  const ctrl = (typeof AbortController!=="undefined") ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(()=>ctrl.abort(), 12000) : null;   // never hang forever
   try{
-    const res=await fetch(`${SYNC_URL}?key=${key}&token=${encodeURIComponent(token)}`);
+    const res=await fetch(`${SYNC_URL}?key=${key}&token=${encodeURIComponent(token)}`,
+      ctrl ? {signal:ctrl.signal, cache:"no-store"} : {cache:"no-store"});
     if(!res.ok) return null;
     const text=await res.text();
     if(!text||text==="null") return null;
     return JSON.parse(text);
   }catch(e){ return null; }
+  finally{ if(timer) clearTimeout(timer); }
 }
 async function syncBoot(){
   if(!SYNC_URL) return;
@@ -289,9 +293,14 @@ async function syncBoot(){
   /* Honest on-screen readout, shown right where an empty list would be - no console
      needed. Tells us plainly: is there a login token, and what did the sheet return. */
   if(!ELEVATORS.length){
-    const vf=$("verfoot");
-    if(vf) vf.textContent = "Build "+APP_VERSION+" — sync: list "
-      +(cloudRoster ? ((cloudRoster.data||[]).length+" rows") : (pullErr?"error":"no response"));
+    const reason = cloudRoster ? ((cloudRoster.data||[]).length+" rows returned")
+                 : (pullErr ? "network error" : "no response from the backend");
+    const al=$("acctList");
+    if(al) al.innerHTML = '<div style="padding:.6rem"><b>Couldn\'t load your list.</b><br>'+reason+'</div>'
+      + '<button class="filebtn" id="reloadList2">Try again</button>';
+    const rb=$("reloadList2"); if(rb) rb.onclick=()=>{ if(al) al.innerHTML='<p class="hint" style="padding:.6rem">Loading…</p>'; syncBoot(); };
+    const vf=$("verfoot"); if(vf) vf.textContent = "Build "+APP_VERSION+" — sync: "+reason;
+    setStatus("Couldn't load your list — tap Try again.","bad");
   }
 }
 
@@ -888,8 +897,11 @@ function boot(){
   applyMode();
   if(!ELEVATORS.length){
     $("shell").querySelector(".selector").classList.remove("hide");
-    if($("acctHint")) $("acctHint").textContent = "Loading your list from the dashboard…";
-    setStatus("Loading your list from the dashboard…","wait");
+    const al=$("acctList");
+    if(al) al.innerHTML = '<p class="hint" style="padding:.6rem">Loading your list from the dashboard…</p>'
+      + '<button class="filebtn" id="reloadList">Reload the list</button>';
+    const rb=$("reloadList"); if(rb) rb.onclick=()=>{ if(al) al.innerHTML='<p class="hint" style="padding:.6rem">Loading…</p>'; syncBoot(); };
+    setStatus("Loading your list…","wait");
     return;
   }
   $("shell").querySelector(".selector").classList.remove("hide");
