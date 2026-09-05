@@ -21,9 +21,6 @@
 <div id="gate">
   <div class="mark">EEI<span>REPORTS</span></div>
 
-  <button class="filebtn hide" id="bioUnlockBtn">Unlock this device</button>
-  <p class="hint hide" id="bioFallbackHint">Or use your code.</p>
-
   <!-- set up a code: the first person, or any new person added later -->
   <div id="gateSetup" class="hide">
     <p class="hint" style="max-width:22rem">Pick your own 4-to-8 digit code. Each person has their own. A one-time code goes to Robert's email to confirm it's allowed &mdash; so his inbox lets every new code in.</p>
@@ -81,20 +78,6 @@
   </div>
 </div>
 
-<div class="sheet" id="bioSetupSheet">
-  <div class="sheettop">
-    <div class="sheetrow"><h3>Faster unlock</h3><button class="donebtn" id="bioSetupSkip">Not now</button></div>
-  </div>
-  <div class="sheetbody">
-    <div class="instr">
-      <h4>Open with this device's own lock next time</h4>
-      <p>Use your face, fingerprint, or screen lock to open the app on this device from now on — no codes to type again.</p>
-    </div>
-    <button class="filebtn" id="bioSetupBtn">Set it up</button>
-    <p class="hint" id="bioSetupMsg"></p>
-  </div>
-</div>
-
 <div id="shell" class="hide">
 
   <header class="chrome">
@@ -108,15 +91,6 @@
       <button class="tiny" id="settingsBtn">Settings</button>
     </div>
   </header>
-
-  <section class="card importcard hide" id="importCard">
-    <h2>Load the elevator list</h2>
-    <p class="importlead">This app ships empty on purpose, so no customer names, emails or phone numbers sit on the web. Load their spreadsheet once and it stays on this device.</p>
-    <label class="filebtn" for="importFile">Choose the spreadsheet (.csv)</label>
-    <input id="importFile" type="file" accept=".csv,text/csv" hidden>
-    <p class="importmsg" id="importMsg"></p>
-    <p class="hint">Open their sheet, choose Save As or Download, and pick CSV. Rows marked scrapped, inactive or without a due date are left out.</p>
-  </section>
 
   <div class="selector">
     <div class="stage open" id="stAcct">

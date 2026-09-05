@@ -181,7 +181,7 @@ const TAG_SUGGESTIONS = ["Hospital","Nursing Home","Belt","Gen 2","Screw Drive"]
 
 /* Bump this on every deploy - it's the only way to tell which build is
    actually running on a given phone/computer. */
-const APP_VERSION = "2026-09-04 v25 · SANDBOX (Google backend)";
+const APP_VERSION = "2026-09-05 v26 · SANDBOX (Google backend)";
 // Stamp the version the moment the app loads, so it can never go missing regardless
 // of login state, sync, or errors later on.
 try { var _vf = document.getElementById("verfoot"); if(_vf) _vf.textContent = "Build " + APP_VERSION; } catch(e){}
@@ -304,6 +304,20 @@ let ELEVATORS = [];
 try{ const s = localStorage.getItem(ROSTER_KEY); if(s) ELEVATORS = JSON.parse(s) || []; }catch(e){}
 if(!ELEVATORS.length && Array.isArray(window.ELEVATORS)) ELEVATORS = window.ELEVATORS;
 
+/* v26 migration: the sandbox seed stamped the roster with a far-future timestamp,
+   which blocked the app from ever adopting the dashboard as the master - so it kept
+   showing the old seeded contacts. Clear the cached roster and its sync stamp once,
+   so the next sync pulls the real list straight from the sheet. */
+try{
+  if(localStorage.getItem("eei_migr_v26")!=="1"){
+    localStorage.removeItem(ROSTER_KEY);
+    ELEVATORS = [];
+    const _m = JSON.parse(localStorage.getItem(SYNC_TS_KEY)||"{}"); delete _m.roster;
+    localStorage.setItem(SYNC_TS_KEY, JSON.stringify(_m));
+    localStorage.setItem("eei_migr_v26","1");
+  }
+}catch(e){}
+
 let ACCOUNTS = [];
 function buildAccounts(){
   const m = new Map();
@@ -335,96 +349,10 @@ function setRoster(list){
   syncPush("roster", list);
 }
 
-/* Reads their spreadsheet exported as CSV. Column order is the one their sheet uses:
-   Oklahoma #, Location, Date Inspected, Date Due, Contact, email, Phone, maintenance, note */
-function parseCsv(text){
-  const NL=String.fromCharCode(10), CR=String.fromCharCode(13);
-  const rows=[]; let row=[], cell="", q=false;
-  for(let i=0;i<text.length;i++){
-    const ch=text[i];
-    if(q){
-      if(ch==='"'){ if(text[i+1]==='"'){ cell+='"'; i++; } else q=false; }
-      else cell+=ch;
-    } else if(ch==='"') q=true;
-    else if(ch===","){ row.push(cell); cell=""; }
-    else if(ch===NL){ row.push(cell); rows.push(row); row=[]; cell=""; }
-    else if(ch!==CR) cell+=ch;
-  }
-  if(cell.length||row.length){ row.push(cell); rows.push(row); }
-  const out=[];
-  rows.forEach(r=>{
-    const c = r.map(x=>String(x||"").trim());
-    if(c.length<4) return;
-    if(!/^\d+$/.test(c[0])) return;                    // skips the header row and any blanks
-    if(!/^\d+\/\d+\/\d{4}$/.test(c[3])) return;        // skips SCRAPPED / INACTIVE / MOD
-    out.push({okla:c[0], loc:c[1], last:c[2], due:c[3], contact:c[4]||"",
-              email:c[5]||"", phone:c[6]||"", prov:c[7]||"", note:c[8]||""});
-  });
-  return out;
-}
-
-/* ---------- Face ID / fingerprint (WebAuthn, this device's own OS) ----------
-   Only offered after a full code + email login has already issued a token,
-   so a biometric can never be registered on a device that wasn't properly
-   let in first. The code is always the fallback if biometrics fail. */
-const BIO_KEY="eei_bio_cred_v1", BIO_DECLINED_KEY="eei_bio_declined_v1";
-function b64uEncode(buf){ return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
-function b64uDecode(str){ str=str.replace(/-/g,"+").replace(/_/g,"/"); while(str.length%4) str+="=";
-  const bin=atob(str), buf=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i); return buf.buffer; }
-async function bioAvailable(){
-  try{ return !!(window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()); }
-  catch(e){ return false; }
-}
-function bioCredId(){ try{ return localStorage.getItem(BIO_KEY); }catch(e){ return null; } }
-async function bioRegister(){
-  try{
-    const cred = await navigator.credentials.create({ publicKey: {
-      challenge: crypto.getRandomValues(new Uint8Array(32)),
-      rp: { name: "EEI Reports" },
-      user: { id: crypto.getRandomValues(new Uint8Array(16)), name: "field", displayName: "EEI field app" },
-      pubKeyCredParams: [{alg:-7,type:"public-key"},{alg:-257,type:"public-key"}],
-      authenticatorSelection: { authenticatorAttachment:"platform", userVerification:"required" },
-      timeout: 60000
-    }});
-    if(cred){ localStorage.setItem(BIO_KEY, b64uEncode(cred.rawId)); return true; }
-  }catch(e){ /* cancelled or unsupported - the code still works */ }
-  return false;
-}
-async function bioUnlock(){
-  const id=bioCredId(); if(!id) return false;
-  if(!getAuthToken()) return false;   // no trusted session - must go through code + email
-  try{
-    const cred = await navigator.credentials.get({ publicKey: {
-      challenge: crypto.getRandomValues(new Uint8Array(32)),
-      allowCredentials: [{ id: b64uDecode(id), type:"public-key" }],
-      userVerification: "required",
-      timeout: 60000
-    }});
-    return !!cred;
-  }catch(e){ return false; }
-}
-async function maybeOfferBioSetup(){
-  if(bioCredId()) return;
-  try{ if(localStorage.getItem(BIO_DECLINED_KEY)==="1") return; }catch(e){}
-  if(await bioAvailable()){ $("bioSetupMsg").textContent=""; $("bioSetupSheet").classList.add("on"); }
-}
-$("bioSetupSkip").onclick = ()=>{ try{ localStorage.setItem(BIO_DECLINED_KEY,"1"); }catch(e){} $("bioSetupSheet").classList.remove("on"); };
-$("bioSetupBtn").onclick = async ()=>{
-  const ok = await bioRegister();
-  $("bioSetupSheet").classList.remove("on");
-  if(ok) setStatus("Set up. This device opens with its own lock from now on.","ok");
-};
-$("bioUnlockBtn").onclick = async ()=>{
-  $("bioUnlockBtn").textContent="Checking...";
-  const ok = await bioUnlock();
-  $("bioUnlockBtn").textContent="Unlock this device";
-  if(ok){ try{ sessionStorage.setItem("eei_ok","1"); }catch(e){} unlock(); }
-  else { $("gateMsg").textContent="Didn't work - use your code."; }
-};
 
 /* ---------- the gate: first-run setup, or login (code + emailed code) ----------
-   No code is ever stored in this app. Cloudflare holds a hash of the one
-   Robert picks; the app only sends what's typed and gets back a token. */
+   No code is ever stored in this app. The Google backend holds a hash of the
+   one Robert picks; the app only sends what's typed and gets back a token. */
 let gateChallenge=null, gatePendingNewCode=null, gateMode="login";
 function showGate(which){
   $("gateSetup").classList.toggle("hide", which!=="setup");
@@ -934,27 +862,12 @@ window.addEventListener("offline",()=>setStatus("No connection. Keep working, it
 function boot(){
   ACCOUNTS = buildAccounts();
   applyMode();
-  if(!ELEVATORS.length){ showImport(); return; }
-  $("importCard").classList.add("hide");
+  if(!ELEVATORS.length){
+    $("shell").querySelector(".selector").classList.add("hide");
+    setStatus("Loading your list from the dashboard…","wait");
+    return;
+  }
   $("shell").querySelector(".selector").classList.remove("hide");
   renderAccts("");
   setStatus(`${ELEVATORS.length} elevators across ${ACCOUNTS.length} accounts. Pick an account to start.`,"ok");
 }
-function showImport(){
-  $("importCard").classList.remove("hide");
-  $("shell").querySelector(".selector").classList.add("hide");
-  setStatus("No elevator list on this device yet. Load the spreadsheet to start.","wait");
-}
-$("importFile").addEventListener("change", e=>{
-  const f = e.target.files && e.target.files[0]; if(!f) return;
-  const fr = new FileReader();
-  fr.onload = ()=>{
-    const list = parseCsv(String(fr.result));
-    if(!list.length){ $("importMsg").textContent = "No elevator rows found in that file. It should be the spreadsheet saved as CSV."; return; }
-    setRoster(list);
-    $("importMsg").textContent = "";
-    boot();
-  };
-  fr.onerror = ()=>{ $("importMsg").textContent = "That file could not be read. Try saving it as CSV again."; };
-  fr.readAsText(f);
-});
