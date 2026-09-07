@@ -10,6 +10,7 @@ import {
   type Account,
   type AddedViolation,
   type Elevator,
+  type LifecycleStage,
   type LineKind,
 } from "@/lib/data";
 import { VHEAD, VIOLATIONS, parseViolation } from "@/lib/violations";
@@ -479,6 +480,140 @@ function Picker({
   );
 }
 
+function LifecycleEditor({
+  stage,
+  row,
+  onClose,
+  onSaved,
+}: {
+  stage: LifecycleStage;
+  row?: number;
+  onClose: () => void;
+  onSaved: (value: string) => void;
+}) {
+  const [choice, setChoice] = useState(stage.value);
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const changed = choice !== stage.value;
+  const show = (v: string) => (v ? `“${v}”` : "blank");
+
+  async function save() {
+    if (row == null) {
+      setErr("This elevator has no saved row yet — can't write.");
+      setConfirm(false);
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    try {
+      const res = await fetch("/api/lifecycle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ row, col: stage.col, value: choice }),
+      });
+      if (!res.ok) {
+        const e = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(e.error || `Error ${res.status}`);
+      }
+      onSaved(choice);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Save failed");
+      setConfirm(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-stone-100">
+      <div className="flex items-center justify-between border-b border-stone-200 bg-white p-3">
+        <h3 className="text-sm font-bold uppercase tracking-widest">{stage.label}</h3>
+        <button onClick={onClose} className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+          Cancel
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-auto p-4">
+        <Card title="Set status">
+          {stage.options.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {stage.options.map((o) => {
+                const on = o === choice;
+                return (
+                  <button
+                    key={o}
+                    onClick={() => setChoice(o)}
+                    className={
+                      "rounded-full border px-4 py-2 text-sm font-semibold " +
+                      (on ? "border-[#1F4B45] bg-[#1F4B45] text-stone-50" : "border-stone-300 bg-stone-50 text-stone-700")
+                    }
+                  >
+                    {o}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <input
+              className={inputCls}
+              placeholder="Type a value"
+              value={choice}
+              onChange={(e) => setChoice(e.target.value)}
+            />
+          )}
+          <button
+            onClick={() => setChoice("")}
+            className="mt-3 text-xs font-semibold uppercase tracking-wider text-stone-500"
+          >
+            Clear this step
+          </button>
+          {err && <p className="mt-3 text-sm font-semibold text-red-600">{err}</p>}
+        </Card>
+      </div>
+
+      <div className="border-t border-stone-200 bg-white p-4">
+        <button
+          onClick={() => setConfirm(true)}
+          disabled={!changed || busy}
+          className="w-full rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50 disabled:opacity-40"
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </div>
+
+      {/* double-confirm before any write */}
+      {confirm && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 p-6">
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
+            <h4 className="text-base font-bold">Are you sure?</h4>
+            <p className="mt-2 text-sm text-stone-600">
+              Set <span className="font-semibold">{stage.label}</span> to{" "}
+              <span className="font-semibold">{show(choice)}</span> on the live dashboard?
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => setConfirm(false)}
+                disabled={busy}
+                className="flex-1 rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700"
+              >
+                No, cancel
+              </button>
+              <button
+                onClick={save}
+                disabled={busy}
+                className="flex-1 rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50 disabled:opacity-60"
+              >
+                {busy ? "Saving…" : "Yes, save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Profile({
   elevator,
   onBack,
@@ -491,6 +626,8 @@ function Profile({
   onSettings: () => void;
 }) {
   const e = elevator;
+  const [lifecycle, setLifecycle] = useState<LifecycleStage[]>(elevator.lifecycle);
+  const [editing, setEditing] = useState<LifecycleStage | null>(null);
   const details: [string, string][] = [
     ["Account", e.account],
     ["Contact", e.contact],
@@ -502,6 +639,17 @@ function Profile({
   ];
   return (
     <div className="mx-auto max-w-md px-4 pb-24 pt-4">
+      {editing && (
+        <LifecycleEditor
+          stage={editing}
+          row={e.row}
+          onClose={() => setEditing(null)}
+          onSaved={(value) => {
+            setLifecycle((prev) => prev.map((s) => (s.key === editing.key ? { ...s, value } : s)));
+            setEditing(null);
+          }}
+        />
+      )}
       <div className="mb-3 flex items-center gap-2">
         <button onClick={onBack} className="text-xs font-semibold text-stone-600">‹ List</button>
         <div className="grow" />
@@ -531,25 +679,30 @@ function Profile({
         </button>
       </div>
 
-      {/* lifecycle snapshot (read-only for now) */}
+      {/* lifecycle — tap any step to change it (writes to the dashboard after a confirm) */}
       <Card title="Customer lifecycle">
         <div className="flex flex-col gap-1.5">
-          {e.lifecycle.map((s) => (
-            <div key={s.key} className="flex items-center justify-between gap-3 rounded-md bg-stone-50 px-3 py-2">
+          {lifecycle.map((s) => (
+            <button
+              key={s.key}
+              onClick={() => setEditing(s)}
+              className="flex items-center justify-between gap-3 rounded-md bg-stone-50 px-3 py-2 text-left active:bg-stone-200"
+            >
               <span className="text-sm text-stone-600">{s.label}</span>
-              {s.value ? (
-                <span className="rounded-full bg-[#DDE8E4] px-2 py-0.5 text-xs font-semibold text-[#1F4B45]">
-                  {s.value}
-                </span>
-              ) : (
-                <span className="text-xs text-stone-400">—</span>
-              )}
-            </div>
+              <span className="flex items-center gap-2">
+                {s.value ? (
+                  <span className="rounded-full bg-[#DDE8E4] px-2 py-0.5 text-xs font-semibold text-[#1F4B45]">
+                    {s.value}
+                  </span>
+                ) : (
+                  <span className="text-xs text-stone-400">—</span>
+                )}
+                <span className="text-stone-300">›</span>
+              </span>
+            </button>
           ))}
         </div>
-        <p className="mt-3 text-xs text-stone-400">
-          Editing each step (with an “are you sure?” confirm) is the next piece being built.
-        </p>
+        <p className="mt-3 text-xs text-stone-400">Tap a step to change it — you&apos;ll confirm before it saves.</p>
       </Card>
 
       {/* details */}
