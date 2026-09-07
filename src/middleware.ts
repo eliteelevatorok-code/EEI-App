@@ -1,17 +1,27 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
+import { isAllowed } from "@/lib/allowlist";
 
-// Everything requires sign-in except the sign-in page itself.
-const isPublic = createRouteMatcher(["/sign-in(.*)"]);
+// Public routes that never require sign-in.
+const isPublic = createRouteMatcher(["/sign-in(.*)", "/not-authorized"]);
 
 export default clerkMiddleware(async (auth, req) => {
-  if (!isPublic(req)) await auth.protect();
+  if (isPublic(req)) return;
+  const { sessionClaims } = await auth.protect();
+
+  // Free app-side allowlist: block signed-in users whose email isn't approved.
+  // Only ever blocks when the email claim is present AND the ALLOWLIST_EMAILS
+  // list is configured AND the email isn't on it (see src/lib/allowlist.ts),
+  // so it can't lock anyone out before it's set up.
+  const email = (sessionClaims as { email?: string } | null)?.email;
+  if (email && !isAllowed(email)) {
+    return NextResponse.redirect(new URL("/not-authorized", req.url));
+  }
 });
 
 export const config = {
   matcher: [
-    // all routes except Next internals and static files
     "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
-    // always run for API routes
     "/(api|trpc)(.*)",
   ],
 };
