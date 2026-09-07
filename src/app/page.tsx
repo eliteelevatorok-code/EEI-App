@@ -15,6 +15,7 @@ import {
 } from "@/lib/data";
 import { VHEAD, VIOLATIONS, parseViolation } from "@/lib/violations";
 import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from "@/lib/prefs";
+import { computePrice, formatPrice } from "@/lib/pricing";
 
 type Stage = "list" | "profile" | "report" | "new";
 
@@ -497,7 +498,7 @@ const NEW_TYPES = [
   "Wheelchair/Platform Lift",
 ];
 const NEW_CYCLES = ["1 yr", "2 yr", "3 yr"];
-const MONEY_PATHS = ["Quote-first", "Quote to PO to invoice"];
+const MONEY_PATHS = ["Quote to PO to invoice", "Invoice only"];
 // Labels must match the fillForm maps exactly (they key the PDF fields).
 const DEVICE_TYPES = ["Const/Temp", "Escalator/MW", "Personnel Hoist", "Platform Lift", "Stairway Chair Lift", "Passenger", "LU/LA", "Freight"];
 const MACHINE_TYPES = ["Cable", "Direct Plunger Hydraulic", "Hand Powered", "Roped Hydraulic", "Other"];
@@ -570,10 +571,13 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
     setBusy(true);
     setErr("");
     try {
+      const floors = parseInt(f.floors, 10) || 0;
+      const priceNum = computePrice(f.type, floors);
+      const payload = { ...f, price: priceNum == null ? "" : `$${priceNum}` };
       const res = await fetch("/api/elevators", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(f),
+        body: JSON.stringify(payload),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string; row?: number };
       if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
@@ -678,7 +682,13 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
       </Card>
 
       <Card title="Billing">
-        <TextRow label="Price" value={f.price} onChange={(v) => set("price", v)} />
+        <div className="mb-3 flex items-center justify-between rounded-lg bg-stone-800 px-4 py-3 text-stone-100">
+          <span className="text-xs font-bold uppercase tracking-wider text-stone-400">Price (auto)</span>
+          <span className="font-mono text-xl font-medium">{formatPrice(computePrice(f.type, parseInt(f.floors, 10) || 0))}</span>
+        </div>
+        {computePrice(f.type, parseInt(f.floors, 10) || 0) == null && (
+          <p className="mb-3 text-xs text-amber-700">Pick a Type (and Floors, for elevators) above to price it.</p>
+        )}
         <Field label="Money path">
           <Chips options={MONEY_PATHS} value={f.moneyPath} onChange={(v) => set("moneyPath", v)} />
         </Field>
@@ -857,6 +867,8 @@ function Profile({
     ["Type", e.type],
     ["Floors", e.floors ? String(e.floors) : "—"],
     ["Cycle", e.cycle === "Res" ? "Residential" : `${e.cycle} year`],
+    ["Price", e.price || formatPrice(computePrice(e.type, e.floors))],
+    ["Money path", e.moneyPath || "—"],
   ];
   return (
     <div className="mx-auto max-w-md px-4 pb-24 pt-4">

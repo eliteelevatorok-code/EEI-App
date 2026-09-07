@@ -35,6 +35,8 @@ export type Elevator = {
   floors: number;
   cycle: string; // "1" | "2" | "3" | "Res"
   due: string;
+  price?: string; // customer price from the dashboard (col P)
+  moneyPath?: string; // col Q
   row?: number; // the dashboard sheet row this came from (for write-back)
   lifecycle: LifecycleStage[]; // the customer-lifecycle status cells (cols S..AE)
   carried: Field[]; // fixed info: shown, but locked on the phone

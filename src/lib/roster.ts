@@ -63,6 +63,8 @@ function rowToElevator(row: string[], rowNumber: number): Elevator {
     floors: parseInt(cell(row, C.floors), 10) || 0,
     cycle: parseCycle(cell(row, C.cycle)),
     due: cell(row, C.due),
+    price: cell(row, C.price),
+    moneyPath: cell(row, C.moneyPath),
     row: rowNumber, // the sheet row, so finalize writes back to the right line
     lifecycle: LIFECYCLE_DEFS.map((d): LifecycleStage => ({
       key: d.key,
