@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useClerk } from "@clerk/nextjs";
 import {
-  ACCOUNTS,
   CERT_ISSUE,
   CONDITIONS,
   CYCLES,
@@ -14,6 +13,7 @@ import {
   type LineKind,
 } from "@/lib/data";
 import { VHEAD, VIOLATIONS, parseViolation } from "@/lib/violations";
+import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from "@/lib/prefs";
 
 type Stage = "picking" | "editing";
 
@@ -103,42 +103,203 @@ function Chips({
 const inputCls =
   "w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2.5 text-base outline-none focus:border-[#1F4B45] focus:ring-2 focus:ring-[#1F4B45]/20";
 
+/* ---------- settings ---------- */
+
+type BIPEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
+
+// Detect install support + whether the app is already installed, and capture
+// the browser's install prompt so one button can install without double-installing.
+function useInstall() {
+  const [deferred, setDeferred] = useState<BIPEvent | null>(null);
+  const [installed, setInstalled] = useState(false);
+
+  useEffect(() => {
+    const check = () => {
+      const standalone =
+        window.matchMedia?.("(display-mode: standalone)").matches ||
+        (window.navigator as unknown as { standalone?: boolean }).standalone === true;
+      setInstalled(Boolean(standalone));
+    };
+    check();
+    const onBIP = (e: Event) => {
+      e.preventDefault();
+      setDeferred(e as BIPEvent);
+    };
+    const onInstalled = () => {
+      setInstalled(true);
+      setDeferred(null);
+    };
+    window.addEventListener("beforeinstallprompt", onBIP);
+    window.addEventListener("appinstalled", onInstalled);
+    const mq = window.matchMedia?.("(display-mode: standalone)");
+    mq?.addEventListener?.("change", check);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBIP);
+      window.removeEventListener("appinstalled", onInstalled);
+      mq?.removeEventListener?.("change", check);
+    };
+  }, []);
+
+  const install = async () => {
+    if (!deferred) return;
+    await deferred.prompt();
+    await deferred.userChoice.catch(() => {});
+    setDeferred(null);
+  };
+  const canInstall = !installed && Boolean(deferred);
+  return { installed, canInstall, install };
+}
+
+function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => void }) {
+  const { installed, canInstall, install } = useInstall();
+  const [scale, setScale] = useState(1);
+  useEffect(() => setScale(currentFontScale()), []);
+
+  const setSize = (s: number) => {
+    setScale(s);
+    saveFontScale(s);
+  };
+
+  const buildSha = process.env.NEXT_PUBLIC_BUILD_SHA || "local";
+  const buildTime = process.env.NEXT_PUBLIC_BUILD_TIME || "";
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-stone-100">
+      <div className="flex items-center justify-between border-b border-stone-200 bg-white p-3">
+        <h3 className="text-sm font-bold uppercase tracking-widest">Settings</h3>
+        <button
+          onClick={onClose}
+          className="rounded-full bg-[#1F4B45] px-4 py-2 text-xs font-bold uppercase tracking-wider text-stone-50"
+        >
+          Done
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-auto p-4">
+        {/* Install to device */}
+        <Card title="This device">
+          {installed ? (
+            <p className="text-sm text-stone-700">
+              <span className="font-bold text-[#1F4B45]">Installed ✓</span> — you&apos;re running the app from
+              your home screen.
+            </p>
+          ) : canInstall ? (
+            <>
+              <p className="mb-3 text-sm text-stone-600">Add EEI Field Reports to this device as an app.</p>
+              <button
+                onClick={install}
+                className="w-full rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50"
+              >
+                Install app on this device
+              </button>
+            </>
+          ) : (
+            <p className="text-sm text-stone-600">
+              To install: open the browser menu and choose{" "}
+              <span className="font-semibold">Add to Home Screen</span> (iPhone: the Share button; Android:
+              the ⋮ menu). Once added, this will say “Installed.”
+            </p>
+          )}
+        </Card>
+
+        {/* Text size */}
+        <Card title="Text size">
+          <p className="mb-3 text-sm text-stone-600">Make everything bigger for easier reading.</p>
+          <div className="flex flex-wrap gap-2">
+            {FONT_SCALES.map((s) => {
+              const on = s === scale;
+              return (
+                <button
+                  key={s}
+                  onClick={() => setSize(s)}
+                  className={
+                    "rounded-full border px-4 py-2 text-sm font-semibold " +
+                    (on
+                      ? "border-[#1F4B45] bg-[#1F4B45] text-stone-50"
+                      : "border-stone-300 bg-stone-50 text-stone-700")
+                  }
+                >
+                  {FONT_SCALE_LABELS[s]}
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+
+        {/* Account */}
+        <Card title="Account">
+          <button
+            onClick={onLogout}
+            className="w-full rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700 active:bg-stone-200"
+          >
+            Log out
+          </button>
+        </Card>
+
+        {/* Build */}
+        <Card title="Version">
+          <dl className="divide-y divide-stone-100 text-sm">
+            <div className="flex justify-between py-2">
+              <dt className="text-stone-500">Build</dt>
+              <dd className="font-mono text-stone-700">{buildSha}</dd>
+            </div>
+            {buildTime && (
+              <div className="flex justify-between py-2">
+                <dt className="text-stone-500">Deployed</dt>
+                <dd className="text-stone-700">{new Date(buildTime).toLocaleString()}</dd>
+              </div>
+            )}
+          </dl>
+          <p className="mt-2 text-xs text-stone-400">
+            Full history of every build lives in the project&apos;s Vercel dashboard.
+          </p>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- screens ---------- */
 
 function Picker({
   onPick,
-  onLock,
+  onSettings,
 }: {
   onPick: (e: Elevator) => void;
-  onLock: () => void;
+  onSettings: () => void;
 }) {
   const [q, setQ] = useState("");
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [loadState, setLoadState] = useState<"loading" | "live" | "sample">("loading");
+  const [loadState, setLoadState] = useState<"loading" | "live" | "error">("loading");
+  const [errMsg, setErrMsg] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const query = q.trim().toLowerCase();
 
+  // Live dashboard only — no sample data. If it can't load, show why + Retry.
   useEffect(() => {
     let cancelled = false;
+    setLoadState("loading");
     (async () => {
       try {
         const res = await fetch("/api/roster");
         const data = (await res.json()) as { accounts?: Account[]; error?: string };
-        if (!res.ok || !data.accounts) throw new Error(data.error || "roster failed");
+        if (!res.ok || !data.accounts) throw new Error(data.error || `Error ${res.status}`);
         if (!cancelled) {
           setAccounts(data.accounts);
           setLoadState("live");
         }
-      } catch {
+      } catch (e) {
         if (!cancelled) {
-          setAccounts(ACCOUNTS); // fall back to the built-in sample list
-          setLoadState("sample");
+          setAccounts([]);
+          setErrMsg(e instanceof Error ? e.message : "Couldn't reach the dashboard");
+          setLoadState("error");
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   const filtered = useMemo(() => {
     return accounts.map((a) => ({
@@ -157,8 +318,8 @@ function Picker({
     <div className="mx-auto max-w-md px-4 pb-16 pt-4">
       <div className="mb-3 flex items-center justify-between">
         <div className="text-sm font-extrabold tracking-wide text-[#1F4B45]">ELITE / FIELD</div>
-        <button onClick={onLock} className="text-xs font-semibold uppercase tracking-wider text-stone-500">
-          Lock
+        <button onClick={onSettings} className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+          ⚙ Settings
         </button>
       </div>
       <h1 className="mb-3 text-lg font-bold">Pick an elevator</h1>
@@ -193,13 +354,20 @@ function Picker({
         </div>
       ))}
       {loadState === "loading" && <p className="px-1 text-sm text-stone-500">Loading your list…</p>}
-      {loadState !== "loading" && filtered.length === 0 && (
+      {loadState === "live" && filtered.length === 0 && (
         <p className="px-1 text-sm text-stone-500">No matches.</p>
       )}
-      {loadState === "sample" && (
-        <p className="mt-4 px-1 text-xs text-amber-700">
-          Showing the sample list — couldn&apos;t reach the dashboard right now.
-        </p>
+      {loadState === "error" && (
+        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4">
+          <p className="text-sm font-semibold text-red-700">Couldn&apos;t load your elevator list.</p>
+          <p className="mt-1 text-xs text-red-600">{errMsg}</p>
+          <button
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="mt-3 rounded-lg bg-[#1F4B45] px-4 py-2 text-sm font-bold text-stone-50"
+          >
+            Retry
+          </button>
+        </div>
       )}
     </div>
   );
@@ -280,11 +448,11 @@ const KIND_COLOR: Record<LineKind, string> = {
 function Report({
   elevator,
   onChangeElevator,
-  onLock,
+  onSettings,
 }: {
   elevator: Elevator;
   onChangeElevator: () => void;
-  onLock: () => void;
+  onSettings: () => void;
 }) {
   const [r, setR] = useState<Report>(() => freshReport(elevator));
   const [sheet, setSheet] = useState(false);
@@ -385,8 +553,8 @@ function Report({
           <button onClick={onChangeElevator} className="text-xs font-semibold text-stone-600">
             Change
           </button>
-          <button onClick={onLock} className="text-xs font-semibold text-stone-500">
-            Lock
+          <button onClick={onSettings} className="text-xs font-semibold text-stone-500">
+            ⚙ Settings
           </button>
         </div>
       </div>
@@ -576,26 +744,30 @@ export default function Home() {
   const { signOut } = useClerk();
   const [stage, setStage] = useState<Stage>("picking");
   const [selected, setSelected] = useState<Elevator | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // "Lock" signs out of Clerk; the protected route sends them back to sign-in.
-  const lock = () => signOut({ redirectUrl: "/sign-in" });
+  const logout = () => signOut({ redirectUrl: "/sign-in" });
+  const openSettings = () => setSettingsOpen(true);
 
-  if (stage === "picking" || !selected)
-    return (
-      <Picker
-        onPick={(e) => {
-          setSelected(e);
-          setStage("editing");
-        }}
-        onLock={lock}
-      />
-    );
   return (
-    <Report
-      key={selected.okla}
-      elevator={selected}
-      onChangeElevator={() => setStage("picking")}
-      onLock={lock}
-    />
+    <>
+      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} onLogout={logout} />}
+      {stage === "picking" || !selected ? (
+        <Picker
+          onPick={(e) => {
+            setSelected(e);
+            setStage("editing");
+          }}
+          onSettings={openSettings}
+        />
+      ) : (
+        <Report
+          key={selected.okla}
+          elevator={selected}
+          onChangeElevator={() => setStage("picking")}
+          onSettings={openSettings}
+        />
+      )}
+    </>
   );
 }
