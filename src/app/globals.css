@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+/* keep inputs comfortable on mobile and prevent iOS zoom-on-focus */
+input,
+select,
+textarea,
+button {
+  font-size: 16px;
+}
