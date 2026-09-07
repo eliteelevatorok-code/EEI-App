@@ -15,7 +15,25 @@ import {
 import { VHEAD, VIOLATIONS, parseViolation } from "@/lib/violations";
 import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from "@/lib/prefs";
 
-type Stage = "picking" | "editing";
+type Stage = "list" | "profile" | "report";
+
+// Parse a m/d/yyyy (or yyyy-mm-dd) due date to a Date for sorting/coloring.
+function parseDue(s: string): Date | null {
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return new Date(+m[3], +m[1] - 1, +m[2]);
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  return null;
+}
+// Days from today until a due date (negative = overdue). null if unparseable.
+function daysUntil(s: string): number | null {
+  const d = parseDue(s);
+  if (!d) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - today.getTime()) / 86400000);
+}
+const DUE_SOON_DAYS = 60;
 
 type Report = {
   date: string;
@@ -259,6 +277,48 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
   );
 }
 
+/* ---------- shared bits ---------- */
+
+function dueTone(days: number | null): string {
+  if (days === null) return "border-stone-300 bg-stone-50 text-stone-600";
+  if (days < 0) return "border-red-300 bg-red-50 text-red-700";
+  if (days <= 30) return "border-amber-300 bg-amber-50 text-amber-700";
+  if (days <= DUE_SOON_DAYS) return "border-[#1F4B45]/40 bg-[#DDE8E4] text-[#1F4B45]";
+  return "border-stone-300 bg-stone-50 text-stone-600";
+}
+function DueBadge({ due }: { due: string }) {
+  const d = daysUntil(due);
+  const label =
+    d === null ? due || "no date" : d < 0 ? `${-d}d overdue` : d === 0 ? "due today" : `due in ${d}d`;
+  return (
+    <span
+      className={
+        "inline-block shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider " +
+        dueTone(d)
+      }
+    >
+      {label}
+    </span>
+  );
+}
+function UnitRow({ u, onPick, showAccount }: { u: Elevator; onPick: (e: Elevator) => void; showAccount?: boolean }) {
+  return (
+    <button
+      onClick={() => onPick(u)}
+      className="w-full rounded-lg border border-stone-300 bg-white p-3 text-left active:bg-stone-100"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="font-semibold">{u.building}</div>
+        <DueBadge due={u.due} />
+      </div>
+      <div className="mt-0.5 text-xs text-stone-500">
+        {[u.city, u.type, showAccount ? u.account : ""].filter(Boolean).join(" · ")}
+      </div>
+      <div className="mt-1 font-mono text-xs font-medium text-[#1F4B45]">#{u.okla} · due {u.due || "—"}</div>
+    </button>
+  );
+}
+
 /* ---------- screens ---------- */
 
 function Picker({
@@ -269,6 +329,7 @@ function Picker({
   onSettings: () => void;
 }) {
   const [q, setQ] = useState("");
+  const [mode, setMode] = useState<"all" | "soon">("all");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loadState, setLoadState] = useState<"loading" | "live" | "error">("loading");
   const [errMsg, setErrMsg] = useState("");
@@ -301,17 +362,36 @@ function Picker({
     };
   }, [reloadKey]);
 
-  const filtered = useMemo(() => {
-    return accounts.map((a) => ({
-      ...a,
-      units: a.units.filter(
-        (u) =>
-          !query ||
-          u.building.toLowerCase().includes(query) ||
-          u.okla.includes(query) ||
-          a.name.toLowerCase().includes(query),
-      ),
-    })).filter((a) => a.units.length > 0);
+  const matches = (u: Elevator, accountName: string) =>
+    !query ||
+    u.building.toLowerCase().includes(query) ||
+    u.okla.includes(query) ||
+    accountName.toLowerCase().includes(query);
+  const byDue = (a: Elevator, b: Elevator) => {
+    const da = daysUntil(a.due), db = daysUntil(b.due);
+    if (da === null) return 1;
+    if (db === null) return -1;
+    return da - db;
+  };
+
+  // "All" = grouped by account, each account's units soonest-due first.
+  const grouped = useMemo(
+    () =>
+      accounts
+        .map((a) => ({ ...a, units: a.units.filter((u) => matches(u, a.name)).sort(byDue) }))
+        .filter((a) => a.units.length > 0),
+    [accounts, query],
+  );
+  // "Due soon" = one flat list across all accounts, within the window, soonest first.
+  const dueSoon = useMemo(() => {
+    const all: Elevator[] = [];
+    for (const a of accounts) for (const u of a.units) if (matches(u, a.name)) all.push(u);
+    return all
+      .filter((u) => {
+        const d = daysUntil(u.due);
+        return d !== null && d <= DUE_SOON_DAYS;
+      })
+      .sort(byDue);
   }, [accounts, query]);
 
   return (
@@ -322,41 +402,67 @@ function Picker({
           ⚙ Settings
         </button>
       </div>
-      <h1 className="mb-3 text-lg font-bold">Pick an elevator</h1>
+      <h1 className="mb-3 text-lg font-bold">Elevators</h1>
+
+      {/* All vs Due soon */}
+      <div className="mb-3 flex gap-2">
+        {(["all", "soon"] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={
+              "flex-1 rounded-lg border py-2 text-sm font-bold uppercase tracking-wider " +
+              (mode === m
+                ? "border-[#1F4B45] bg-[#1F4B45] text-stone-50"
+                : "border-stone-300 bg-stone-50 text-stone-600")
+            }
+          >
+            {m === "all" ? "All" : "Due soon"}
+          </button>
+        ))}
+      </div>
+
       <input
         className={inputCls + " mb-4"}
-        placeholder="Search building or Oklahoma number"
+        placeholder="Search building, account, or Oklahoma number"
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />
-      {filtered.map((a) => (
-        <div key={a.name} className="mb-4">
+
+      {loadState === "loading" && <p className="px-1 text-sm text-stone-500">Loading your list…</p>}
+
+      {loadState === "live" && mode === "all" && (
+        <>
+          {grouped.map((a) => (
+            <div key={a.name} className="mb-4">
+              <div className="mb-1 px-1 text-xs font-bold uppercase tracking-wider text-stone-500">{a.name}</div>
+              <div className="flex flex-col gap-2">
+                {a.units.map((u) => (
+                  <UnitRow key={u.okla} u={u} onPick={onPick} />
+                ))}
+              </div>
+            </div>
+          ))}
+          {grouped.length === 0 && <p className="px-1 text-sm text-stone-500">No matches.</p>}
+        </>
+      )}
+
+      {loadState === "live" && mode === "soon" && (
+        <>
           <div className="mb-1 px-1 text-xs font-bold uppercase tracking-wider text-stone-500">
-            {a.name}
+            Due within {DUE_SOON_DAYS} days
           </div>
           <div className="flex flex-col gap-2">
-            {a.units.map((u) => (
-              <button
-                key={u.okla}
-                onClick={() => onPick(u)}
-                className="rounded-lg border border-stone-300 bg-white p-3 text-left active:bg-stone-100"
-              >
-                <div className="font-semibold">{u.building}</div>
-                <div className="mt-0.5 text-xs text-stone-500">
-                  {u.city} · {u.type}
-                </div>
-                <div className="mt-1 font-mono text-xs font-medium text-[#1F4B45]">
-                  #{u.okla} · due {u.due}
-                </div>
-              </button>
+            {dueSoon.map((u) => (
+              <UnitRow key={u.okla} u={u} onPick={onPick} showAccount />
             ))}
           </div>
-        </div>
-      ))}
-      {loadState === "loading" && <p className="px-1 text-sm text-stone-500">Loading your list…</p>}
-      {loadState === "live" && filtered.length === 0 && (
-        <p className="px-1 text-sm text-stone-500">No matches.</p>
+          {dueSoon.length === 0 && (
+            <p className="px-1 text-sm text-stone-500">Nothing due in the next {DUE_SOON_DAYS} days.</p>
+          )}
+        </>
       )}
+
       {loadState === "error" && (
         <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4">
           <p className="text-sm font-semibold text-red-700">Couldn&apos;t load your elevator list.</p>
@@ -369,6 +475,94 @@ function Picker({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function Profile({
+  elevator,
+  onBack,
+  onStartReport,
+  onSettings,
+}: {
+  elevator: Elevator;
+  onBack: () => void;
+  onStartReport: () => void;
+  onSettings: () => void;
+}) {
+  const e = elevator;
+  const details: [string, string][] = [
+    ["Account", e.account],
+    ["Contact", e.contact],
+    ["City", e.city],
+    ["Area", e.area],
+    ["Type", e.type],
+    ["Floors", e.floors ? String(e.floors) : "—"],
+    ["Cycle", e.cycle === "Res" ? "Residential" : `${e.cycle} year`],
+  ];
+  return (
+    <div className="mx-auto max-w-md px-4 pb-24 pt-4">
+      <div className="mb-3 flex items-center gap-2">
+        <button onClick={onBack} className="text-xs font-semibold text-stone-600">‹ List</button>
+        <div className="grow" />
+        <button onClick={onSettings} className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+          ⚙ Settings
+        </button>
+      </div>
+
+      {/* data plate */}
+      <div className="mb-3 rounded-lg bg-stone-800 p-4 text-stone-100">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">Oklahoma #</div>
+        <div className="font-mono text-2xl font-medium">{e.okla}</div>
+        <div className="mt-1 text-sm font-semibold">{e.building}</div>
+        <div className="mt-2 flex items-center gap-2">
+          <DueBadge due={e.due} />
+          <span className="text-xs text-stone-400">due {e.due || "—"}</span>
+        </div>
+      </div>
+
+      {/* primary actions */}
+      <div className="mb-3 grid grid-cols-1 gap-2">
+        <button
+          onClick={onStartReport}
+          className="rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50 active:opacity-90"
+        >
+          Start inspection report
+        </button>
+      </div>
+
+      {/* lifecycle snapshot (read-only for now) */}
+      <Card title="Customer lifecycle">
+        <div className="flex flex-col gap-1.5">
+          {e.lifecycle.map((s) => (
+            <div key={s.key} className="flex items-center justify-between gap-3 rounded-md bg-stone-50 px-3 py-2">
+              <span className="text-sm text-stone-600">{s.label}</span>
+              {s.value ? (
+                <span className="rounded-full bg-[#DDE8E4] px-2 py-0.5 text-xs font-semibold text-[#1F4B45]">
+                  {s.value}
+                </span>
+              ) : (
+                <span className="text-xs text-stone-400">—</span>
+              )}
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-stone-400">
+          Editing each step (with an “are you sure?” confirm) is the next piece being built.
+        </p>
+      </Card>
+
+      {/* details */}
+      <Card title="Details">
+        <dl className="divide-y divide-stone-100">
+          {details.map(([k, v]) => (
+            <div key={k} className="flex justify-between gap-4 py-2">
+              <dt className="text-xs font-semibold uppercase tracking-wider text-stone-500">{k}</dt>
+              <dd className="text-right text-sm text-stone-700">{v || "—"}</dd>
+            </div>
+          ))}
+        </dl>
+      </Card>
     </div>
   );
 }
@@ -447,11 +641,11 @@ const KIND_COLOR: Record<LineKind, string> = {
 
 function Report({
   elevator,
-  onChangeElevator,
+  onBack,
   onSettings,
 }: {
   elevator: Elevator;
-  onChangeElevator: () => void;
+  onBack: () => void;
   onSettings: () => void;
 }) {
   const [r, setR] = useState<Report>(() => freshReport(elevator));
@@ -550,8 +744,8 @@ function Report({
             Phone
           </span>
           <div className="grow" />
-          <button onClick={onChangeElevator} className="text-xs font-semibold text-stone-600">
-            Change
+          <button onClick={onBack} className="text-xs font-semibold text-stone-600">
+            ‹ Profile
           </button>
           <button onClick={onSettings} className="text-xs font-semibold text-stone-500">
             ⚙ Settings
@@ -742,7 +936,7 @@ function Tally({ n, label, color }: { n: number; label: string; color: string })
 
 export default function Home() {
   const { signOut } = useClerk();
-  const [stage, setStage] = useState<Stage>("picking");
+  const [stage, setStage] = useState<Stage>("list");
   const [selected, setSelected] = useState<Elevator | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -752,19 +946,27 @@ export default function Home() {
   return (
     <>
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} onLogout={logout} />}
-      {stage === "picking" || !selected ? (
+      {stage === "list" || !selected ? (
         <Picker
           onPick={(e) => {
             setSelected(e);
-            setStage("editing");
+            setStage("profile");
           }}
+          onSettings={openSettings}
+        />
+      ) : stage === "profile" ? (
+        <Profile
+          key={selected.okla}
+          elevator={selected}
+          onBack={() => setStage("list")}
+          onStartReport={() => setStage("report")}
           onSettings={openSettings}
         />
       ) : (
         <Report
           key={selected.okla}
           elevator={selected}
-          onChangeElevator={() => setStage("picking")}
+          onBack={() => setStage("profile")}
           onSettings={openSettings}
         />
       )}

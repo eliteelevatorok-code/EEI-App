@@ -1,4 +1,4 @@
-import type { Account, Elevator, Field } from "@/lib/data";
+import type { Account, Elevator, Field, LifecycleStage } from "@/lib/data";
 import { readRange, writeCell } from "@/lib/google";
 
 // Dashboard "Elevators" tab: data starts at row 3 (rows 1-2 are banner + headers).
@@ -15,6 +15,25 @@ const C = {
 
 // spreadsheet column letters for write-back
 export const COL = { visit: "Y", tripDay: "Z", report: "AA" };
+
+// The customer lifecycle, left-to-right (dashboard columns S..AE). `idx` is the
+// zero-based row index; `col` the sheet letter (for write-back); `options` the
+// cell's dropdown choices ([] = free text, e.g. the trip date).
+export const LIFECYCLE_DEFS: { key: string; label: string; col: string; idx: number; options: string[] }[] = [
+  { key: "twoMoEmail", label: "2-month email", col: "S", idx: 18, options: ["Sent"] },
+  { key: "quote", label: "Quote", col: "T", idx: 19, options: ["Review", "Sent"] },
+  { key: "po", label: "PO", col: "U", idx: 20, options: ["Awaiting", "Received", "N/A"] },
+  { key: "scheduling", label: "Scheduling email", col: "V", idx: 21, options: ["Sent"] },
+  { key: "maintConfirm", label: "Maint. confirm", col: "W", idx: 22, options: ["Waiting", "Answered", "No answer"] },
+  { key: "accessReminder", label: "Access reminder", col: "X", idx: 23, options: ["Sent"] },
+  { key: "visit", label: "Visit", col: "Y", idx: 24, options: ["Booked", "Inspected"] },
+  { key: "tripDay", label: "Trip day", col: "Z", idx: 25, options: [] },
+  { key: "report", label: "Report", col: "AA", idx: 26, options: ["Sent"] },
+  { key: "invoice", label: "Invoice", col: "AB", idx: 27, options: ["Sent"] },
+  { key: "followUps", label: "Follow-ups", col: "AC", idx: 28, options: ["#1 sent", "#2 sent", "#3 sent"] },
+  { key: "paid", label: "Paid", col: "AD", idx: 29, options: ["Paid"] },
+  { key: "newTimer", label: "New timer set", col: "AE", idx: 30, options: ["Set"] },
+];
 
 // The carried (locked) technical fields the report needs. The roster does not
 // hold these yet — they come from last year's saved report — so they start blank.
@@ -45,6 +64,13 @@ function rowToElevator(row: string[], rowNumber: number): Elevator {
     cycle: parseCycle(cell(row, C.cycle)),
     due: cell(row, C.due),
     row: rowNumber, // the sheet row, so finalize writes back to the right line
+    lifecycle: LIFECYCLE_DEFS.map((d): LifecycleStage => ({
+      key: d.key,
+      label: d.label,
+      col: d.col,
+      value: cell(row, d.idx),
+      options: d.options,
+    })),
     carried: blankCarried(),
     lastYear: { date: "", inspType: "Periodic", test1: "", test5: "", certIssue: "Yes", condition: "No adverse conditions", notes: "" },
   };

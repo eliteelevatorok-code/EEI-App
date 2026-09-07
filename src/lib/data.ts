@@ -1,7 +1,18 @@
-// Sample data for the field UI. Nothing here is a real customer — these mirror
-// the dashboard's test rows. Real records will load from the dashboard later.
+// Types + constants for the field app. Live records come from the dashboard
+// via src/lib/roster.ts — no sample data ships here.
 
 export type LineKind = "V" | "R" | "C";
+
+// One stage of the customer lifecycle (a dashboard column S..AE). `col` is the
+// sheet column letter, used to write the stage back. `options` are the dropdown
+// choices for that cell (empty = free text).
+export type LifecycleStage = {
+  key: string;
+  label: string;
+  col: string;
+  value: string;
+  options: string[];
+};
 
 export type AddedViolation = {
   raw: string;
@@ -25,6 +36,7 @@ export type Elevator = {
   cycle: string; // "1" | "2" | "3" | "Res"
   due: string;
   row?: number; // the dashboard sheet row this came from (for write-back)
+  lifecycle: LifecycleStage[]; // the customer-lifecycle status cells (cols S..AE)
   carried: Field[]; // fixed info: shown, but locked on the phone
   lastYear: {
     date: string;
