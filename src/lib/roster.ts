@@ -107,13 +107,13 @@ export type NewElevatorInput = {
 
 // Append a new elevator as a new row on the dashboard (cols A..R). Lifecycle
 // cells (S..AE) are left blank — the engine/app fills them over time.
-export async function appendElevator(f: NewElevatorInput): Promise<void> {
+export async function appendElevator(f: NewElevatorInput): Promise<number | null> {
   const row = [
     f.okla, f.building, f.area, f.city, f.account, f.contact, f.email, f.phone,
     f.maintCo, f.maintContact, f.maintEmail, f.maintPhone, f.type, f.floors, f.cycle,
     f.price, f.moneyPath, f.due,
   ];
-  await appendRow(`${TAB}!A:R`, row);
+  return appendRow(`${TAB}!A:R`, row);
 }
 
 // Flip the lifecycle cells when a report is finalized.

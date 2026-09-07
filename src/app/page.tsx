@@ -498,18 +498,43 @@ const NEW_TYPES = [
 ];
 const NEW_CYCLES = ["1 yr", "2 yr", "3 yr"];
 const MONEY_PATHS = ["Quote-first", "Quote to PO to invoice"];
+// Labels must match the fillForm maps exactly (they key the PDF fields).
+const DEVICE_TYPES = ["Const/Temp", "Escalator/MW", "Personnel Hoist", "Platform Lift", "Stairway Chair Lift", "Passenger", "LU/LA", "Freight"];
+const MACHINE_TYPES = ["Cable", "Direct Plunger Hydraulic", "Hand Powered", "Roped Hydraulic", "Other"];
+const ENTITY_TYPES = ["Private", "County", "City", "State"];
 
 type NewForm = {
+  // dashboard row (cols A..R)
   okla: string; building: string; account: string; type: string; floors: string; cycle: string; due: string;
   city: string; area: string; contact: string; email: string; phone: string;
   maintCo: string; maintContact: string; maintEmail: string; maintPhone: string;
   price: string; moneyPath: string;
+  // technical details for the PDF (no prior report to carry from)
+  serial: string; permit: string; mfr: string; capacity: string; speed: string; rise: string;
+  openings: string; landings: string; installed: string; codeYear: string;
+  deviceType: string; machineType: string; entityType: string;
+  owner: string; ownerAddr: string; locAddr: string;
 };
 const BLANK_FORM: NewForm = {
   okla: "", building: "", account: "", type: "", floors: "", cycle: "", due: "",
   city: "", area: "", contact: "", email: "", phone: "",
   maintCo: "", maintContact: "", maintEmail: "", maintPhone: "", price: "", moneyPath: "",
+  serial: "", permit: "", mfr: "", capacity: "", speed: "", rise: "",
+  openings: "", landings: "", installed: "", codeYear: "",
+  deviceType: "", machineType: "", entityType: "", owner: "", ownerAddr: "", locAddr: "",
 };
+
+// Build the carried (technical) field list the PDF filler expects.
+function carriedFromForm(f: NewForm): { label: string; value: string }[] {
+  return [
+    ["Serial number", f.serial], ["Permit #", f.permit], ["Manufacturer", f.mfr],
+    ["Capacity (lbs)", f.capacity], ["Speed (FPM)", f.speed], ["Rise", f.rise],
+    ["Openings", f.openings], ["# of landings", f.landings], ["Device type", f.deviceType],
+    ["Installed year", f.installed], ["Code year", f.codeYear], ["Machine type", f.machineType],
+    ["Entity type", f.entityType], ["Owner", f.owner], ["Owner address", f.ownerAddr],
+    ["Location address", f.locAddr],
+  ].map(([label, value]) => ({ label, value }));
+}
 
 // Module-level so it isn't recreated each render (which would drop input focus).
 function TextRow({
@@ -530,7 +555,7 @@ function TextRow({
   );
 }
 
-function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: () => void }) {
+function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e: Elevator) => void }) {
   const [f, setF] = useState<NewForm>(BLANK_FORM);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -550,14 +575,30 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: () 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(f),
       });
-      if (!res.ok) {
-        const e = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(e.error || `Error ${res.status}`);
-      }
-      onCreated();
+      const data = (await res.json().catch(() => ({}))) as { error?: string; row?: number };
+      if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+      // Hand the new elevator (with technical details + its sheet row) to the
+      // first inspection, so the first PDF gets everything.
+      const cycleNum = (f.cycle.match(/\d/)?.[0]) || "1";
+      const elevator: Elevator = {
+        okla: f.okla.trim(),
+        building: f.building.trim(),
+        account: f.account.trim(),
+        contact: f.contact,
+        area: f.area,
+        city: f.city,
+        type: f.type,
+        floors: parseInt(f.floors, 10) || 0,
+        cycle: cycleNum,
+        due: f.due,
+        row: data.row ?? undefined,
+        lifecycle: [],
+        carried: carriedFromForm(f),
+        lastYear: { date: "", inspType: "Initial", test1: "", test5: "", certIssue: "Yes", condition: "No adverse conditions", notes: "" },
+      };
+      onCreated(elevator);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Couldn't save");
-    } finally {
       setBusy(false);
     }
   }
@@ -584,6 +625,39 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: () 
           </Field>
         </div>
         <TextRow label="Next due date" value={f.due} onChange={(v) => set("due", v)} type="date" />
+      </Card>
+
+      <Card title="Technical details (for the PDF)">
+        <div className="grid grid-cols-2 gap-3">
+          <TextRow label="Serial number" value={f.serial} onChange={(v) => set("serial", v)} />
+          <TextRow label="Permit #" value={f.permit} onChange={(v) => set("permit", v)} />
+        </div>
+        <TextRow label="Manufacturer" value={f.mfr} onChange={(v) => set("mfr", v)} />
+        <div className="grid grid-cols-2 gap-3">
+          <TextRow label="Capacity (lbs)" value={f.capacity} onChange={(v) => set("capacity", v)} />
+          <TextRow label="Speed (FPM)" value={f.speed} onChange={(v) => set("speed", v)} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <TextRow label="Rise" value={f.rise} onChange={(v) => set("rise", v)} />
+          <TextRow label="Openings" value={f.openings} onChange={(v) => set("openings", v)} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <TextRow label="# of landings" value={f.landings} onChange={(v) => set("landings", v)} />
+          <TextRow label="Installed year" value={f.installed} onChange={(v) => set("installed", v)} />
+        </div>
+        <TextRow label="Code year" value={f.codeYear} onChange={(v) => set("codeYear", v)} />
+        <Field label="Device type">
+          <Chips options={DEVICE_TYPES} value={f.deviceType} onChange={(v) => set("deviceType", v)} />
+        </Field>
+        <Field label="Machine type">
+          <Chips options={MACHINE_TYPES} value={f.machineType} onChange={(v) => set("machineType", v)} />
+        </Field>
+        <Field label="Entity type">
+          <Chips options={ENTITY_TYPES} value={f.entityType} onChange={(v) => set("entityType", v)} />
+        </Field>
+        <TextRow label="Owner" value={f.owner} onChange={(v) => set("owner", v)} />
+        <TextRow label="Owner address" value={f.ownerAddr} onChange={(v) => set("ownerAddr", v)} />
+        <TextRow label="Location address" value={f.locAddr} onChange={(v) => set("locAddr", v)} />
       </Card>
 
       <Card title="Location & contact">
@@ -617,11 +691,11 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: () 
         disabled={busy}
         className="w-full rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50 disabled:opacity-50"
       >
-        {busy ? "Saving…" : "Create elevator"}
+        {busy ? "Saving…" : "Save & start first inspection"}
       </button>
       <p className="mt-3 px-1 text-xs text-stone-400">
-        This adds the elevator to your dashboard. Its first PDF and (for a new account) its Drive folder are
-        created when you run its first inspection.
+        Adds the elevator to your dashboard, then opens its first inspection (date, condition, violations) so its
+        first PDF is saved to Drive — a new account gets its own Drive folder automatically.
       </p>
     </div>
   );
@@ -1247,7 +1321,13 @@ export default function Home() {
     <>
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} onLogout={logout} />}
       {stage === "new" ? (
-        <NewElevator onBack={() => setStage("list")} onCreated={() => setStage("list")} />
+        <NewElevator
+          onBack={() => setStage("list")}
+          onCreated={(e) => {
+            setSelected(e);
+            setStage("report");
+          }}
+        />
       ) : stage === "list" || !selected ? (
         <Picker
           onPick={(e) => {

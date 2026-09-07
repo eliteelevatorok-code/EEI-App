@@ -25,8 +25,8 @@ export async function POST(req: Request) {
   for (const k of FIELDS) clean[k] = String(body[k] ?? "").slice(0, 200).trim();
 
   try {
-    await appendElevator(clean);
-    return Response.json({ ok: true, okla: clean.okla });
+    const row = await appendElevator(clean);
+    return Response.json({ ok: true, okla: clean.okla, row });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Couldn't save the elevator";
     return Response.json({ error: message }, { status: 502 });
