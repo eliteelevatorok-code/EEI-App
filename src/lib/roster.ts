@@ -1,5 +1,5 @@
 import type { Account, Elevator, Field, LifecycleStage } from "@/lib/data";
-import { readRange, writeCell } from "@/lib/google";
+import { appendRow, readRange, writeCell } from "@/lib/google";
 
 // Dashboard "Elevators" tab: data starts at row 3 (rows 1-2 are banner + headers).
 const FIRST_DATA_ROW = 3;
@@ -95,6 +95,25 @@ export async function findRowByOkla(okla: string): Promise<number | null> {
   const rows = await readRange(`${TAB}!A${FIRST_DATA_ROW}:A`);
   const idx = rows.findIndex((r) => (r[0] ?? "").trim() === okla.trim());
   return idx === -1 ? null : FIRST_DATA_ROW + idx;
+}
+
+// A brand-new elevator's roster fields (dashboard columns A..R, in order).
+export type NewElevatorInput = {
+  okla: string; building: string; area: string; city: string; account: string;
+  contact: string; email: string; phone: string; maintCo: string; maintContact: string;
+  maintEmail: string; maintPhone: string; type: string; floors: string; cycle: string;
+  price: string; moneyPath: string; due: string;
+};
+
+// Append a new elevator as a new row on the dashboard (cols A..R). Lifecycle
+// cells (S..AE) are left blank — the engine/app fills them over time.
+export async function appendElevator(f: NewElevatorInput): Promise<void> {
+  const row = [
+    f.okla, f.building, f.area, f.city, f.account, f.contact, f.email, f.phone,
+    f.maintCo, f.maintContact, f.maintEmail, f.maintPhone, f.type, f.floors, f.cycle,
+    f.price, f.moneyPath, f.due,
+  ];
+  await appendRow(`${TAB}!A:R`, row);
 }
 
 // Flip the lifecycle cells when a report is finalized.

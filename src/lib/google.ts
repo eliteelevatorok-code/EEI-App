@@ -64,6 +64,18 @@ export async function writeCell(a1: string, value: string): Promise<void> {
   });
 }
 
+// Append a row to the end of a table (e.g. "Elevators!A:R").
+export async function appendRow(range: string, values: string[]): Promise<void> {
+  const client = await auth().getClient();
+  await client.request({
+    url: `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_ID}/values/${encodeURIComponent(
+      range,
+    )}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    method: "POST",
+    data: { values: [values] },
+  });
+}
+
 // Find a folder by name under a parent, or create it. Runs as Robert (owner).
 async function findOrCreateFolder(name: string, parentId: string): Promise<string> {
   const client = driveOwner();

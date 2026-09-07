@@ -16,7 +16,7 @@ import {
 import { VHEAD, VIOLATIONS, parseViolation } from "@/lib/violations";
 import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from "@/lib/prefs";
 
-type Stage = "list" | "profile" | "report";
+type Stage = "list" | "profile" | "report" | "new";
 
 // Parse a m/d/yyyy (or yyyy-mm-dd) due date to a Date for sorting/coloring.
 function parseDue(s: string): Date | null {
@@ -324,9 +324,11 @@ function UnitRow({ u, onPick, showAccount }: { u: Elevator; onPick: (e: Elevator
 
 function Picker({
   onPick,
+  onNew,
   onSettings,
 }: {
   onPick: (e: Elevator) => void;
+  onNew: () => void;
   onSettings: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -424,11 +426,18 @@ function Picker({
       </div>
 
       <input
-        className={inputCls + " mb-4"}
+        className={inputCls + " mb-3"}
         placeholder="Search building, account, or Oklahoma number"
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />
+
+      <button
+        onClick={onNew}
+        className="mb-4 w-full rounded-lg border-2 border-dashed border-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-[#1F4B45] active:bg-[#DDE8E4]"
+      >
+        + New elevator
+      </button>
 
       {loadState === "loading" && <p className="px-1 text-sm text-stone-500">Loading your list…</p>}
 
@@ -476,6 +485,144 @@ function Picker({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+const NEW_TYPES = [
+  "Elevator (Traction)",
+  "Elevator (Hydraulic)",
+  "Escalator",
+  "Moving Walk",
+  "Wheelchair/Platform Lift",
+];
+const NEW_CYCLES = ["1 yr", "2 yr", "3 yr"];
+const MONEY_PATHS = ["Quote-first", "Quote to PO to invoice"];
+
+type NewForm = {
+  okla: string; building: string; account: string; type: string; floors: string; cycle: string; due: string;
+  city: string; area: string; contact: string; email: string; phone: string;
+  maintCo: string; maintContact: string; maintEmail: string; maintPhone: string;
+  price: string; moneyPath: string;
+};
+const BLANK_FORM: NewForm = {
+  okla: "", building: "", account: "", type: "", floors: "", cycle: "", due: "",
+  city: "", area: "", contact: "", email: "", phone: "",
+  maintCo: "", maintContact: "", maintEmail: "", maintPhone: "", price: "", moneyPath: "",
+};
+
+// Module-level so it isn't recreated each render (which would drop input focus).
+function TextRow({
+  label,
+  value,
+  onChange,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+}) {
+  return (
+    <Field label={label}>
+      <input className={inputCls} type={type} value={value} onChange={(e) => onChange(e.target.value)} />
+    </Field>
+  );
+}
+
+function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: () => void }) {
+  const [f, setF] = useState<NewForm>(BLANK_FORM);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const set = <K extends keyof NewForm>(k: K, v: string) => setF((p) => ({ ...p, [k]: v }));
+  const ready = f.okla.trim() && f.building.trim() && f.account.trim();
+
+  async function create() {
+    if (!ready) {
+      setErr("Oklahoma #, Building, and Account are required.");
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    try {
+      const res = await fetch("/api/elevators", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(f),
+      });
+      if (!res.ok) {
+        const e = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(e.error || `Error ${res.status}`);
+      }
+      onCreated();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't save");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-md px-4 pb-28 pt-4">
+      <div className="mb-3 flex items-center gap-2">
+        <button onClick={onBack} className="text-xs font-semibold text-stone-600">‹ List</button>
+        <div className="grow" />
+      </div>
+      <h1 className="mb-3 text-lg font-bold">New elevator</h1>
+
+      <Card title="Identity">
+        <TextRow label="Oklahoma # (required)" value={f.okla} onChange={(v) => set("okla", v)} />
+        <TextRow label="Building (required)" value={f.building} onChange={(v) => set("building", v)} />
+        <TextRow label="Account (required)" value={f.account} onChange={(v) => set("account", v)} />
+        <Field label="Type">
+          <Chips options={NEW_TYPES} value={f.type} onChange={(v) => set("type", v)} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <TextRow label="Floors" value={f.floors} onChange={(v) => set("floors", v)} type="number" />
+          <Field label="Inspection cycle">
+            <Chips options={NEW_CYCLES} value={f.cycle} onChange={(v) => set("cycle", v)} />
+          </Field>
+        </div>
+        <TextRow label="Next due date" value={f.due} onChange={(v) => set("due", v)} type="date" />
+      </Card>
+
+      <Card title="Location & contact">
+        <div className="grid grid-cols-2 gap-3">
+          <TextRow label="City" value={f.city} onChange={(v) => set("city", v)} />
+          <TextRow label="Area" value={f.area} onChange={(v) => set("area", v)} />
+        </div>
+        <TextRow label="Contact name" value={f.contact} onChange={(v) => set("contact", v)} />
+        <TextRow label="Customer email" value={f.email} onChange={(v) => set("email", v)} type="email" />
+        <TextRow label="Customer phone" value={f.phone} onChange={(v) => set("phone", v)} />
+      </Card>
+
+      <Card title="Maintenance company">
+        <TextRow label="Company" value={f.maintCo} onChange={(v) => set("maintCo", v)} />
+        <TextRow label="Contact" value={f.maintContact} onChange={(v) => set("maintContact", v)} />
+        <TextRow label="Email" value={f.maintEmail} onChange={(v) => set("maintEmail", v)} type="email" />
+        <TextRow label="Phone" value={f.maintPhone} onChange={(v) => set("maintPhone", v)} />
+      </Card>
+
+      <Card title="Billing">
+        <TextRow label="Price" value={f.price} onChange={(v) => set("price", v)} />
+        <Field label="Money path">
+          <Chips options={MONEY_PATHS} value={f.moneyPath} onChange={(v) => set("moneyPath", v)} />
+        </Field>
+      </Card>
+
+      {err && <p className="mb-3 px-1 text-sm font-semibold text-red-600">{err}</p>}
+
+      <button
+        onClick={create}
+        disabled={busy}
+        className="w-full rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50 disabled:opacity-50"
+      >
+        {busy ? "Saving…" : "Create elevator"}
+      </button>
+      <p className="mt-3 px-1 text-xs text-stone-400">
+        This adds the elevator to your dashboard. Its first PDF and (for a new account) its Drive folder are
+        created when you run its first inspection.
+      </p>
     </div>
   );
 }
@@ -1099,12 +1246,15 @@ export default function Home() {
   return (
     <>
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} onLogout={logout} />}
-      {stage === "list" || !selected ? (
+      {stage === "new" ? (
+        <NewElevator onBack={() => setStage("list")} onCreated={() => setStage("list")} />
+      ) : stage === "list" || !selected ? (
         <Picker
           onPick={(e) => {
             setSelected(e);
             setStage("profile");
           }}
+          onNew={() => setStage("new")}
           onSettings={openSettings}
         />
       ) : stage === "profile" ? (
