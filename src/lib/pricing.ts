@@ -23,3 +23,16 @@ export function computePrice(type: string, floors: number): number | null {
 export function formatPrice(n: number | null): string {
   return n == null ? "—" : `$${n}`;
 }
+
+// Inspection cycle auto-selects from the type (per the rate card):
+//   Traction/Cable elevators, escalators, moving walks .. every 1 year
+//   Hydraulic elevators ................................. every 2 years
+//   Wheelchair / platform lifts ......................... every 3 years
+// Exception: hospitals, nursing homes, mobility-restricted facilities are
+// annual regardless of type — pass `annual` = true for those.
+export function computeCycle(type: string, annual: boolean): string {
+  if (annual) return "1 yr";
+  if (/hydraulic/i.test(type)) return "2 yr";
+  if (/wheelchair|platform lift/i.test(type)) return "3 yr";
+  return "1 yr"; // traction/cable elevator, escalator, moving walk, default
+}

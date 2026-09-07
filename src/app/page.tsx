@@ -15,7 +15,7 @@ import {
 } from "@/lib/data";
 import { VHEAD, VIOLATIONS, parseViolation } from "@/lib/violations";
 import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from "@/lib/prefs";
-import { computePrice, formatPrice } from "@/lib/pricing";
+import { computeCycle, computePrice, formatPrice } from "@/lib/pricing";
 
 type Stage = "list" | "profile" | "report" | "new";
 
@@ -497,7 +497,6 @@ const NEW_TYPES = [
   "Moving Walk",
   "Wheelchair/Platform Lift",
 ];
-const NEW_CYCLES = ["1 yr", "2 yr", "3 yr"];
 const MONEY_PATHS = ["Quote to PO to invoice", "Invoice only"];
 // Labels must match the fillForm maps exactly (they key the PDF fields).
 const DEVICE_TYPES = ["Const/Temp", "Escalator/MW", "Personnel Hoist", "Platform Lift", "Stairway Chair Lift", "Passenger", "LU/LA", "Freight"];
@@ -558,10 +557,12 @@ function TextRow({
 
 function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e: Elevator) => void }) {
   const [f, setF] = useState<NewForm>(BLANK_FORM);
+  const [annual, setAnnual] = useState(false); // hospital/nursing-home/mobility exception
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const set = <K extends keyof NewForm>(k: K, v: string) => setF((p) => ({ ...p, [k]: v }));
   const ready = f.okla.trim() && f.building.trim() && f.account.trim();
+  const cycle = computeCycle(f.type, annual);
 
   async function create() {
     if (!ready) {
@@ -573,7 +574,7 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
     try {
       const floors = parseInt(f.floors, 10) || 0;
       const priceNum = computePrice(f.type, floors);
-      const payload = { ...f, price: priceNum == null ? "" : `$${priceNum}` };
+      const payload = { ...f, cycle, price: priceNum == null ? "" : `$${priceNum}` };
       const res = await fetch("/api/elevators", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -583,7 +584,7 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
       if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
       // Hand the new elevator (with technical details + its sheet row) to the
       // first inspection, so the first PDF gets everything.
-      const cycleNum = (f.cycle.match(/\d/)?.[0]) || "1";
+      const cycleNum = cycle.match(/\d/)?.[0] || "1";
       const elevator: Elevator = {
         okla: f.okla.trim(),
         building: f.building.trim(),
@@ -622,12 +623,22 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
         <Field label="Type">
           <Chips options={NEW_TYPES} value={f.type} onChange={(v) => set("type", v)} />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <TextRow label="Floors" value={f.floors} onChange={(v) => set("floors", v)} type="number" />
-          <Field label="Inspection cycle">
-            <Chips options={NEW_CYCLES} value={f.cycle} onChange={(v) => set("cycle", v)} />
-          </Field>
-        </div>
+        <TextRow label="Floors" value={f.floors} onChange={(v) => set("floors", v)} type="number" />
+        <Field label="Inspection cycle (auto)">
+          <div className="flex items-center justify-between rounded-lg border border-stone-300 bg-stone-50 px-3 py-2.5">
+            <span className="text-base font-semibold">{cycle}</span>
+            <span className="text-xs text-stone-400">{annual ? "annual exception" : "from type"}</span>
+          </div>
+        </Field>
+        <label className="mb-3 flex items-start gap-2 text-sm text-stone-700">
+          <input
+            type="checkbox"
+            checked={annual}
+            onChange={(e) => setAnnual(e.target.checked)}
+            className="mt-0.5 h-4 w-4"
+          />
+          <span>Hospital, nursing home, or mobility-restricted facility (inspect annually regardless of type)</span>
+        </label>
         <TextRow label="Next due date" value={f.due} onChange={(v) => set("due", v)} type="date" />
       </Card>
 
