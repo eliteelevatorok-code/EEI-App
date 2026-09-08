@@ -1,8 +1,10 @@
 import type { Account, Elevator, Field, LifecycleStage } from "@/lib/data";
 import { appendRow, readRange, writeCell } from "@/lib/google";
 
-// Dashboard "Elevators" tab: data starts at row 3 (rows 1-2 are banner + headers).
-const FIRST_DATA_ROW = 3;
+// Dashboard "Elevators" tab: row 1 is the header row, data starts at row 2.
+// (The old section-banner row was removed so Make's Search Rows can read the
+// headers from row 1 — its required layout.)
+const FIRST_DATA_ROW = 2;
 const TAB = "Elevators";
 
 // zero-based column indexes into a row
