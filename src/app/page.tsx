@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useClerk } from "@clerk/nextjs";
+import { getInstallState, isIOS, subscribeInstall, triggerInstall } from "@/lib/pwa-install";
 import {
   CERT_ISSUE,
   CONDITIONS,
@@ -125,53 +126,25 @@ const inputCls =
 
 /* ---------- settings ---------- */
 
-type BIPEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
-
-// Detect install support + whether the app is already installed, and capture
-// the browser's install prompt so one button can install without double-installing.
+// Reads the app-wide install state captured at startup (see lib/pwa-install).
+// Because the browser's install event is captured on load — not when this popup
+// opens — the button is available here even though the event fired earlier.
 function useInstall() {
-  const [deferred, setDeferred] = useState<BIPEvent | null>(null);
-  const [installed, setInstalled] = useState(false);
-
+  const [state, setState] = useState(() => getInstallState());
+  const [ios, setIos] = useState(false);
   useEffect(() => {
-    const check = () => {
-      const standalone =
-        window.matchMedia?.("(display-mode: standalone)").matches ||
-        (window.navigator as unknown as { standalone?: boolean }).standalone === true;
-      setInstalled(Boolean(standalone));
-    };
-    check();
-    const onBIP = (e: Event) => {
-      e.preventDefault();
-      setDeferred(e as BIPEvent);
-    };
-    const onInstalled = () => {
-      setInstalled(true);
-      setDeferred(null);
-    };
-    window.addEventListener("beforeinstallprompt", onBIP);
-    window.addEventListener("appinstalled", onInstalled);
-    const mq = window.matchMedia?.("(display-mode: standalone)");
-    mq?.addEventListener?.("change", check);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", onBIP);
-      window.removeEventListener("appinstalled", onInstalled);
-      mq?.removeEventListener?.("change", check);
-    };
+    setIos(isIOS());
+    setState(getInstallState());
+    return subscribeInstall(() => setState(getInstallState()));
   }, []);
-
-  const install = async () => {
-    if (!deferred) return;
-    await deferred.prompt();
-    await deferred.userChoice.catch(() => {});
-    setDeferred(null);
+  const install = () => {
+    void triggerInstall();
   };
-  const canInstall = !installed && Boolean(deferred);
-  return { installed, canInstall, install };
+  return { installed: state.installed, canInstall: state.canInstall, install, ios };
 }
 
 function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => void }) {
-  const { installed, canInstall, install } = useInstall();
+  const { installed, canInstall, install, ios } = useInstall();
   const [scale, setScale] = useState(1);
   useEffect(() => setScale(currentFontScale()), []);
 
@@ -208,17 +181,53 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
               <p className="mb-3 text-sm text-stone-600">Add EEI Field Reports to this device as an app.</p>
               <button
                 onClick={install}
-                className="w-full rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50"
+                className="w-full rounded-lg bg-[#1F4B45] py-3 text-base font-bold uppercase tracking-wider text-stone-50"
               >
                 Install app on this device
               </button>
             </>
+          ) : ios ? (
+            <div className="text-sm text-stone-700">
+              <p className="mb-2">
+                To add EEI Field Reports to your iPhone (Apple doesn&apos;t allow a one-tap button):
+              </p>
+              <ol className="ml-1 space-y-2">
+                <li>
+                  1. Tap the <span className="font-semibold">Share</span> button — the square with an arrow
+                  pointing up{" "}
+                  <span aria-hidden className="inline-block align-middle text-[#1F4B45]">⬆️</span> — at the
+                  bottom of Safari.
+                </li>
+                <li>
+                  2. Scroll down and tap <span className="font-semibold">Add to Home Screen</span>.
+                </li>
+                <li>
+                  3. Tap <span className="font-semibold">Add</span> at the top right. The app icon lands on your
+                  home screen.
+                </li>
+              </ol>
+              <p className="mt-3 text-stone-500">
+                Must be in <span className="font-semibold">Safari</span> (not Chrome) for this to appear. Once
+                added, this box will say “Installed.”
+              </p>
+            </div>
           ) : (
-            <p className="text-sm text-stone-600">
-              To install: open the browser menu and choose{" "}
-              <span className="font-semibold">Add to Home Screen</span> (iPhone: the Share button; Android:
-              the ⋮ menu). Once added, this will say “Installed.”
-            </p>
+            <div className="text-sm text-stone-700">
+              <p className="mb-2">To add EEI Field Reports as an app on this phone:</p>
+              <ol className="ml-1 space-y-2">
+                <li>
+                  1. Tap the <span className="font-semibold">⋮</span> menu at the top-right of Chrome.
+                </li>
+                <li>
+                  2. Tap <span className="font-semibold">Install app</span> (or{" "}
+                  <span className="font-semibold">Add to Home screen</span>).
+                </li>
+              </ol>
+              <p className="mt-3 text-stone-500">
+                If neither shows, reload this page once and reopen Settings — the one-tap button appears here
+                as soon as the phone is ready.
+              </p>
+            </div>
           )}
         </Card>
 
