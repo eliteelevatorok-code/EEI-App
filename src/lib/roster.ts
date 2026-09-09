@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { Account, Elevator, Field, LifecycleStage } from "@/lib/data";
 import { appendRow, readRange, writeCell } from "@/lib/google";
 
@@ -110,14 +111,25 @@ export type NewElevatorInput = {
 };
 
 // Append a new elevator as a new row on the dashboard (cols A..R). Lifecycle
-// cells (S..AE) are left blank — the engine/app fills them over time.
+// cells (S..AE) are left blank — the engine/app fills them over time. Also
+// stamps a random PO token (col AH) so the customer's PO link works right away.
 export async function appendElevator(f: NewElevatorInput): Promise<number | null> {
   const row = [
     f.okla, f.building, f.area, f.city, f.account, f.contact, f.email, f.phone,
     f.maintCo, f.maintContact, f.maintEmail, f.maintPhone, f.type, f.floors, f.cycle,
     f.price, f.moneyPath, f.due,
   ];
-  return appendRow(`${TAB}!A:R`, row);
+  const rowNumber = await appendRow(`${TAB}!A:R`, row);
+  if (rowNumber) {
+    try {
+      const token = randomBytes(16).toString("hex");
+      await writeCell(`${TAB}!AH${rowNumber}`, token);
+    } catch {
+      // A missing token only means the PO link needs regenerating later; never
+      // fail the whole add-elevator over it.
+    }
+  }
+  return rowNumber;
 }
 
 // Flip the lifecycle cells when a report is finalized.
