@@ -96,14 +96,19 @@ async function findOrCreateFolder(name: string, parentId: string): Promise<strin
   return created.data.id;
 }
 
-// Upload a PDF into the account's own subfolder of the Reports folder, keeping
-// each account's reports together. Returns the file's shareable link.
-export async function uploadPdf(name: string, bytes: Uint8Array, account?: string): Promise<string> {
+// Upload any file into the account's own subfolder of the Reports folder.
+// Returns the file's shareable link. mimeType defaults to PDF.
+export async function uploadFile(
+  name: string,
+  bytes: Uint8Array,
+  mimeType = "application/pdf",
+  account?: string,
+): Promise<string> {
   const client = driveOwner();
   const parent = account ? await findOrCreateFolder(account, REPORTS_FOLDER_ID) : REPORTS_FOLDER_ID;
   const boundary = "eei" + Date.now().toString(16);
-  const meta = JSON.stringify({ name, parents: [parent], mimeType: "application/pdf" });
-  const head = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/pdf\r\n\r\n`;
+  const meta = JSON.stringify({ name, parents: [parent], mimeType });
+  const head = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`;
   const tail = `\r\n--${boundary}--`;
   const body = Buffer.concat([Buffer.from(head, "utf8"), Buffer.from(bytes), Buffer.from(tail, "utf8")]);
   const res = await client.request<{ id: string; webViewLink?: string }>({
@@ -113,4 +118,9 @@ export async function uploadPdf(name: string, bytes: Uint8Array, account?: strin
     body,
   });
   return res.data.webViewLink ?? `https://drive.google.com/file/d/${res.data.id}/view`;
+}
+
+// Upload a PDF (kept for the report flow; delegates to uploadFile).
+export async function uploadPdf(name: string, bytes: Uint8Array, account?: string): Promise<string> {
+  return uploadFile(name, bytes, "application/pdf", account);
 }
