@@ -5,7 +5,13 @@ import { isAllowed } from "@/lib/allowlist";
 // Public routes that never require sign-in. The PO submission page and its API
 // are public on purpose: customers open them from a link in the quote email
 // (a random per-elevator token in the URL is what authorizes them), never signed in.
-const isPublic = createRouteMatcher(["/sign-in(.*)", "/not-authorized", "/po(.*)", "/api/po(.*)"]);
+const isPublic = createRouteMatcher([
+  "/sign-in(.*)",
+  "/not-authorized",
+  "/po(.*)",
+  "/api/po(.*)",
+  "/api/push/run(.*)", // called by the scheduler with a secret; not a browser route
+]);
 
 export default clerkMiddleware(async (auth, req) => {
   if (isPublic(req)) return;

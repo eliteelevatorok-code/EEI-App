@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useClerk } from "@clerk/nextjs";
 import { getInstallState, isIOS, subscribeInstall, triggerInstall } from "@/lib/pwa-install";
+import { alertsState, enableAlerts, type AlertState } from "@/lib/push-client";
 import {
   CERT_ISSUE,
   CONDITIONS,
@@ -148,6 +149,17 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
   const [scale, setScale] = useState(1);
   useEffect(() => setScale(currentFontScale()), []);
 
+  const [alerts, setAlerts] = useState<AlertState>("off");
+  const [alertBusy, setAlertBusy] = useState(false);
+  useEffect(() => {
+    alertsState().then(setAlerts);
+  }, []);
+  const turnOnAlerts = async () => {
+    setAlertBusy(true);
+    setAlerts(await enableAlerts());
+    setAlertBusy(false);
+  };
+
   const setSize = (s: number) => {
     setScale(s);
     saveFontScale(s);
@@ -228,6 +240,40 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
                 as soon as the phone is ready.
               </p>
             </div>
+          )}
+        </Card>
+
+        {/* Phone alerts */}
+        <Card title="Alerts">
+          {alerts === "on" ? (
+            <p className="text-sm text-stone-700">
+              <span className="font-bold text-[#1F4B45]">Alerts on ✓</span> — this phone will buzz you when an
+              elevator needs your hands (record a PO, chase maintenance, do an inspection, send an invoice,
+              record payment). Checked every hour, 8am–7pm.
+            </p>
+          ) : alerts === "blocked" ? (
+            <p className="text-sm text-stone-700">
+              Alerts are blocked for this site in your phone&apos;s settings. Turn notifications back on for
+              eeireports.sbs, then come back here.
+            </p>
+          ) : alerts === "unsupported" ? (
+            <p className="text-sm text-stone-700">
+              This browser can&apos;t do phone alerts. On iPhone, first add the app to your home screen (above),
+              open it from there, then turn alerts on.
+            </p>
+          ) : (
+            <>
+              <p className="mb-3 text-sm text-stone-600">
+                Get a buzz on this phone when something needs you — even when the app is closed.
+              </p>
+              <button
+                onClick={turnOnAlerts}
+                disabled={alertBusy}
+                className="w-full rounded-lg bg-[#1F4B45] py-3 text-base font-bold uppercase tracking-wider text-stone-50 disabled:opacity-60"
+              >
+                {alertBusy ? "Turning on…" : "Turn on alerts for this phone"}
+              </button>
+            </>
           )}
         </Card>
 

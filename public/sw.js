@@ -1,7 +1,7 @@
 // Minimal service worker: makes the app installable and serves a cached shell
 // if the network is briefly unavailable. Network-first so users always get the
 // latest; falls back to cache only when offline.
-const CACHE = "eei-shell-v1";
+const CACHE = "eei-shell-v2";
 const SHELL = ["/", "/sign-in", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -11,6 +11,40 @@ self.addEventListener("install", (e) => {
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
+  );
+});
+
+// Show a push alert when the server sends one (works with the app closed).
+self.addEventListener("push", (e) => {
+  let data = { title: "EEI Field Reports", body: "Something needs your attention.", url: "/" };
+  try {
+    if (e.data) data = { ...data, ...e.data.json() };
+  } catch {
+    /* keep defaults */
+  }
+  e.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      data: { url: data.url || "/" },
+      tag: "eei-action-needed", // newer alert replaces the old one instead of stacking
+      renotify: true,
+    }),
+  );
+});
+
+// Tapping the alert opens (or focuses) the app.
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const target = e.notification.data?.url || "/";
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ("focus" in c) return c.focus();
+      }
+      return self.clients.openWindow(target);
+    }),
   );
 });
 
