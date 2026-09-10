@@ -1,28 +1,36 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { clerkClient, clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { isAllowed } from "@/lib/allowlist";
 
-// Public routes that never require sign-in. The PO submission page and its API
-// are public on purpose: customers open them from a link in the quote email
-// (a random per-elevator token in the URL is what authorizes them), never signed in.
+// Public routes that never require sign-in. The PO submission page/API and the
+// push-run endpoint are public on purpose (a random token / secret authorizes
+// them), never signed in.
 const isPublic = createRouteMatcher([
   "/sign-in(.*)",
   "/not-authorized",
   "/po(.*)",
   "/api/po(.*)",
-  "/api/push/run(.*)", // called by the scheduler with a secret; not a browser route
+  "/api/push/run(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
   if (isPublic(req)) return;
-  const { sessionClaims } = await auth.protect();
+  const { userId, sessionClaims } = await auth.protect();
 
-  // Free app-side allowlist: block signed-in users whose email isn't approved.
-  // Only ever blocks when the email claim is present AND the ALLOWLIST_EMAILS
-  // list is configured AND the email isn't on it (see src/lib/allowlist.ts),
-  // so it can't lock anyone out before it's set up.
-  const email = (sessionClaims as { email?: string } | null)?.email;
-  if (email && !isAllowed(email)) {
+  // Enforce the four-email allowlist. Read the email from the session token
+  // first (fast); if it isn't there, fetch it from Clerk. Fail CLOSED — if we
+  // can't confirm an approved email, turn the person away.
+  let email = (sessionClaims as { email?: string } | null)?.email;
+  if (!email && userId) {
+    try {
+      const client = await clerkClient();
+      const user = await client.users.getUser(userId);
+      email = user.primaryEmailAddress?.emailAddress ?? user.emailAddresses[0]?.emailAddress;
+    } catch {
+      email = undefined;
+    }
+  }
+  if (!isAllowed(email)) {
     return NextResponse.redirect(new URL("/not-authorized", req.url));
   }
 });
