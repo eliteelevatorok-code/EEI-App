@@ -123,6 +123,24 @@ export async function invoiceOne(el: Invoiceable): Promise<InvoiceResult> {
 
 export type PaidResult = { row: number; building: string; invoiceId: string };
 
+// Reconcile one row: if it carries a QuickBooks invoice id, isn't already Paid,
+// and that invoice's balance is 0, mark it Paid. Honors the switches. Returns
+// whether it flipped. Used by the per-row Make call.
+export async function reconcilePaidRow(row: number): Promise<{ paid: boolean; skipped?: string }> {
+  const { masterOn, offRows } = await guards();
+  if (!masterOn || offRows.has(row)) return { paid: false, skipped: "paused" };
+  const rows = await readRange(`${TAB}!A${row}:AK${row}`);
+  const r = rows[0];
+  if (!r || !cell(r, IDX.okla)) return { paid: false, skipped: "empty row" };
+  const id = cell(r, IDX.invoiceId);
+  if (!id) return { paid: false, skipped: "no invoice id" };
+  if (cell(r, IDX.paid) === "Paid") return { paid: false, skipped: "already paid" };
+  const balance = await getInvoiceBalance(id);
+  if (balance !== 0) return { paid: false, skipped: `balance ${balance}` };
+  await writeCell(`${TAB}!${COL.paid}${row}`, "Paid");
+  return { paid: true };
+}
+
 // The paid signal, read from QuickBooks. For every row that carries a QuickBooks
 // invoice id and is not yet marked Paid, read that invoice's balance; a balance
 // of 0 means the customer has paid, so set Paid = "Paid" — the same box the /pay
