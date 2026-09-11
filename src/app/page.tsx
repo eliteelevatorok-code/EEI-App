@@ -149,6 +149,15 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
   const [scale, setScale] = useState(1);
   useEffect(() => setScale(currentFontScale()), []);
 
+  // Live master-switch state, so the System card shows on/off at a glance.
+  const [master, setMaster] = useState<boolean | null>(null);
+  useEffect(() => {
+    fetch("/api/switches")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { master?: boolean } | null) => setMaster(d && typeof d.master === "boolean" ? d.master : null))
+      .catch(() => setMaster(null));
+  }, []);
+
   const [alerts, setAlerts] = useState<AlertState>("off");
   const [alertBusy, setAlertBusy] = useState(false);
   useEffect(() => {
@@ -303,15 +312,28 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
 
         {/* System switches */}
         <Card title="System">
-          <p className="mb-3 text-sm text-stone-600">
-            Turn the whole system, or a single elevator, on or off.
-          </p>
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-sm text-stone-600">Whole system</span>
+            {master === null ? (
+              <span className="text-xs font-semibold text-stone-400">checking…</span>
+            ) : (
+              <span
+                className={
+                  "rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider " +
+                  (master ? "bg-[#DDE8E4] text-[#1F4B45]" : "bg-red-100 text-red-700")
+                }
+              >
+                {master ? "● Running" : "● Paused"}
+              </span>
+            )}
+          </div>
           <a
             href="/switches"
             className="block w-full rounded-lg bg-[#1F4B45] py-3 text-center text-base font-bold uppercase tracking-wider text-stone-50"
           >
-            On / off switches
+            {master === false ? "Resume the system" : "Master switch"}
           </a>
+          <p className="mt-2 text-xs text-stone-400">Each elevator has its own switch on its profile.</p>
         </Card>
 
         {/* Account */}
@@ -938,6 +960,34 @@ function Profile({
   const e = elevator;
   const [lifecycle, setLifecycle] = useState<LifecycleStage[]>(elevator.lifecycle);
   const [editing, setEditing] = useState<LifecycleStage | null>(null);
+
+  // This elevator's on/off switch. Pausing takes two confirmations (a warning,
+  // then a final yes); resuming takes one.
+  const [swOn, setSwOn] = useState(elevator.active !== false);
+  const [swStep, setSwStep] = useState<null | "pause1" | "pause2" | "resume">(null);
+  const [swBusy, setSwBusy] = useState(false);
+  const [swErr, setSwErr] = useState("");
+  const closeSw = () => { setSwStep(null); setSwErr(""); };
+  async function setSwitch(next: boolean) {
+    if (e.row == null) { setSwErr("This elevator has no saved row yet."); return; }
+    setSwBusy(true);
+    setSwErr("");
+    try {
+      const r = await fetch("/api/switches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: "elevator", row: e.row, on: next }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(d.error || "Save failed");
+      setSwOn(next);
+      closeSw();
+    } catch (err) {
+      setSwErr(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSwBusy(false);
+    }
+  }
   const details: [string, string][] = [
     ["Account", e.account],
     ["Contact", e.contact],
@@ -990,6 +1040,95 @@ function Profile({
           Start inspection report
         </button>
       </div>
+
+      {/* this elevator's on/off switch */}
+      <Card title="This elevator">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm font-semibold text-stone-700">Automatic steps</div>
+            <div className={"text-xs font-bold uppercase tracking-wider " + (swOn ? "text-[#1F4B45]" : "text-red-600")}>
+              {swOn ? "● On — running" : "● Off — paused"}
+            </div>
+          </div>
+          {swOn ? (
+            <button
+              onClick={() => setSwStep("pause1")}
+              className="rounded-lg bg-red-600 px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-white active:opacity-90"
+            >
+              Pause this elevator
+            </button>
+          ) : (
+            <button
+              onClick={() => setSwStep("resume")}
+              className="rounded-lg bg-[#1F4B45] px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-stone-50 active:opacity-90"
+            >
+              Resume
+            </button>
+          )}
+        </div>
+        {swErr && !swStep && <p className="mt-3 text-sm font-semibold text-red-600">{swErr}</p>}
+        <p className="mt-2 text-xs text-stone-400">
+          Paused means no automatic emails, invoice, or payment steps run for {e.building || "this elevator"} until you turn it back on.
+        </p>
+      </Card>
+
+      {/* pause step 1 of 2 */}
+      {swStep === "pause1" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
+            <h4 className="text-base font-bold text-red-700">Pause {e.building}? (step 1 of 2)</h4>
+            <p className="mt-2 text-sm text-stone-600">
+              Its automatic emails, invoice, and payment steps stop until you switch it back on. You&apos;ll confirm once more.
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button onClick={closeSw} className="flex-1 rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700">
+                Cancel
+              </button>
+              <button onClick={() => setSwStep("pause2")} className="flex-1 rounded-lg bg-red-600 py-3 text-sm font-bold uppercase tracking-wider text-white">
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* pause step 2 of 2 */}
+      {swStep === "pause2" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
+            <h4 className="text-base font-bold text-red-700">Confirm pause (step 2 of 2)</h4>
+            <p className="mt-2 text-sm text-stone-600">Pause <span className="font-semibold">{e.building}</span> now?</p>
+            {swErr && <p className="mt-2 text-sm font-semibold text-red-600">{swErr}</p>}
+            <div className="mt-5 flex gap-3">
+              <button onClick={closeSw} disabled={swBusy} className="flex-1 rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700">
+                Cancel
+              </button>
+              <button onClick={() => setSwitch(false)} disabled={swBusy} className="flex-1 rounded-lg bg-red-600 py-3 text-sm font-bold uppercase tracking-wider text-white disabled:opacity-50">
+                {swBusy ? "Pausing…" : "Pause it"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* resume — single confirm */}
+      {swStep === "resume" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
+            <h4 className="text-base font-bold text-[#1F4B45]">Resume {e.building}?</h4>
+            <p className="mt-2 text-sm text-stone-600">Automatic steps start running again for this elevator.</p>
+            {swErr && <p className="mt-2 text-sm font-semibold text-red-600">{swErr}</p>}
+            <div className="mt-5 flex gap-3">
+              <button onClick={closeSw} disabled={swBusy} className="flex-1 rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700">
+                Cancel
+              </button>
+              <button onClick={() => setSwitch(true)} disabled={swBusy} className="flex-1 rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50 disabled:opacity-60">
+                {swBusy ? "Resuming…" : "Resume"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* lifecycle — tap any step to change it (writes to the dashboard after a confirm) */}
       <Card title="Customer lifecycle">

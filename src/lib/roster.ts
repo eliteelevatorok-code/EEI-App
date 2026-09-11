@@ -14,6 +14,7 @@ const C = {
   maintCo: 8, maintContact: 9, maintEmail: 10, maintPhone: 11, type: 12, floors: 13,
   cycle: 14, price: 15, moneyPath: 16, due: 17,
   visit: 24, tripDay: 25, report: 26, // Y, Z, AA
+  active: 37, // AL — the on/off switch
 };
 
 // spreadsheet column letters for write-back
@@ -68,6 +69,7 @@ function rowToElevator(row: string[], rowNumber: number): Elevator {
     due: cell(row, C.due),
     price: cell(row, C.price),
     moneyPath: cell(row, C.moneyPath),
+    active: cell(row, C.active).toLowerCase() !== "off", // blank = on
     row: rowNumber, // the sheet row, so finalize writes back to the right line
     lifecycle: LIFECYCLE_DEFS.map((d): LifecycleStage => ({
       key: d.key,
@@ -83,7 +85,7 @@ function rowToElevator(row: string[], rowNumber: number): Elevator {
 
 // Read the whole roster and group it by account for the picker.
 export async function loadRoster(): Promise<Account[]> {
-  const rows = await readRange(`${TAB}!A${FIRST_DATA_ROW}:AF`);
+  const rows = await readRange(`${TAB}!A${FIRST_DATA_ROW}:AL`);
   const byAccount = new Map<string, Elevator[]>();
   rows.forEach((row, i) => {
     if (!cell(row, C.okla)) return; // skip empty lines

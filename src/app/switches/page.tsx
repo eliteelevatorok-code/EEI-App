@@ -2,17 +2,17 @@
 
 import { useEffect, useState } from "react";
 
-type Elevator = { row: number; okla: string; building: string; on: boolean };
-type State = { master: boolean; elevators: Elevator[] };
+type State = { master: boolean; elevators: { on: boolean }[] };
 
 const BRAND = "#1F4B45";
 
+// The master switch page. Turning everything OFF takes two deliberate steps
+// (a warning, then typing STOP) so it can't be tripped by accident. Turning it
+// back on takes one confirm. Each elevator has its own switch on its profile.
 export default function SwitchesPage() {
   const [state, setState] = useState<State | null>(null);
   const [loadErr, setLoadErr] = useState("");
-  const [q, setQ] = useState("");
-  const [confirmStop, setConfirmStop] = useState(false); // master-off modal
-  const [confirmGo, setConfirmGo] = useState(false); // master-on modal
+  const [step, setStep] = useState<null | "stop1" | "stop2" | "resume">(null);
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -24,8 +24,10 @@ export default function SwitchesPage() {
         return (await r.json()) as State;
       })
       .then(setState)
-      .catch(() => setLoadErr("Couldn't load the switches. Reload and try again."));
+      .catch(() => setLoadErr("Couldn't load the switch. Reload and try again."));
   }, []);
+
+  const close = () => { setStep(null); setTyped(""); setErr(""); };
 
   async function setMaster(on: boolean) {
     setBusy(true);
@@ -39,9 +41,7 @@ export default function SwitchesPage() {
       const d = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(d.error || "Save failed");
       setState((s) => (s ? { ...s, master: on } : s));
-      setConfirmStop(false);
-      setConfirmGo(false);
-      setTyped("");
+      close();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Save failed");
     } finally {
@@ -49,179 +49,142 @@ export default function SwitchesPage() {
     }
   }
 
-  async function toggleElevator(el: Elevator) {
-    const next = !el.on;
-    // optimistic
-    setState((s) => (s ? { ...s, elevators: s.elevators.map((e) => (e.row === el.row ? { ...e, on: next } : e)) } : s));
-    try {
-      const r = await fetch("/api/switches", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target: "elevator", row: el.row, on: next }),
-      });
-      if (!r.ok) throw new Error();
-    } catch {
-      // revert on failure
-      setState((s) => (s ? { ...s, elevators: s.elevators.map((e) => (e.row === el.row ? { ...e, on: el.on } : e)) } : s));
-      setErr(`Couldn't change ${el.building}. Try again.`);
-    }
-  }
-
   if (loadErr) return <main className="mx-auto max-w-md p-6"><p className="text-sm text-red-700">{loadErr}</p></main>;
   if (!state) return <main className="mx-auto max-w-md p-6"><p className="text-sm text-stone-500">Loading…</p></main>;
 
-  const query = q.trim().toLowerCase();
-  const list = state.elevators.filter(
-    (e) => !query || e.building.toLowerCase().includes(query) || e.okla.includes(query),
-  );
-  const offCount = state.elevators.filter((e) => !e.on).length;
+  const pausedCount = state.elevators.filter((e) => !e.on).length;
 
   return (
     <div className="mx-auto max-w-md px-4 pb-16 pt-4">
       <div className="mb-3 flex items-center justify-between">
         <a href="/" className="text-xs font-semibold text-stone-600">‹ Home</a>
-        <div className="text-sm font-extrabold tracking-wide" style={{ color: BRAND }}>ELITE / SWITCHES</div>
+        <div className="text-sm font-extrabold tracking-wide" style={{ color: BRAND }}>ELITE / MASTER SWITCH</div>
       </div>
-      <h1 className="mb-3 text-lg font-bold">On / off switches</h1>
 
-      {err && <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{err}</p>}
+      {err && !step && <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{err}</p>}
 
-      {/* Master */}
       <section
-        className="mb-4 rounded-xl border-2 p-4"
+        className="rounded-xl border-2 p-5"
         style={{ borderColor: state.master ? BRAND : "#c92a2a", background: state.master ? "#fff" : "#fff5f5" }}
       >
-        <div className="text-[11px] font-bold uppercase tracking-widest text-stone-500">Master switch</div>
-        <div className="mt-1 flex items-center justify-between">
-          <div className="text-2xl font-bold" style={{ color: state.master ? BRAND : "#c92a2a" }}>
-            {state.master ? "RUNNING" : "PAUSED"}
-          </div>
-          {state.master ? (
-            <button
-              onClick={() => setConfirmStop(true)}
-              className="rounded-lg bg-red-600 px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-white active:opacity-90"
-            >
-              Pause everything
-            </button>
-          ) : (
-            <button
-              onClick={() => setConfirmGo(true)}
-              className="rounded-lg px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-white active:opacity-90"
-              style={{ background: BRAND }}
-            >
-              Resume everything
-            </button>
-          )}
+        <div className="text-[11px] font-bold uppercase tracking-widest text-stone-500">The whole system is</div>
+        <div className="mt-1 text-4xl font-extrabold" style={{ color: state.master ? BRAND : "#c92a2a" }}>
+          {state.master ? "RUNNING" : "PAUSED"}
         </div>
-        <p className="mt-2 text-xs text-stone-500">
+        <p className="mt-3 text-sm text-stone-600">
           {state.master
-            ? "Everything is running. Pause to halt all automatic emails, invoices, and payment steps at once."
-            : "Everything is halted. Nothing automatic will happen until you resume."}
+            ? "Every automatic email, invoice, and payment step is active. Pausing halts all of them at once."
+            : "Everything automatic is halted. Nothing will happen until you resume."}
         </p>
+        {state.master ? (
+          <button
+            onClick={() => setStep("stop1")}
+            className="mt-4 w-full rounded-lg bg-red-600 py-3.5 text-base font-bold uppercase tracking-wider text-white active:opacity-90"
+          >
+            Pause everything
+          </button>
+        ) : (
+          <button
+            onClick={() => setStep("resume")}
+            className="mt-4 w-full rounded-lg py-3.5 text-base font-bold uppercase tracking-wider text-white active:opacity-90"
+            style={{ background: BRAND }}
+          >
+            Resume everything
+          </button>
+        )}
       </section>
 
-      {/* Per-elevator */}
-      <div className="mb-2 flex items-center justify-between px-1">
-        <div className="text-xs font-bold uppercase tracking-wider text-stone-500">Each elevator</div>
-        {offCount > 0 && <div className="text-xs font-semibold text-red-600">{offCount} paused</div>}
-      </div>
-      <input
-        className="mb-3 w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2.5 text-base outline-none focus:border-[#1F4B45]"
-        placeholder="Search building or Oklahoma number"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-      />
-      {!state.master && (
-        <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          The master switch is off, so these are all paused no matter what each one shows.
-        </p>
-      )}
-      <div className="flex flex-col gap-2">
-        {list.map((e) => (
-          <div key={e.row} className="flex items-center justify-between rounded-lg border border-stone-300 bg-white p-3">
-            <div className="min-w-0">
-              <div className="truncate font-semibold">{e.building || "—"}</div>
-              <div className="font-mono text-xs text-stone-500">#{e.okla}</div>
-            </div>
+      <p className="mt-4 px-1 text-xs text-stone-500">
+        To pause a single elevator, open its profile from the list — each one has its own switch.
+        {pausedCount > 0 && <span className="font-semibold text-red-600"> {pausedCount} currently paused.</span>}
+      </p>
+
+      {/* Step 1 of 2 — warning */}
+      {step === "stop1" && (
+        <Modal>
+          <h4 className="text-base font-bold text-red-700">Pause everything? (step 1 of 2)</h4>
+          <p className="mt-2 text-sm text-stone-600">
+            This halts every automatic email, invoice, and payment step for <span className="font-semibold">all</span> elevators
+            at once. You&apos;ll confirm once more on the next screen.
+          </p>
+          <Buttons>
+            <Cancel onClick={close} />
             <button
-              onClick={() => toggleElevator(e)}
-              className={
-                "ml-3 shrink-0 rounded-full border px-4 py-2 text-sm font-bold uppercase tracking-wider " +
-                (e.on ? "text-stone-50" : "border-red-300 bg-red-50 text-red-700")
-              }
-              style={e.on ? { background: BRAND, borderColor: BRAND } : undefined}
+              onClick={() => setStep("stop2")}
+              className="flex-1 rounded-lg bg-red-600 py-3 text-sm font-bold uppercase tracking-wider text-white"
             >
-              {e.on ? "On" : "Off"}
+              Continue
             </button>
-          </div>
-        ))}
-        {list.length === 0 && <p className="px-1 text-sm text-stone-500">No matches.</p>}
-      </div>
-
-      {/* Pause-everything gate: must type STOP */}
-      {confirmStop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
-          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
-            <h4 className="text-base font-bold text-red-700">Pause everything?</h4>
-            <p className="mt-2 text-sm text-stone-600">
-              This halts every automatic email, invoice, and payment step for all elevators. To confirm, type
-              <span className="font-bold"> STOP</span> below.
-            </p>
-            <input
-              autoFocus
-              className="mt-3 w-full rounded-lg border border-stone-300 px-3 py-2.5 text-base outline-none focus:border-red-500"
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              placeholder="Type STOP"
-            />
-            <div className="mt-5 flex gap-3">
-              <button
-                onClick={() => { setConfirmStop(false); setTyped(""); }}
-                disabled={busy}
-                className="flex-1 rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => setMaster(false)}
-                disabled={busy || typed.trim().toUpperCase() !== "STOP"}
-                className="flex-1 rounded-lg bg-red-600 py-3 text-sm font-bold uppercase tracking-wider text-white disabled:opacity-40"
-              >
-                {busy ? "Pausing…" : "Pause all"}
-              </button>
-            </div>
-          </div>
-        </div>
+          </Buttons>
+        </Modal>
       )}
 
-      {/* Resume-everything confirm */}
-      {confirmGo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
-          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
-            <h4 className="text-base font-bold" style={{ color: BRAND }}>Resume everything?</h4>
-            <p className="mt-2 text-sm text-stone-600">
-              Automatic steps start running again for every elevator that is switched on.
-            </p>
-            <div className="mt-5 flex gap-3">
-              <button
-                onClick={() => setConfirmGo(false)}
-                disabled={busy}
-                className="flex-1 rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => setMaster(true)}
-                disabled={busy}
-                className="flex-1 rounded-lg py-3 text-sm font-bold uppercase tracking-wider text-white disabled:opacity-60"
-                style={{ background: BRAND }}
-              >
-                {busy ? "Resuming…" : "Resume"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Step 2 of 2 — type STOP */}
+      {step === "stop2" && (
+        <Modal>
+          <h4 className="text-base font-bold text-red-700">Final confirmation (step 2 of 2)</h4>
+          <p className="mt-2 text-sm text-stone-600">Type <span className="font-bold">STOP</span> to pause the whole system.</p>
+          <input
+            autoFocus
+            className="mt-3 w-full rounded-lg border border-stone-300 px-3 py-2.5 text-base outline-none focus:border-red-500"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder="Type STOP"
+          />
+          {err && <p className="mt-2 text-sm font-semibold text-red-600">{err}</p>}
+          <Buttons>
+            <Cancel onClick={close} />
+            <button
+              onClick={() => setMaster(false)}
+              disabled={busy || typed.trim().toUpperCase() !== "STOP"}
+              className="flex-1 rounded-lg bg-red-600 py-3 text-sm font-bold uppercase tracking-wider text-white disabled:opacity-40"
+            >
+              {busy ? "Pausing…" : "Pause all"}
+            </button>
+          </Buttons>
+        </Modal>
+      )}
+
+      {/* Resume — single confirm */}
+      {step === "resume" && (
+        <Modal>
+          <h4 className="text-base font-bold" style={{ color: BRAND }}>Resume everything?</h4>
+          <p className="mt-2 text-sm text-stone-600">Automatic steps start again for every elevator that is switched on.</p>
+          {err && <p className="mt-2 text-sm font-semibold text-red-600">{err}</p>}
+          <Buttons>
+            <Cancel onClick={close} />
+            <button
+              onClick={() => setMaster(true)}
+              disabled={busy}
+              className="flex-1 rounded-lg py-3 text-sm font-bold uppercase tracking-wider text-white disabled:opacity-60"
+              style={{ background: BRAND }}
+            >
+              {busy ? "Resuming…" : "Resume"}
+            </button>
+          </Buttons>
+        </Modal>
       )}
     </div>
+  );
+}
+
+function Modal({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
+      <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">{children}</div>
+    </div>
+  );
+}
+function Buttons({ children }: { children: React.ReactNode }) {
+  return <div className="mt-5 flex gap-3">{children}</div>;
+}
+function Cancel({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex-1 rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700"
+    >
+      Cancel
+    </button>
   );
 }
