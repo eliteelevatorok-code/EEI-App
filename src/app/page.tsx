@@ -301,6 +301,19 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
           </div>
         </Card>
 
+        {/* System switches */}
+        <Card title="System">
+          <p className="mb-3 text-sm text-stone-600">
+            Turn the whole system, or a single elevator, on or off.
+          </p>
+          <a
+            href="/switches"
+            className="block w-full rounded-lg bg-[#1F4B45] py-3 text-center text-base font-bold uppercase tracking-wider text-stone-50"
+          >
+            On / off switches
+          </a>
+        </Card>
+
         {/* Account */}
         <Card title="Account">
           <button
