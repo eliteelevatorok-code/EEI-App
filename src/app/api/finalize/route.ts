@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fillReport, type FinalizePayload } from "@/lib/fillForm";
 import { uploadPdf } from "@/lib/google";
-import { findRowByOkla, markInspected } from "@/lib/roster";
+import { findRowByOkla, markInspected, setReportFile } from "@/lib/roster";
 
 export const runtime = "nodejs";
 
@@ -38,8 +38,9 @@ export async function POST(req: Request) {
   // Flip the dashboard cells and save the PDF to Drive independently, so one
   // failing never blocks the other or loses the finished PDF.
   let writeback = "ok";
+  let sheetRow: number | null = null;
   try {
-    const sheetRow = row ?? (okla ? await findRowByOkla(okla) : null);
+    sheetRow = row ?? (okla ? await findRowByOkla(okla) : null);
     if (sheetRow) await markInspected(sheetRow, dateText);
     else writeback = "no-matching-row";
   } catch (err) {
@@ -50,6 +51,8 @@ export async function POST(req: Request) {
   let drive = "ok";
   try {
     driveLink = await uploadPdf(fileName, pdf, account);
+    // Save the report's Drive link on the row so the ODOL email can attach it.
+    if (sheetRow && driveLink) await setReportFile(sheetRow, driveLink);
   } catch (err) {
     drive = "failed: " + (err instanceof Error ? err.message : "unknown");
   }

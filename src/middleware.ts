@@ -10,6 +10,8 @@ const isPublic = createRouteMatcher([
   "/not-authorized",
   "/po(.*)",
   "/api/po(.*)",
+  "/maint(.*)",
+  "/api/maint(.*)",
   "/pay(.*)",
   "/api/pay(.*)",
   "/api/push/run(.*)",

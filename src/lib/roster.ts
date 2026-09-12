@@ -15,6 +15,7 @@ const C = {
   cycle: 14, price: 15, moneyPath: 16, due: 17,
   visit: 24, tripDay: 25, report: 26, // Y, Z, AA
   active: 37, // AL — the on/off switch
+  lastResult: 38, lastInspected: 39, // AM, AN — from the maintenance form
 };
 
 // spreadsheet column letters for write-back
@@ -79,13 +80,23 @@ function rowToElevator(row: string[], rowNumber: number): Elevator {
       options: d.options,
     })),
     carried: blankCarried(),
-    lastYear: { date: "", inspType: "Periodic", test1: "", test5: "", certIssue: "Yes", condition: "No adverse conditions", notes: "" },
+    lastYear: {
+      // Fed by the maintenance company via the /maint form: whether it passed
+      // its last inspection (AM) and when (AN). Blank until they answer.
+      date: cell(row, C.lastInspected),
+      inspType: "Periodic",
+      test1: "",
+      test5: "",
+      certIssue: cell(row, C.lastResult) === "Fail" ? "No" : "Yes",
+      condition: "No adverse conditions",
+      notes: "",
+    },
   };
 }
 
 // Read the whole roster and group it by account for the picker.
 export async function loadRoster(): Promise<Account[]> {
-  const rows = await readRange(`${TAB}!A${FIRST_DATA_ROW}:AL`);
+  const rows = await readRange(`${TAB}!A${FIRST_DATA_ROW}:AN`);
   const byAccount = new Map<string, Elevator[]>();
   rows.forEach((row, i) => {
     if (!cell(row, C.okla)) return; // skip empty lines
@@ -139,4 +150,10 @@ export async function markInspected(rowNumber: number, dateText: string): Promis
   await writeCell(`${TAB}!${COL.visit}${rowNumber}`, "Inspected");
   await writeCell(`${TAB}!${COL.tripDay}${rowNumber}`, dateText);
   await writeCell(`${TAB}!${COL.report}${rowNumber}`, "Sent");
+}
+
+// Store the finished report's Drive link on the row (col AO), so the automation
+// can attach the actual report to the ODOL submission email.
+export async function setReportFile(rowNumber: number, link: string): Promise<void> {
+  await writeCell(`${TAB}!AO${rowNumber}`, link);
 }
