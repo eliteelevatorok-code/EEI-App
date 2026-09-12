@@ -12,6 +12,7 @@ const isPublic = createRouteMatcher([
   "/api/po(.*)",
   "/maint(.*)",
   "/api/maint(.*)",
+  "/api/report(.*)",
   "/pay(.*)",
   "/api/pay(.*)",
   "/api/push/run(.*)",
