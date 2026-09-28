@@ -54,28 +54,22 @@ async function dropSubscription(row: number): Promise<void> {
 // ---- what needs a human, read from the Elevators tab ----
 const cell = (r: string[], i: number) => (r[i] ?? "").trim();
 
-// Returns one "YOUR MOVE" line per row that is waiting on a person (mirrors the
-// sheet's Next action column, keeping only the human-action states).
+// Returns one line per row that is genuinely waiting on a PERSON. The automation
+// now sends the emails and invoices, and the PO/maintenance forms and QuickBooks
+// handle their own steps — so the only things left for a human are the physical
+// inspection once a visit is booked, and chasing the maintenance company when
+// they haven't sent records. Everything else is either automatic or waiting on
+// the customer, and should NOT buzz the phone.
 export async function actionNeeded(): Promise<{ building: string; okla: string; what: string }[]> {
-  const rows = await readRange("Elevators!A2:AJ");
+  const rows = await readRange("Elevators!A2:AL");
   const out: { building: string; okla: string; what: string }[] = [];
   for (const r of rows) {
     if (!cell(r, 0)) continue;
-    const S = cell(r, 18), T = cell(r, 19), U = cell(r, 20), V = cell(r, 21), W = cell(r, 22),
-      X = cell(r, 23), Y = cell(r, 24), AA = cell(r, 26), AB = cell(r, 27), AD = cell(r, 29);
+    if (cell(r, 37).toLowerCase() === "off") continue; // paused elevator — no alerts
+    const W = cell(r, 22), Y = cell(r, 24);
     let what = "";
-    if (AD === "Paid") what = "";
-    else if (AB === "Sent") what = "record the payment";
-    else if (AA === "Sent") what = "send the invoice";
-    else if (Y === "Inspected") what = "";
-    else if (Y === "Booked") what = "do the inspection";
-    else if (X === "Sent") what = "book the visit";
-    else if (W === "Answered") what = "";
-    else if (W === "Waiting") what = "chase the maintenance company";
-    else if (V === "Sent") what = "log the maintenance answer";
-    else if (U === "Received") what = "";
-    else if (U === "Awaiting") what = "log the customer PO";
-    else if (T === "Sent") what = "waiting on the customer PO";
+    if (Y === "Booked") what = "Do the inspection — the visit is booked";
+    else if (W === "Waiting") what = "Chase the maintenance company for records";
     if (what) out.push({ building: cell(r, 1), okla: cell(r, 0), what });
   }
   return out;

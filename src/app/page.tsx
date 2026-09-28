@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useClerk } from "@clerk/nextjs";
 import { getInstallState, isIOS, subscribeInstall, triggerInstall } from "@/lib/pwa-install";
 import { alertsState, enableAlerts, type AlertState } from "@/lib/push-client";
@@ -417,10 +417,12 @@ function Picker({
   onPick,
   onNew,
   onSettings,
+  openOkla,
 }: {
   onPick: (e: Elevator) => void;
   onNew: () => void;
   onSettings: () => void;
+  openOkla?: string; // from a ?open=<okla> deep-link (a phone alert): jump to it
 }) {
   const [q, setQ] = useState("");
   const [mode, setMode] = useState<"all" | "soon">("all");
@@ -428,7 +430,22 @@ function Picker({
   const [loadState, setLoadState] = useState<"loading" | "live" | "error">("loading");
   const [errMsg, setErrMsg] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const jumpedTo = useRef("");
   const query = q.trim().toLowerCase();
+
+  // Deep-link from a phone alert: once the roster is live, open that elevator's
+  // profile straight away (only once per okla, so Back returns to the list).
+  useEffect(() => {
+    if (loadState !== "live" || !openOkla || jumpedTo.current === openOkla) return;
+    for (const a of accounts) {
+      const hit = a.units.find((u) => u.okla === openOkla);
+      if (hit) {
+        jumpedTo.current = openOkla;
+        onPick(hit);
+        return;
+      }
+    }
+  }, [loadState, openOkla, accounts, onPick]);
 
   // Live dashboard only — no sample data. If it can't load, show why + Retry.
   useEffect(() => {
@@ -1543,6 +1560,11 @@ export default function Home() {
   const [stage, setStage] = useState<Stage>("list");
   const [selected, setSelected] = useState<Elevator | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // A phone alert deep-links here as /?open=<okla>; the Picker jumps to it once,
+  // then we clear it so tapping Back to the list doesn't re-jump.
+  const [openOkla, setOpenOkla] = useState(() =>
+    typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("open") || "",
+  );
 
   const logout = () => signOut({ redirectUrl: "/sign-in" });
   const openSettings = () => setSettingsOpen(true);
@@ -1560,7 +1582,9 @@ export default function Home() {
         />
       ) : stage === "list" || !selected ? (
         <Picker
+          openOkla={openOkla}
           onPick={(e) => {
+            setOpenOkla("");
             setSelected(e);
             setStage("profile");
           }}

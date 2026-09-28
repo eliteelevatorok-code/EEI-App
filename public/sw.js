@@ -1,7 +1,7 @@
 // Minimal service worker: makes the app installable and serves a cached shell
 // if the network is briefly unavailable. Network-first so users always get the
 // latest; falls back to cache only when offline.
-const CACHE = "eei-shell-v2";
+const CACHE = "eei-shell-v3";
 const SHELL = ["/", "/sign-in", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -34,17 +34,29 @@ self.addEventListener("push", (e) => {
   );
 });
 
-// Tapping the alert opens (or focuses) the app.
+// Tapping the alert opens the app AT the elevator that needs you. If a window is
+// already open, navigate it to the target (don't just focus it wherever it was).
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const target = e.notification.data?.url || "/";
   e.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+    (async () => {
+      const list = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       for (const c of list) {
-        if ("focus" in c) return c.focus();
+        if ("focus" in c) {
+          await c.focus();
+          if ("navigate" in c) {
+            try {
+              await c.navigate(target);
+            } catch {
+              /* cross-origin or unsupported — the focus still brought the app up */
+            }
+          }
+          return;
+        }
       }
       return self.clients.openWindow(target);
-    }),
+    })(),
   );
 });
 
