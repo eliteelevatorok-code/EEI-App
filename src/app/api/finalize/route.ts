@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fillReport, type FinalizePayload } from "@/lib/fillForm";
-import { uploadPdf } from "@/lib/google";
+import { uploadFile } from "@/lib/google";
 import { findRowByOkla, markInspected, setReportFile } from "@/lib/roster";
 
 export const runtime = "nodejs";
@@ -50,8 +50,8 @@ export async function POST(req: Request) {
   let driveLink = "";
   let drive = "ok";
   try {
-    driveLink = await uploadPdf(fileName, pdf, account);
-    // Save the report's Drive link on the row so the ODOL email can attach it.
+    driveLink = await uploadFile(fileName, pdf, "application/pdf", account);
+    // Keep the report's Drive link on the row (col AO) so the file is easy to find later.
     if (sheetRow && driveLink) await setReportFile(sheetRow, driveLink);
   } catch (err) {
     drive = "failed: " + (err instanceof Error ? err.message : "unknown");

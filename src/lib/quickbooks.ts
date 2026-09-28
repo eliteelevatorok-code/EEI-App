@@ -1,4 +1,4 @@
-import { readRange, writeCell } from "@/lib/google";
+import { readConfig, writeConfig } from "@/lib/config";
 
 // The QuickBooks Online engine. It creates the customer invoice and, in
 // production, tells QuickBooks to send its own official bill (PDF + pay-online).
@@ -14,26 +14,15 @@ const TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 const MINOR = "minorversion=75";
 const ITEM_NAME = "Elevator Inspection";
 
-type QBConfig = { clientId: string; clientSecret: string; realmId: string; refreshToken: string };
-
-// Read the four QuickBooks keys from the Config tab (label in A, value in B).
-async function readConfig(): Promise<QBConfig> {
-  const rows = await readRange("Config!A1:B12");
-  const map = new Map(rows.map((r) => [(r[0] ?? "").trim(), (r[1] ?? "").trim()]));
+// The four QuickBooks keys, from the Config tab.
+async function qbKeys() {
+  const c = await readConfig();
   return {
-    clientId: map.get("devClientId") ?? "",
-    clientSecret: map.get("devClientSecret") ?? "",
-    realmId: map.get("sandboxRealmId") ?? "",
-    refreshToken: map.get("qbRefreshToken") ?? "",
+    clientId: c.get("devClientId") ?? "",
+    clientSecret: c.get("devClientSecret") ?? "",
+    realmId: c.get("sandboxRealmId") ?? "",
+    refreshToken: c.get("qbRefreshToken") ?? "",
   };
-}
-
-// Save a value back into a Config row, found by its label in column A.
-async function writeConfig(label: string, value: string): Promise<void> {
-  const rows = await readRange("Config!A1:A12");
-  const i = rows.findIndex((r) => (r[0] ?? "").trim() === label);
-  if (i === -1) throw new Error(`Config row "${label}" not found`);
-  await writeCell(`Config!B${i + 1}`, value);
 }
 
 // Cache the short-lived access token in memory (it lasts ~60 min).
@@ -46,7 +35,7 @@ async function getAccess(): Promise<{ token: string; realmId: string }> {
   if (accessCache && accessCache.expires > Date.now() + 60_000) {
     return { token: accessCache.token, realmId: accessCache.realmId };
   }
-  const cfg = await readConfig();
+  const cfg = await qbKeys();
   if (!cfg.clientId || !cfg.refreshToken) throw new Error("QuickBooks keys are missing from Config");
   const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
   const res = await fetch(TOKEN_URL, {
@@ -102,7 +91,6 @@ async function query<T>(select: string, entity: string): Promise<T[]> {
   return res.QueryResponse?.[entity] ?? [];
 }
 
-type Ref = { value: string };
 type Customer = { Id: string; DisplayName: string };
 type Item = { Id: string; Name: string };
 type Account = { Id: string; Name: string; AccountType: string };
@@ -130,7 +118,7 @@ async function findOrCreateItem(): Promise<Item> {
   if (!accounts.length) throw new Error("No income account in QuickBooks to attach the item to");
   const res = await qb<{ Item: Item }>("item", {
     method: "POST",
-    body: { Name: ITEM_NAME, Type: "Service", IncomeAccountRef: { value: accounts[0].Id } as Ref },
+    body: { Name: ITEM_NAME, Type: "Service", IncomeAccountRef: { value: accounts[0].Id } },
   });
   return res.Item;
 }
@@ -149,12 +137,12 @@ export async function createInvoice(input: InvoiceInput): Promise<Invoice> {
   const customer = await findOrCreateCustomer(input.customerName, input.email);
   const item = await findOrCreateItem();
   const body: Record<string, unknown> = {
-    CustomerRef: { value: customer.Id } as Ref,
+    CustomerRef: { value: customer.Id },
     Line: [
       {
         Amount: input.amount,
         DetailType: "SalesItemLineDetail",
-        SalesItemLineDetail: { ItemRef: { value: item.Id } as Ref, Qty: 1, UnitPrice: input.amount },
+        SalesItemLineDetail: { ItemRef: { value: item.Id }, Qty: 1, UnitPrice: input.amount },
       },
     ],
   };

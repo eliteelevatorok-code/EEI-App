@@ -1,47 +1,35 @@
 import { randomBytes } from "node:crypto";
 import type { Account, Elevator, Field, LifecycleStage } from "@/lib/data";
-import { appendRow, readRange, writeCell } from "@/lib/google";
+import { appendRow } from "@/lib/google";
+import { COL, FIRST_ROW, TAB, cell, letter, readRows, writeRow, type Col } from "@/lib/sheet";
+import { isRowPaused } from "@/lib/switches";
 
-// Dashboard "Elevators" tab: row 1 is the header row, data starts at row 2.
-// (The old section-banner row was removed so Make's Search Rows can read the
-// headers from row 1 — its required layout.)
-const FIRST_DATA_ROW = 2;
-const TAB = "Elevators";
+// Reading elevators off the dashboard for the phone app, and the few writes the
+// app makes when an elevator is added or a report is finished.
 
-// zero-based column indexes into a row
-const C = {
-  okla: 0, building: 1, area: 2, city: 3, account: 4, contact: 5, email: 6, phone: 7,
-  maintCo: 8, maintContact: 9, maintEmail: 10, maintPhone: 11, type: 12, floors: 13,
-  cycle: 14, price: 15, moneyPath: 16, due: 17,
-  visit: 24, tripDay: 25, report: 26, // Y, Z, AA
-  active: 37, // AL — the on/off switch
-  lastResult: 38, lastInspected: 39, // AM, AN — from the maintenance form
-};
-
-// spreadsheet column letters for write-back
-export const COL = { visit: "Y", tripDay: "Z", report: "AA" };
-
-// The customer lifecycle, left-to-right (dashboard columns S..AE). `idx` is the
-// zero-based row index; `col` the sheet letter (for write-back); `options` the
-// cell's dropdown choices ([] = free text, e.g. the trip date).
-export const LIFECYCLE_DEFS: { key: string; label: string; col: string; idx: number; options: string[] }[] = [
-  { key: "twoMoEmail", label: "2-month email", col: "S", idx: 18, options: ["Sent"] },
-  { key: "quote", label: "Quote", col: "T", idx: 19, options: ["Review", "Sent"] },
-  { key: "po", label: "PO", col: "U", idx: 20, options: ["Awaiting", "Received", "N/A"] },
-  { key: "scheduling", label: "Scheduling email", col: "V", idx: 21, options: ["Sent"] },
-  { key: "maintConfirm", label: "Maint. confirm", col: "W", idx: 22, options: ["Waiting", "Answered", "No answer"] },
-  { key: "accessReminder", label: "Access reminder", col: "X", idx: 23, options: ["Sent"] },
-  { key: "visit", label: "Visit", col: "Y", idx: 24, options: ["Booked", "Inspected"] },
-  { key: "tripDay", label: "Trip day", col: "Z", idx: 25, options: [] },
-  { key: "report", label: "Report", col: "AA", idx: 26, options: ["Sent"] },
-  { key: "invoice", label: "Invoice", col: "AB", idx: 27, options: ["Sent"] },
-  { key: "followUps", label: "Follow-ups", col: "AC", idx: 28, options: ["#1 sent", "#2 sent", "#3 sent"] },
-  { key: "paid", label: "Paid", col: "AD", idx: 29, options: ["Paid"] },
-  { key: "newTimer", label: "New timer set", col: "AE", idx: 30, options: ["Set"] },
+// The customer lifecycle, left to right (dashboard columns S–AE). `options` are
+// the cell's dropdown choices ([] = free text, e.g. the trip date).
+const STAGES: { key: Col; label: string; options: string[] }[] = [
+  { key: "twoMoEmail", label: "2-month email", options: ["Sent"] },
+  { key: "quote", label: "Quote", options: ["Review", "Sent"] },
+  { key: "po", label: "PO", options: ["Awaiting", "Received", "N/A"] },
+  { key: "scheduling", label: "Scheduling email", options: ["Sent"] },
+  { key: "maintConfirm", label: "Maint. confirm", options: ["Waiting", "Answered", "No answer"] },
+  { key: "accessReminder", label: "Access reminder", options: ["Sent"] },
+  { key: "visit", label: "Visit", options: ["Booked", "Inspected"] },
+  { key: "tripDay", label: "Trip day", options: [] },
+  { key: "report", label: "Report", options: ["Sent"] },
+  { key: "invoice", label: "Invoice", options: ["Sent"] },
+  { key: "followUps", label: "Follow-ups", options: ["#1 sent", "#2 sent", "#3 sent"] },
+  { key: "paid", label: "Paid", options: ["Paid"] },
+  { key: "newTimer", label: "New timer set", options: ["Set"] },
 ];
+// Same list with each stage's column letter, for writing a stage back (see /api/lifecycle).
+export const LIFECYCLE_DEFS = STAGES.map((s) => ({ ...s, col: letter(COL[s.key]) }));
 
-// The carried (locked) technical fields the report needs. The roster does not
-// hold these yet — they come from last year's saved report — so they start blank.
+// The fixed technical details printed on the report (serial, permit, …). The
+// dashboard doesn't store these yet, so they start blank for existing elevators;
+// a brand-new elevator gets them from the "New elevator" form for its first report.
 const CARRIED_LABELS = [
   "Serial number", "Permit #", "Manufacturer", "Capacity (lbs)", "Speed (FPM)",
   "Rise", "Openings", "# of landings", "Device type", "Installed year",
@@ -49,74 +37,66 @@ const CARRIED_LABELS = [
 ];
 const blankCarried = (): Field[] => CARRIED_LABELS.map((label) => ({ label, value: "" }));
 
-const cell = (row: string[], i: number) => (row[i] ?? "").trim();
-const parseCycle = (raw: string) => {
-  if (/res/i.test(raw)) return "Res";
-  const m = raw.match(/\d+/);
-  return m ? m[0] : "1";
-};
+// The dashboard's Cycle cell ("1 yr", "2", "Res" …) → "1" | "2" | "3" | "Res".
+const parseCycle = (raw: string) => (/res/i.test(raw) ? "Res" : (raw.match(/\d+/)?.[0] ?? "1"));
 
-function rowToElevator(row: string[], rowNumber: number): Elevator {
+function rowToElevator(r: string[], row: number): Elevator {
   return {
-    okla: cell(row, C.okla),
-    building: cell(row, C.building),
-    account: cell(row, C.account) || "Unassigned",
-    contact: cell(row, C.contact),
-    email: cell(row, C.email),
-    area: cell(row, C.area),
-    city: cell(row, C.city),
-    type: cell(row, C.type),
-    floors: parseInt(cell(row, C.floors), 10) || 0,
-    cycle: parseCycle(cell(row, C.cycle)),
-    due: cell(row, C.due),
-    price: cell(row, C.price),
-    moneyPath: cell(row, C.moneyPath),
-    active: cell(row, C.active).toLowerCase() !== "off", // blank = on
-    row: rowNumber, // the sheet row, so finalize writes back to the right line
+    okla: cell(r, "okla"),
+    building: cell(r, "building"),
+    account: cell(r, "account") || "Unassigned",
+    contact: cell(r, "contact"),
+    email: cell(r, "email"),
+    area: cell(r, "area"),
+    city: cell(r, "city"),
+    type: cell(r, "type"),
+    floors: parseInt(cell(r, "floors"), 10) || 0,
+    cycle: parseCycle(cell(r, "cycle")),
+    due: cell(r, "due"),
+    price: cell(r, "price"),
+    moneyPath: cell(r, "moneyPath"),
+    active: !isRowPaused(r),
+    row, // the sheet row, so later writes land on the right line
     lifecycle: LIFECYCLE_DEFS.map((d): LifecycleStage => ({
       key: d.key,
       label: d.label,
       col: d.col,
-      value: cell(row, d.idx),
+      value: cell(r, d.key),
       options: d.options,
     })),
     carried: blankCarried(),
     lastYear: {
-      // Fed by the maintenance company via the /maint form: whether it passed
-      // its last inspection (AM) and when (AN). Blank until they answer.
-      date: cell(row, C.lastInspected),
+      // From the maintenance company's /maint form: did it pass last time, and
+      // when. Blank until they answer.
+      date: cell(r, "lastInspected"),
       inspType: "Periodic",
       test1: "",
       test5: "",
-      certIssue: cell(row, C.lastResult) === "Fail" ? "No" : "Yes",
+      certIssue: cell(r, "lastResult") === "Fail" ? "No" : "Yes",
       condition: "No adverse conditions",
       notes: "",
     },
   };
 }
 
-// Read the whole roster and group it by account for the picker.
+// The whole roster, grouped by account for the elevator list.
 export async function loadRoster(): Promise<Account[]> {
-  const rows = await readRange(`${TAB}!A${FIRST_DATA_ROW}:AN`);
   const byAccount = new Map<string, Elevator[]>();
-  rows.forEach((row, i) => {
-    if (!cell(row, C.okla)) return; // skip empty lines
-    const e = rowToElevator(row, FIRST_DATA_ROW + i);
-    const list = byAccount.get(e.account) ?? [];
-    list.push(e);
-    byAccount.set(e.account, list);
+  (await readRows()).forEach((r, i) => {
+    if (!cell(r, "okla")) return; // skip empty lines
+    const e = rowToElevator(r, FIRST_ROW + i);
+    byAccount.set(e.account, [...(byAccount.get(e.account) ?? []), e]);
   });
   return [...byAccount.entries()].map(([name, units]) => ({ name, units }));
 }
 
-// Find the sheet row for an OK #, so finalize writes to the correct line.
+// The sheet row for an OK #, or null if it isn't on the dashboard.
 export async function findRowByOkla(okla: string): Promise<number | null> {
-  const rows = await readRange(`${TAB}!A${FIRST_DATA_ROW}:A`);
-  const idx = rows.findIndex((r) => (r[0] ?? "").trim() === okla.trim());
-  return idx === -1 ? null : FIRST_DATA_ROW + idx;
+  const i = (await readRows()).findIndex((r) => cell(r, "okla") === okla.trim());
+  return i === -1 ? null : FIRST_ROW + i;
 }
 
-// A brand-new elevator's roster fields (dashboard columns A..R, in order).
+// A brand-new elevator's dashboard fields (columns A–R, in order).
 export type NewElevatorInput = {
   okla: string; building: string; area: string; city: string; account: string;
   contact: string; email: string; phone: string; maintCo: string; maintContact: string;
@@ -124,37 +104,33 @@ export type NewElevatorInput = {
   price: string; moneyPath: string; due: string;
 };
 
-// Append a new elevator as a new row on the dashboard (cols A..R). Lifecycle
-// cells (S..AE) are left blank — the engine/app fills them over time. Also
-// stamps a random PO token (col AH) so the customer's PO link works right away.
+// Add a new elevator as a new row (A–R). Lifecycle cells start blank — the
+// automation fills them over time. Also stamps a random link token so the
+// customer's emailed links (PO form, pay page) work right away.
 export async function appendElevator(f: NewElevatorInput): Promise<number | null> {
-  const row = [
+  const row = await appendRow(`${TAB}!A:R`, [
     f.okla, f.building, f.area, f.city, f.account, f.contact, f.email, f.phone,
     f.maintCo, f.maintContact, f.maintEmail, f.maintPhone, f.type, f.floors, f.cycle,
     f.price, f.moneyPath, f.due,
-  ];
-  const rowNumber = await appendRow(`${TAB}!A:R`, row);
-  if (rowNumber) {
+  ]);
+  if (row) {
     try {
-      const token = randomBytes(16).toString("hex");
-      await writeCell(`${TAB}!AH${rowNumber}`, token);
+      await writeRow(row, { token: randomBytes(16).toString("hex") });
     } catch {
-      // A missing token only means the PO link needs regenerating later; never
-      // fail the whole add-elevator over it.
+      // A missing token only means the emailed links need one added later —
+      // never fail the whole add-elevator over it.
     }
   }
-  return rowNumber;
+  return row;
 }
 
-// Flip the lifecycle cells when a report is finalized.
-export async function markInspected(rowNumber: number, dateText: string): Promise<void> {
-  await writeCell(`${TAB}!${COL.visit}${rowNumber}`, "Inspected");
-  await writeCell(`${TAB}!${COL.tripDay}${rowNumber}`, dateText);
-  await writeCell(`${TAB}!${COL.report}${rowNumber}`, "Sent");
+// A report was finished: Visit → Inspected, Trip day → the inspection date,
+// Report → Sent (which lets the automation send the report and then bill).
+export async function markInspected(row: number, dateText: string): Promise<void> {
+  await writeRow(row, { visit: "Inspected", tripDay: dateText, report: "Sent" });
 }
 
-// Store the finished report's Drive link on the row (col AO), so the automation
-// can attach the actual report to the ODOL submission email.
-export async function setReportFile(rowNumber: number, link: string): Promise<void> {
-  await writeCell(`${TAB}!AO${rowNumber}`, link);
+// Keep the finished report's Drive link on the row.
+export async function setReportFile(row: number, link: string): Promise<void> {
+  await writeRow(row, { reportFile: link });
 }

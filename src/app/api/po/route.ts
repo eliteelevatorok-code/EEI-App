@@ -1,5 +1,5 @@
 import { uploadFile } from "@/lib/google";
-import { findByToken, recordPO } from "@/lib/po";
+import { findForPO, recordPO } from "@/lib/po";
 
 export const runtime = "nodejs";
 
@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 // the customer with their building name. Never reveals anything without the token.
 export async function GET(req: Request) {
   const token = new URL(req.url).searchParams.get("t") ?? "";
-  const el = await findByToken(token);
+  const el = await findForPO(token);
   if (!el) return Response.json({ error: "not-found" }, { status: 404 });
   return Response.json({ building: el.building, okla: el.okla, alreadyPO: el.alreadyPO });
 }
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   if (!po) return Response.json({ error: "Please enter your PO number." }, { status: 400 });
   if (po.length > 120) return Response.json({ error: "That PO number looks too long." }, { status: 400 });
 
-  const el = await findByToken(token);
+  const el = await findForPO(token);
   if (!el) return Response.json({ error: "This link isn't recognized." }, { status: 404 });
 
   let fileLink = "";

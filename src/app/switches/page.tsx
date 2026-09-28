@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 type State = { master: boolean; elevators: { on: boolean }[] };
 
@@ -102,90 +103,56 @@ export default function SwitchesPage() {
 
       {/* Step 1 of 2 — warning */}
       {step === "stop1" && (
-        <Modal>
-          <h4 className="text-base font-bold text-red-700">Pause everything? (step 1 of 2)</h4>
-          <p className="mt-2 text-sm text-stone-600">
-            This halts every automatic email, invoice, and payment step for <span className="font-semibold">all</span> elevators
-            at once. You&apos;ll confirm once more on the next screen.
-          </p>
-          <Buttons>
-            <Cancel onClick={close} />
-            <button
-              onClick={() => setStep("stop2")}
-              className="flex-1 rounded-lg bg-red-600 py-3 text-sm font-bold uppercase tracking-wider text-white"
-            >
-              Continue
-            </button>
-          </Buttons>
-        </Modal>
+        <ConfirmDialog
+          danger
+          title="Pause everything? (step 1 of 2)"
+          confirmLabel="Continue"
+          onCancel={close}
+          onConfirm={() => setStep("stop2")}
+        >
+          This halts every automatic email, invoice, and payment step for <span className="font-semibold">all</span>{" "}
+          elevators at once. You&apos;ll confirm once more on the next screen.
+        </ConfirmDialog>
       )}
 
       {/* Step 2 of 2 — type STOP */}
       {step === "stop2" && (
-        <Modal>
-          <h4 className="text-base font-bold text-red-700">Final confirmation (step 2 of 2)</h4>
-          <p className="mt-2 text-sm text-stone-600">Type <span className="font-bold">STOP</span> to pause the whole system.</p>
+        <ConfirmDialog
+          danger
+          title="Final confirmation (step 2 of 2)"
+          confirmLabel="Pause all"
+          busyLabel="Pausing…"
+          busy={busy}
+          confirmDisabled={typed.trim().toUpperCase() !== "STOP"}
+          error={err}
+          onCancel={close}
+          onConfirm={() => setMaster(false)}
+        >
+          Type <span className="font-bold">STOP</span> to pause the whole system.
           <input
             autoFocus
-            className="mt-3 w-full rounded-lg border border-stone-300 px-3 py-2.5 text-base outline-none focus:border-red-500"
+            className="mt-3 w-full rounded-lg border border-stone-300 px-3 py-2.5 text-base text-stone-900 outline-none focus:border-red-500"
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             placeholder="Type STOP"
           />
-          {err && <p className="mt-2 text-sm font-semibold text-red-600">{err}</p>}
-          <Buttons>
-            <Cancel onClick={close} />
-            <button
-              onClick={() => setMaster(false)}
-              disabled={busy || typed.trim().toUpperCase() !== "STOP"}
-              className="flex-1 rounded-lg bg-red-600 py-3 text-sm font-bold uppercase tracking-wider text-white disabled:opacity-40"
-            >
-              {busy ? "Pausing…" : "Pause all"}
-            </button>
-          </Buttons>
-        </Modal>
+        </ConfirmDialog>
       )}
 
       {/* Resume — single confirm */}
       {step === "resume" && (
-        <Modal>
-          <h4 className="text-base font-bold" style={{ color: BRAND }}>Resume everything?</h4>
-          <p className="mt-2 text-sm text-stone-600">Automatic steps start again for every elevator that is switched on.</p>
-          {err && <p className="mt-2 text-sm font-semibold text-red-600">{err}</p>}
-          <Buttons>
-            <Cancel onClick={close} />
-            <button
-              onClick={() => setMaster(true)}
-              disabled={busy}
-              className="flex-1 rounded-lg py-3 text-sm font-bold uppercase tracking-wider text-white disabled:opacity-60"
-              style={{ background: BRAND }}
-            >
-              {busy ? "Resuming…" : "Resume"}
-            </button>
-          </Buttons>
-        </Modal>
+        <ConfirmDialog
+          title="Resume everything?"
+          confirmLabel="Resume"
+          busyLabel="Resuming…"
+          busy={busy}
+          error={err}
+          onCancel={close}
+          onConfirm={() => setMaster(true)}
+        >
+          Automatic steps start again for every elevator that is switched on.
+        </ConfirmDialog>
       )}
     </div>
-  );
-}
-
-function Modal({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
-      <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">{children}</div>
-    </div>
-  );
-}
-function Buttons({ children }: { children: React.ReactNode }) {
-  return <div className="mt-5 flex gap-3">{children}</div>;
-}
-function Cancel({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex-1 rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700"
-    >
-      Cancel
-    </button>
   );
 }

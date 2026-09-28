@@ -64,6 +64,18 @@ export async function writeCell(a1: string, value: string): Promise<void> {
   });
 }
 
+// Overwrite several cells in ONE request: [["Elevators!U5", "Received"], …].
+// Cheaper than several writeCell calls and keeps Google's per-minute limit happy.
+export async function writeCells(cells: [a1: string, value: string][]): Promise<void> {
+  if (!cells.length) return;
+  const client = await auth().getClient();
+  await client.request({
+    url: `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_ID}/values:batchUpdate`,
+    method: "POST",
+    data: { valueInputOption: "USER_ENTERED", data: cells.map(([range, v]) => ({ range, values: [[v]] })) },
+  });
+}
+
 // Append a row to the end of a table (e.g. "Elevators!A:R"); returns the sheet
 // row number it landed on (parsed from the API's updatedRange).
 export async function appendRow(range: string, values: string[]): Promise<number | null> {
@@ -120,7 +132,3 @@ export async function uploadFile(
   return res.data.webViewLink ?? `https://drive.google.com/file/d/${res.data.id}/view`;
 }
 
-// Upload a PDF (kept for the report flow; delegates to uploadFile).
-export async function uploadPdf(name: string, bytes: Uint8Array, account?: string): Promise<string> {
-  return uploadFile(name, bytes, "application/pdf", account);
-}

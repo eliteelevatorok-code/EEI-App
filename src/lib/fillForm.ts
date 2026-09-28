@@ -10,6 +10,7 @@ import {
   type PDFForm,
 } from "pdf-lib";
 import type { Elevator, AddedViolation } from "@/lib/data";
+import { DEVICE_TYPE_CODE, ENTITY_TYPE_CODE, MACHINE_TYPE_CODE } from "@/lib/formCodes";
 
 // Fills Oklahoma DOL's official third-party inspection form
 // (templates/inspection-form.pdf) from one finished report. Field names below are
@@ -65,32 +66,7 @@ const CARRIED_TO_FIELD: Record<string, string> = {
   // Device / Machine / Entity type are radio buttons, filled separately below.
 };
 
-// Numeric-coded radio groups on the master form. Codes read off the real
-// form (2026-09-07): the label printed beside each box → its hidden value.
-const DEVICE_TYPE_CODE: Record<string, string> = {
-  "Const/Temp": "0",
-  "Escalator/MW": "1",
-  "Personnel Hoist": "2",
-  "Platform Lift": "3",
-  "Stairway Chair Lift": "4",
-  Passenger: "5",
-  "LU/LA": "6",
-  Freight: "7",
-};
-const MACHINE_TYPE_CODE: Record<string, string> = {
-  Cable: "1",
-  "Direct Plunger Hydraulic": "2",
-  "Hand Powered": "3",
-  "Roped Hydraulic": "4",
-  Other: "5",
-};
-const ENTITY_TYPE_CODE: Record<string, string> = {
-  Private: "1",
-  County: "2",
-  City: "3",
-  State: "4",
-};
-
+// Inspection type → the checkbox that marks it on the form.
 const INSP_TYPE_CB: Record<string, string> = {
   Initial: "INSPECTION TYPE INITAL",
   Periodic: "INSPECTION TYPE PERIODIC",

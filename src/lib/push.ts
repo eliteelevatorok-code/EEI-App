@@ -1,5 +1,7 @@
 import webpush from "web-push";
-import { appendRow, readRange, writeCell } from "@/lib/google";
+import { appendRow, readRange, writeCells } from "@/lib/google";
+import { readConfig } from "@/lib/config";
+import { cell, readRows } from "@/lib/sheet";
 import { isMasterOn, isRowPaused } from "@/lib/switches";
 
 // Phone alerts (web push). The signing keys and the scheduler secret live in the
@@ -13,8 +15,7 @@ type PushConfig = { publicKey: string; privateKey: string; contact: string; runS
 let cached: PushConfig | null = null;
 export async function getPushConfig(): Promise<PushConfig> {
   if (cached) return cached;
-  const rows = await readRange("Config!A1:B20");
-  const map = new Map(rows.map((r) => [(r[0] ?? "").trim(), (r[1] ?? "").trim()]));
+  const map = await readConfig();
   cached = {
     publicKey: map.get("vapidPublic") ?? "",
     privateKey: map.get("vapidPrivate") ?? "",
@@ -51,11 +52,10 @@ async function getSubscriptions(): Promise<{ sub: Sub; row: number }[]> {
 // Blank a dead subscription's row (the phone unsubscribed or reinstalled — the
 // push service answered 404/410).
 async function dropSubscription(row: number): Promise<void> {
-  for (const c of ["A", "B", "C"]) await writeCell(`PushSubs!${c}${row}`, "");
+  await writeCells(["A", "B", "C"].map((c) => [`PushSubs!${c}${row}`, ""]));
 }
 
 // ---- what needs a human, read from the Elevators tab ----
-const cell = (r: string[], i: number) => (r[i] ?? "").trim();
 
 // Returns one line per row that is genuinely waiting on a PERSON. The automation
 // now sends the emails and invoices, and the PO/maintenance forms and QuickBooks
@@ -65,15 +65,13 @@ const cell = (r: string[], i: number) => (r[i] ?? "").trim();
 // the customer, and should NOT buzz the phone. Master switch off = no alerts at all.
 export async function actionNeeded(): Promise<{ building: string; okla: string; what: string }[]> {
   if (!(await isMasterOn())) return [];
-  const rows = await readRange("Elevators!A2:AL");
   const out: { building: string; okla: string; what: string }[] = [];
-  for (const r of rows) {
-    if (!cell(r, 0) || isRowPaused(r)) continue; // blank row, or a paused elevator
-    const W = cell(r, 22), Y = cell(r, 24); // W = Maint. confirm, Y = Visit
+  for (const r of await readRows()) {
+    if (!cell(r, "okla") || isRowPaused(r)) continue; // blank row, or a paused elevator
     let what = "";
-    if (Y === "Booked") what = "Do the inspection — the visit is booked";
-    else if (W === "Waiting") what = "Chase the maintenance company for records";
-    if (what) out.push({ building: cell(r, 1), okla: cell(r, 0), what });
+    if (cell(r, "visit") === "Booked") what = "Do the inspection — the visit is booked";
+    else if (cell(r, "maintConfirm") === "Waiting") what = "Chase the maintenance company for records";
+    if (what) out.push({ building: cell(r, "building"), okla: cell(r, "okla"), what });
   }
   return out;
 }

@@ -19,6 +19,8 @@ import {
 import { VHEAD, VIOLATIONS, parseViolation } from "@/lib/violations";
 import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from "@/lib/prefs";
 import { computeCycle, computePrice, formatPrice } from "@/lib/pricing";
+import { DEVICE_TYPE_CODE, ENTITY_TYPE_CODE, MACHINE_TYPE_CODE } from "@/lib/formCodes";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 type Stage = "list" | "profile" | "report" | "new";
 
@@ -614,10 +616,10 @@ const NEW_TYPES = [
   "Wheelchair/Platform Lift",
 ];
 const MONEY_PATHS = ["Quote to PO to invoice", "Invoice only"];
-// Labels must match the fillForm maps exactly (they key the PDF fields).
-const DEVICE_TYPES = ["Const/Temp", "Escalator/MW", "Personnel Hoist", "Platform Lift", "Stairway Chair Lift", "Passenger", "LU/LA", "Freight"];
-const MACHINE_TYPES = ["Cable", "Direct Plunger Hydraulic", "Hand Powered", "Roped Hydraulic", "Other"];
-const ENTITY_TYPES = ["Private", "County", "City", "State"];
+// The state form's radio choices — one shared list with the PDF filler.
+const DEVICE_TYPES = Object.keys(DEVICE_TYPE_CODE);
+const MACHINE_TYPES = Object.keys(MACHINE_TYPE_CODE);
+const ENTITY_TYPES = Object.keys(ENTITY_TYPE_CODE);
 
 type NewForm = {
   // dashboard row (cols A..R)
@@ -943,31 +945,17 @@ function LifecycleEditor({
 
       {/* double-confirm before any write */}
       {confirm && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 p-6">
-          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
-            <h4 className="text-base font-bold">Are you sure?</h4>
-            <p className="mt-2 text-sm text-stone-600">
-              Set <span className="font-semibold">{stage.label}</span> to{" "}
-              <span className="font-semibold">{show(choice)}</span> on the live dashboard?
-            </p>
-            <div className="mt-5 flex gap-3">
-              <button
-                onClick={() => setConfirm(false)}
-                disabled={busy}
-                className="flex-1 rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700"
-              >
-                No, cancel
-              </button>
-              <button
-                onClick={save}
-                disabled={busy}
-                className="flex-1 rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50 disabled:opacity-60"
-              >
-                {busy ? "Saving…" : "Yes, save"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="Are you sure?"
+          confirmLabel="Yes, save"
+          busyLabel="Saving…"
+          busy={busy}
+          onCancel={() => setConfirm(false)}
+          onConfirm={save}
+        >
+          Set <span className="font-semibold">{stage.label}</span> to{" "}
+          <span className="font-semibold">{show(choice)}</span> on the live dashboard?
+        </ConfirmDialog>
       )}
     </div>
   );
@@ -1099,62 +1087,45 @@ function Profile({
         </p>
       </Card>
 
-      {/* pause step 1 of 2 */}
+      {/* pausing takes two confirmations; resuming takes one */}
       {swStep === "pause1" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
-          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
-            <h4 className="text-base font-bold text-red-700">Pause {e.building}? (step 1 of 2)</h4>
-            <p className="mt-2 text-sm text-stone-600">
-              Its automatic emails, invoice, and payment steps stop until you switch it back on. You&apos;ll confirm once more.
-            </p>
-            <div className="mt-5 flex gap-3">
-              <button onClick={closeSw} className="flex-1 rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700">
-                Cancel
-              </button>
-              <button onClick={() => setSwStep("pause2")} className="flex-1 rounded-lg bg-red-600 py-3 text-sm font-bold uppercase tracking-wider text-white">
-                Continue
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          danger
+          title={`Pause ${e.building}? (step 1 of 2)`}
+          confirmLabel="Continue"
+          onCancel={closeSw}
+          onConfirm={() => setSwStep("pause2")}
+        >
+          Its automatic emails, invoice, and payment steps stop until you switch it back on. You&apos;ll confirm
+          once more.
+        </ConfirmDialog>
       )}
-
-      {/* pause step 2 of 2 */}
       {swStep === "pause2" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
-          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
-            <h4 className="text-base font-bold text-red-700">Confirm pause (step 2 of 2)</h4>
-            <p className="mt-2 text-sm text-stone-600">Pause <span className="font-semibold">{e.building}</span> now?</p>
-            {swErr && <p className="mt-2 text-sm font-semibold text-red-600">{swErr}</p>}
-            <div className="mt-5 flex gap-3">
-              <button onClick={closeSw} disabled={swBusy} className="flex-1 rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700">
-                Cancel
-              </button>
-              <button onClick={() => setSwitch(false)} disabled={swBusy} className="flex-1 rounded-lg bg-red-600 py-3 text-sm font-bold uppercase tracking-wider text-white disabled:opacity-50">
-                {swBusy ? "Pausing…" : "Pause it"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          danger
+          title="Confirm pause (step 2 of 2)"
+          confirmLabel="Pause it"
+          busyLabel="Pausing…"
+          busy={swBusy}
+          error={swErr}
+          onCancel={closeSw}
+          onConfirm={() => setSwitch(false)}
+        >
+          Pause <span className="font-semibold">{e.building}</span> now?
+        </ConfirmDialog>
       )}
-
-      {/* resume — single confirm */}
       {swStep === "resume" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
-          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
-            <h4 className="text-base font-bold text-[#1F4B45]">Resume {e.building}?</h4>
-            <p className="mt-2 text-sm text-stone-600">Automatic steps start running again for this elevator.</p>
-            {swErr && <p className="mt-2 text-sm font-semibold text-red-600">{swErr}</p>}
-            <div className="mt-5 flex gap-3">
-              <button onClick={closeSw} disabled={swBusy} className="flex-1 rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700">
-                Cancel
-              </button>
-              <button onClick={() => setSwitch(true)} disabled={swBusy} className="flex-1 rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50 disabled:opacity-60">
-                {swBusy ? "Resuming…" : "Resume"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={`Resume ${e.building}?`}
+          confirmLabel="Resume"
+          busyLabel="Resuming…"
+          busy={swBusy}
+          error={swErr}
+          onCancel={closeSw}
+          onConfirm={() => setSwitch(true)}
+        >
+          Automatic steps start running again for this elevator.
+        </ConfirmDialog>
       )}
 
       {/* lifecycle — tap any step to change it (writes to the dashboard after a confirm) */}

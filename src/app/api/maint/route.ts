@@ -1,4 +1,4 @@
-import { findByToken, recordMaint } from "@/lib/maint";
+import { findForMaint, recordMaint } from "@/lib/maint";
 
 export const runtime = "nodejs";
 
@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 // can greet the maintenance company with the building. Nothing without the token.
 export async function GET(req: Request) {
   const token = new URL(req.url).searchParams.get("t") ?? "";
-  const el = await findByToken(token);
+  const el = await findForMaint(token);
   if (!el) return Response.json({ error: "not-found" }, { status: 404 });
   return Response.json({
     building: el.building,
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
   if (!date) {
     return Response.json({ error: "Please enter the date it was last inspected." }, { status: 400 });
   }
-  const el = await findByToken(String(body.token ?? ""));
+  const el = await findForMaint(String(body.token ?? ""));
   if (!el) return Response.json({ error: "This link isn't recognized." }, { status: 404 });
   try {
     await recordMaint(el.row, result, date);
