@@ -1,3 +1,7 @@
+// One-time sign-in that lets the app upload report PDFs to Robert's Google Drive.
+// Saves the refresh token to .secrets/oauth-token.json. Re-run only if Drive uploads
+// start failing with an auth error.  Run:  node scripts/oauth-setup.mjs
+
 import { OAuth2Client } from "google-auth-library";
 import http from "node:http";
 import fs from "node:fs";

@@ -1,3 +1,6 @@
+// Regenerates the app icons in /public (the green "EE" monogram).
+// Run:  node scripts/gen-icons.mjs
+
 import sharp from "sharp";
 import fs from "node:fs";
 

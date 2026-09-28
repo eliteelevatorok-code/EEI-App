@@ -1,24 +1,17 @@
-import { readSwitches } from "@/lib/switches";
-import { getPushConfig } from "@/lib/push";
+import { isMasterOn } from "@/lib/switches";
+import { rejectUnlessScheduler } from "@/lib/schedulerKey";
 
 export const runtime = "nodejs";
 
-// Public, secret-guarded: lets the Make automation read the master switch so
-// every route can halt when the whole system is paused. Returns "On" / "Off"
-// (a string, so a Make filter can compare it directly).
+// Called by the Make "daily lifecycle" scenario (module #101) before its routes
+// run. Every route only fires when this says "On" — so pausing the master
+// switch in the app halts all automatic steps. Returns "On"/"Off" as text so a
+// Make filter can compare it directly.
 async function handle(req: Request) {
-  const key = new URL(req.url).searchParams.get("key") ?? "";
-  const cfg = await getPushConfig();
-  if (!cfg.runSecret || key !== cfg.runSecret) {
-    return Response.json({ error: "forbidden" }, { status: 403 });
-  }
-  const { master } = await readSwitches();
-  return Response.json({ master: master ? "On" : "Off" });
+  const denied = await rejectUnlessScheduler(req);
+  if (denied) return denied;
+  return Response.json({ master: (await isMasterOn()) ? "On" : "Off" });
 }
 
-export async function GET(req: Request) {
-  return handle(req);
-}
-export async function POST(req: Request) {
-  return handle(req);
-}
+export const GET = handle;
+export const POST = handle;

@@ -36,9 +36,13 @@ yarn-error.log*
 # service-account key (the app's Google login — never commit)
 /.secrets/
 
-# internal handoff doc + machine-specific dev config (keep out of the repo)
+# internal handoff docs + machine-specific dev config (keep out of the repo)
 /EEI-SEED.md
+/SEED-NEXT-CHAT.md
 /.claude/
+
+# old one-off Make-building scripts and blueprint exports, kept locally for reference only
+/archive/
 
 # vercel
 .vercel

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useClerk } from "@clerk/nextjs";
 import { getInstallState, isIOS, subscribeInstall, triggerInstall } from "@/lib/pwa-install";
 import { alertsState, enableAlerts, type AlertState } from "@/lib/push-client";
@@ -39,7 +40,8 @@ function daysUntil(s: string): number | null {
 }
 const DUE_SOON_DAYS = 60;
 
-type Report = {
+// The report being filled in on the phone (becomes the PDF on "Finish & finalize").
+type ReportDraft = {
   date: string;
   inspType: string;
   cycle: string;
@@ -51,7 +53,21 @@ type Report = {
   added: AddedViolation[];
 };
 
-function freshReport(e: Elevator): Report {
+// "Save for later" keeps the draft on this phone under this key, one per elevator.
+const draftKey = (okla: string) => `eei_draft_${okla}`;
+
+// Read a saved draft back, or null if there isn't a usable one.
+function loadDraft(okla: string): ReportDraft | null {
+  try {
+    const d = JSON.parse(localStorage.getItem(draftKey(okla)) || "null") as ReportDraft | null;
+    return d && Array.isArray(d.added) ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+// A new, empty report — pre-filled with what we know from last time.
+function freshReport(e: Elevator): ReportDraft {
   return {
     date: "",
     inspType: e.lastYear.inspType,
@@ -130,14 +146,11 @@ const inputCls =
 // Reads the app-wide install state captured at startup (see lib/pwa-install).
 // Because the browser's install event is captured on load — not when this popup
 // opens — the button is available here even though the event fired earlier.
+// (Settings only ever opens after a tap, so reading browser-only state up front is safe.)
 function useInstall() {
-  const [state, setState] = useState(() => getInstallState());
-  const [ios, setIos] = useState(false);
-  useEffect(() => {
-    setIos(isIOS());
-    setState(getInstallState());
-    return subscribeInstall(() => setState(getInstallState()));
-  }, []);
+  const [state, setState] = useState(getInstallState);
+  const [ios] = useState(isIOS);
+  useEffect(() => subscribeInstall(() => setState(getInstallState())), []);
   const install = () => {
     void triggerInstall();
   };
@@ -146,8 +159,7 @@ function useInstall() {
 
 function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => void }) {
   const { installed, canInstall, install, ios } = useInstall();
-  const [scale, setScale] = useState(1);
-  useEffect(() => setScale(currentFontScale()), []);
+  const [scale, setScale] = useState(currentFontScale);
 
   // Live master-switch state, so the System card shows on/off at a glance.
   const [master, setMaster] = useState<boolean | null>(null);
@@ -257,8 +269,8 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
           {alerts === "on" ? (
             <p className="text-sm text-stone-700">
               <span className="font-bold text-[#1F4B45]">Alerts on ✓</span> — this phone will buzz you when an
-              elevator needs your hands (record a PO, chase maintenance, do an inspection, send an invoice,
-              record payment). Checked every hour, 8am–7pm.
+              elevator needs you: a booked inspection to do, or a maintenance company to chase for records. Tap
+              the alert to jump straight to that elevator. Checked every hour, 8am–7pm.
             </p>
           ) : alerts === "blocked" ? (
             <p className="text-sm text-stone-700">
@@ -327,12 +339,12 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
               </span>
             )}
           </div>
-          <a
+          <Link
             href="/switches"
             className="block w-full rounded-lg bg-[#1F4B45] py-3 text-center text-base font-bold uppercase tracking-wider text-stone-50"
           >
             {master === false ? "Resume the system" : "Master switch"}
-          </a>
+          </Link>
           <p className="mt-2 text-xs text-stone-400">Each elevator has its own switch on its profile.</p>
         </Card>
 
@@ -448,9 +460,9 @@ function Picker({
   }, [loadState, openOkla, accounts, onPick]);
 
   // Live dashboard only — no sample data. If it can't load, show why + Retry.
+  // (Re-runs when Retry bumps reloadKey; Retry itself flips the screen to "loading".)
   useEffect(() => {
     let cancelled = false;
-    setLoadState("loading");
     (async () => {
       try {
         const res = await fetch("/api/roster");
@@ -486,24 +498,18 @@ function Picker({
   };
 
   // "All" = grouped by account, each account's units soonest-due first.
-  const grouped = useMemo(
-    () =>
-      accounts
-        .map((a) => ({ ...a, units: a.units.filter((u) => matches(u, a.name)).sort(byDue) }))
-        .filter((a) => a.units.length > 0),
-    [accounts, query],
-  );
+  // (Plain calculations — the roster is small, so there's nothing worth caching.)
+  const grouped = accounts
+    .map((a) => ({ ...a, units: a.units.filter((u) => matches(u, a.name)).sort(byDue) }))
+    .filter((a) => a.units.length > 0);
   // "Due soon" = one flat list across all accounts, within the window, soonest first.
-  const dueSoon = useMemo(() => {
-    const all: Elevator[] = [];
-    for (const a of accounts) for (const u of a.units) if (matches(u, a.name)) all.push(u);
-    return all
-      .filter((u) => {
-        const d = daysUntil(u.due);
-        return d !== null && d <= DUE_SOON_DAYS;
-      })
-      .sort(byDue);
-  }, [accounts, query]);
+  const dueSoon = accounts
+    .flatMap((a) => a.units.filter((u) => matches(u, a.name)))
+    .filter((u) => {
+      const d = daysUntil(u.due);
+      return d !== null && d <= DUE_SOON_DAYS;
+    })
+    .sort(byDue);
 
   return (
     <div className="mx-auto max-w-md px-4 pb-16 pt-4">
@@ -586,7 +592,10 @@ function Picker({
           <p className="text-sm font-semibold text-red-700">Couldn&apos;t load your elevator list.</p>
           <p className="mt-1 text-xs text-red-600">{errMsg}</p>
           <button
-            onClick={() => setReloadKey((k) => k + 1)}
+            onClick={() => {
+              setLoadState("loading");
+              setReloadKey((k) => k + 1);
+            }}
             className="mt-3 rounded-lg bg-[#1F4B45] px-4 py-2 text-sm font-bold text-stone-50"
           >
             Retry
@@ -697,6 +706,7 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
         building: f.building.trim(),
         account: f.account.trim(),
         contact: f.contact,
+        email: f.email,
         area: f.area,
         city: f.city,
         type: f.type,
@@ -1269,12 +1279,14 @@ function Report({
   onBack: () => void;
   onSettings: () => void;
 }) {
-  const [r, setR] = useState<Report>(() => freshReport(elevator));
+  // Start from a draft saved earlier on this phone, if there is one.
+  const [saved] = useState(() => loadDraft(elevator.okla));
+  const [r, setR] = useState<ReportDraft>(() => saved ?? freshReport(elevator));
   const [sheet, setSheet] = useState(false);
-  const [status, setStatus] = useState<string>("");
+  const [status, setStatus] = useState(saved ? "Picked up the draft you saved on this phone." : "");
   const [busy, setBusy] = useState(false);
 
-  const set = <K extends keyof Report,>(k: K, v: Report[K]) => setR((p) => ({ ...p, [k]: v }));
+  const set = <K extends keyof ReportDraft,>(k: K, v: ReportDraft[K]) => setR((p) => ({ ...p, [k]: v }));
 
   const addedRaws = useMemo(() => new Set(r.added.map((a) => a.raw)), [r.added]);
   const tally = useMemo(
@@ -1294,7 +1306,7 @@ function Report({
       const parsed = parseViolation(raw);
       return {
         ...p,
-        added: [...p.added, { raw, kind: "V", violation: parsed.text, recommendation: "", comment: "" }],
+        added: [...p.added, { raw, kind: "V", violation: parsed.text, comment: "" }],
       };
     });
   }
@@ -1327,6 +1339,11 @@ function Report({
       const drive = res.headers.get("X-Drive") || "";
       const url = URL.createObjectURL(await res.blob());
       window.open(url, "_blank");
+      try {
+        localStorage.removeItem(draftKey(elevator.okla)); // finished — the saved draft is no longer needed
+      } catch {
+        /* storage may be unavailable */
+      }
       const dashNote =
         writeback === "ok" ? "Dashboard updated (Visit → Inspected)." : "Dashboard update: " + writeback + ".";
       const driveNote = drive === "ok" ? "Saved to Drive." : "Drive save: " + drive + ".";
@@ -1337,14 +1354,14 @@ function Report({
       setBusy(false);
     }
   }
+  // Keeps the draft on this phone only; reopening this elevator's report picks it back up.
   function saveForLater() {
-    // draft is kept locally for now; the shared phone↔computer draft is the next piece
     try {
-      localStorage.setItem(`eei_draft_${elevator.okla}`, JSON.stringify(r));
+      localStorage.setItem(draftKey(elevator.okla), JSON.stringify(r));
+      setStatus(`Saved on this phone — reopen ${elevator.building}'s report to pick up where you left off.`);
     } catch {
-      /* storage may be unavailable */
+      setStatus("Couldn't save on this phone (storage is unavailable).");
     }
-    setStatus(`Saved for later — ${elevator.building} draft kept. Finishing on the computer comes next.`);
   }
 
   return (

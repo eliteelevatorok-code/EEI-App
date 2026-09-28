@@ -1,3 +1,6 @@
+// Health check: confirms the app's Google robot account can read the dashboard
+// and reach the Drive reports folder.  Run:  node scripts/verify-google.mjs
+
 import { GoogleAuth } from "google-auth-library";
 
 const SHEET_ID = "1HlV3pkQc0sdwghuzlcMRgC0WAkR-pSBOLDM8xjVP4Ss";

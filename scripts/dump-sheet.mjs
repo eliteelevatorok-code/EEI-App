@@ -1,3 +1,7 @@
+// Dev tool: prints the dashboard tabs and the first 6 rows of the Elevators tab,
+// one labeled cell per line. Handy for checking which column is which.
+// Run from the project folder:  node scripts/dump-sheet.mjs
+
 import { GoogleAuth } from "google-auth-library";
 
 const SHEET_ID = "1HlV3pkQc0sdwghuzlcMRgC0WAkR-pSBOLDM8xjVP4Ss";
@@ -21,7 +25,7 @@ const col = (n) => {
 };
 
 const read = await client.request({
-  url: `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Elevators!A1:BЗ6`.replace("З", "Z"),
+  url: `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Elevators!A1:BZ6`,
 });
 const rows = read.data.values || [];
 for (let r = 0; r < Math.min(rows.length, 6); r++) {

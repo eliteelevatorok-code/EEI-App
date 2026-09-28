@@ -178,12 +178,3 @@ export async function getInvoiceBalance(id: string): Promise<number> {
   const res = await qb<{ Invoice: Invoice }>(`invoice/${id}`);
   return res.Invoice.Balance;
 }
-
-// Delete an invoice (used only to clean up verification runs in the sandbox).
-export async function deleteInvoice(id: string): Promise<void> {
-  const cur = await qb<{ Invoice: Invoice }>(`invoice/${id}`);
-  await qb("invoice?operation=delete", {
-    method: "POST",
-    body: { Id: id, SyncToken: cur.Invoice.SyncToken },
-  });
-}

@@ -62,6 +62,7 @@ function rowToElevator(row: string[], rowNumber: number): Elevator {
     building: cell(row, C.building),
     account: cell(row, C.account) || "Unassigned",
     contact: cell(row, C.contact),
+    email: cell(row, C.email),
     area: cell(row, C.area),
     city: cell(row, C.city),
     type: cell(row, C.type),

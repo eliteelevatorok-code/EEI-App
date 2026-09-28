@@ -1,16 +1,19 @@
 import webpush from "web-push";
 import { appendRow, readRange, writeCell } from "@/lib/google";
+import { isMasterOn, isRowPaused } from "@/lib/switches";
 
-// Web-push alerts. Keys and the run-secret live in the private "Config" tab
-// (only the robot account reads it) because the hosting settings page is not
-// reachable to set env vars. Subscriptions live in the "PushSubs" tab.
+// Phone alerts (web push). The signing keys and the scheduler secret live in the
+// dashboard's private Config tab, which only the app's Google robot account can
+// read. Each subscribed phone is one row in the PushSubs tab.
 
 type PushConfig = { publicKey: string; privateKey: string; contact: string; runSecret: string };
 
+// Read once per server instance and reused — if a key in Config is changed, the
+// app picks it up on its next fresh start (e.g. the next deploy).
 let cached: PushConfig | null = null;
 export async function getPushConfig(): Promise<PushConfig> {
   if (cached) return cached;
-  const rows = await readRange("Config!A1:B10");
+  const rows = await readRange("Config!A1:B20");
   const map = new Map(rows.map((r) => [(r[0] ?? "").trim(), (r[1] ?? "").trim()]));
   cached = {
     publicKey: map.get("vapidPublic") ?? "",
@@ -45,10 +48,10 @@ async function getSubscriptions(): Promise<{ sub: Sub; row: number }[]> {
   return out;
 }
 
-// Blank a dead subscription's cells (endpoint returned 404/410).
+// Blank a dead subscription's row (the phone unsubscribed or reinstalled — the
+// push service answered 404/410).
 async function dropSubscription(row: number): Promise<void> {
-  await writeCell(`PushSubs!A${row}`, "");
-  await writeCell(`PushSubs!B${row}`, "");
+  for (const c of ["A", "B", "C"]) await writeCell(`PushSubs!${c}${row}`, "");
 }
 
 // ---- what needs a human, read from the Elevators tab ----
@@ -59,14 +62,14 @@ const cell = (r: string[], i: number) => (r[i] ?? "").trim();
 // handle their own steps — so the only things left for a human are the physical
 // inspection once a visit is booked, and chasing the maintenance company when
 // they haven't sent records. Everything else is either automatic or waiting on
-// the customer, and should NOT buzz the phone.
+// the customer, and should NOT buzz the phone. Master switch off = no alerts at all.
 export async function actionNeeded(): Promise<{ building: string; okla: string; what: string }[]> {
+  if (!(await isMasterOn())) return [];
   const rows = await readRange("Elevators!A2:AL");
   const out: { building: string; okla: string; what: string }[] = [];
   for (const r of rows) {
-    if (!cell(r, 0)) continue;
-    if (cell(r, 37).toLowerCase() === "off") continue; // paused elevator — no alerts
-    const W = cell(r, 22), Y = cell(r, 24);
+    if (!cell(r, 0) || isRowPaused(r)) continue; // blank row, or a paused elevator
+    const W = cell(r, 22), Y = cell(r, 24); // W = Maint. confirm, Y = Visit
     let what = "";
     if (Y === "Booked") what = "Do the inspection — the visit is booked";
     else if (W === "Waiting") what = "Chase the maintenance company for records";

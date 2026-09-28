@@ -1,3 +1,8 @@
+// Copies the Google credentials from .secrets/ into the Vercel project's environment
+// variables (needs a Vercel token in .secrets/vercel-token.txt). Only needed if those
+// credentials are rotated. Prints key names + status, never the values.
+// Run:  node scripts/push-vercel-env.mjs
+
 import fs from "node:fs";
 
 const VT = fs.readFileSync(".secrets/vercel-token.txt", "utf8").trim();

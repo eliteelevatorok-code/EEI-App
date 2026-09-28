@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 type State = { master: boolean; elevators: { on: boolean }[] };
 
@@ -57,7 +58,7 @@ export default function SwitchesPage() {
   return (
     <div className="mx-auto max-w-md px-4 pb-16 pt-4">
       <div className="mb-3 flex items-center justify-between">
-        <a href="/" className="text-xs font-semibold text-stone-600">‹ Home</a>
+        <Link href="/" className="text-xs font-semibold text-stone-600">‹ Home</Link>
         <div className="text-sm font-extrabold tracking-wide" style={{ color: BRAND }}>ELITE / MASTER SWITCH</div>
       </div>
 

@@ -1,3 +1,7 @@
+// Dev tool: lists every fillable field on the state form (templates/inspection-form.pdf)
+// with its type and options — the names src/lib/fillForm.ts fills in.
+// Run:  node scripts/inspect-pdf.mjs
+
 import { PDFDocument } from "pdf-lib";
 import fs from "node:fs";
 import path from "node:path";

@@ -1,24 +1,20 @@
-import { actionNeeded, getPushConfig, sendAlert } from "@/lib/push";
+import { actionNeeded, sendAlert } from "@/lib/push";
+import { rejectUnlessScheduler } from "@/lib/schedulerKey";
 
 export const runtime = "nodejs";
 
-// Called on a schedule (by the hourly Make "push alerts" scenario) to check what
-// needs a human and buzz the phones. Public route, but guarded by the secret in
-// the Config tab so only the scheduler can trigger a send.
+// Called hourly by the Make "push alerts" scenario: works out which elevators
+// need a person right now and buzzes every subscribed phone.
 async function handle(req: Request) {
-  const key = new URL(req.url).searchParams.get("key") ?? "";
-  const cfg = await getPushConfig();
-  if (!cfg.runSecret || key !== cfg.runSecret) {
-    return Response.json({ error: "forbidden" }, { status: 403 });
-  }
+  const denied = await rejectUnlessScheduler(req);
+  if (denied) return denied;
 
   const items = await actionNeeded();
   if (items.length === 0) return Response.json({ ok: true, needing: 0, sent: 0 });
 
+  // The alert names the building and the action so it's worth reading on its
+  // own, and tapping it opens the app straight to the first elevator's profile.
   const n = items.length;
-  // Tapping the alert opens the app straight to the first elevator that needs
-  // you (its profile), where the action is. The body names the building and the
-  // action so the alert is worth reading on its own.
   const title = n === 1 ? items[0].building : `${n} elevators need you`;
   const body =
     n === 1
@@ -30,9 +26,5 @@ async function handle(req: Request) {
   return Response.json({ ok: true, needing: n, ...res });
 }
 
-export async function GET(req: Request) {
-  return handle(req);
-}
-export async function POST(req: Request) {
-  return handle(req);
-}
+export const GET = handle;
+export const POST = handle;

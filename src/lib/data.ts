@@ -14,11 +14,13 @@ export type LifecycleStage = {
   options: string[];
 };
 
+// One line the inspector added to a report. `raw` is the exact text from the
+// violation list (it's also the option value on the state form's dropdowns);
+// `kind` is Violation / Recommendation / Comment.
 export type AddedViolation = {
   raw: string;
   kind: LineKind;
   violation: string;
-  recommendation: string;
   comment: string;
 };
 
@@ -29,6 +31,7 @@ export type Elevator = {
   building: string;
   account: string;
   contact: string;
+  email?: string; // customer email (col G) — also printed on the state form
   area: string;
   city: string;
   type: string;
@@ -58,6 +61,3 @@ export const INSPECTION_TYPES = ["Initial", "Periodic", "Reinsp", "Follow-up", "
 export const CYCLES = ["1", "2", "3", "Res"];
 export const CERT_ISSUE = ["Yes", "No"];
 export const CONDITIONS = ["No adverse conditions", "Red Tag", "Inactive", "Scrapped"];
-
-// Live data only — the roster comes from the dashboard via src/lib/roster.ts.
-// (No sample/fake accounts ship in the app.)

@@ -1,5 +1,19 @@
-import { PDFDocument, PDFName, PDFBool, type PDFForm, type PDFField } from "pdf-lib";
+import {
+  PDFBool,
+  PDFCheckBox,
+  PDFDocument,
+  PDFDropdown,
+  PDFName,
+  PDFRadioGroup,
+  PDFTextField,
+  type PDFField,
+  type PDFForm,
+} from "pdf-lib";
 import type { Elevator, AddedViolation } from "@/lib/data";
+
+// Fills Oklahoma DOL's official third-party inspection form
+// (templates/inspection-form.pdf) from one finished report. Field names below are
+// the form's own internal names — run `node scripts/inspect-pdf.mjs` to list them.
 
 export type FinalizePayload = {
   elevator: Elevator;
@@ -48,7 +62,7 @@ const CARRIED_TO_FIELD: Record<string, string> = {
   Owner: "OWNER",
   "Owner address": "OWNER ADDRESS",
   "Location address": "LOC PHYSICAL ADDRESS",
-  // Device type / Machine type are numeric-coded radios — mapped once codes are confirmed.
+  // Device / Machine / Entity type are radio buttons, filled separately below.
 };
 
 // Numeric-coded radio groups on the master form. Codes read off the real
@@ -111,30 +125,31 @@ export async function fillReport(templateBytes: Uint8Array, p: FinalizePayload):
   const resolve = makeResolver(form);
   const { elevator: e, report: r } = p;
 
+  // Small setters that silently skip a field if it's missing or the wrong kind,
+  // so one odd field never stops the whole report. (`instanceof`, not the class
+  // name — the production build shortens class names, which would break a name check.)
   const text = (logical: string, value?: string) => {
-    if (!value) return;
     const f = resolve(logical);
-    if (f && f.constructor.name === "PDFTextField") (f as never as { setText(v: string): void }).setText(value);
+    if (value && f instanceof PDFTextField) f.setText(value);
   };
   const check = (logical: string) => {
     const f = resolve(logical);
-    if (f && f.constructor.name === "PDFCheckBox") (f as never as { check(): void }).check();
+    if (f instanceof PDFCheckBox) f.check();
   };
-  const radio = (logical: string, opt: string) => {
+  const pick = (logical: string, option: string) => {
     const f = resolve(logical);
-    if (f && f.constructor.name === "PDFRadioGroup") {
-      try {
-        (f as never as { select(o: string): void }).select(opt);
-      } catch {
-        /* option not present */
-      }
+    if (!(f instanceof PDFRadioGroup || f instanceof PDFDropdown)) return;
+    try {
+      f.select(option);
+    } catch {
+      /* that option isn't on the form — leave it blank */
     }
   };
 
   // identity / location from the elevator
   text("OKLA #", e.okla);
   text("LOC BLDG", e.building);
-  text("EMAIL ADDRESS", e.contact ? undefined : undefined); // email lives on the row; wire when roster is live
+  text("EMAIL ADDRESS", e.email);
   // carried fixed fields
   const carriedValue = (label: string) => e.carried.find((c) => c.label === label)?.value ?? "";
   for (const c of e.carried) {
@@ -144,11 +159,11 @@ export async function fillReport(templateBytes: Uint8Array, p: FinalizePayload):
 
   // numeric-coded radios (device / machine / entity type)
   const deviceCode = DEVICE_TYPE_CODE[carriedValue("Device type")];
-  if (deviceCode) radio("Device Type", deviceCode);
+  if (deviceCode) pick("Device Type", deviceCode);
   const machineCode = MACHINE_TYPE_CODE[carriedValue("Machine type")];
-  if (machineCode) radio("Machine Type", machineCode);
+  if (machineCode) pick("Machine Type", machineCode);
   const entityCode = ENTITY_TYPE_CODE[carriedValue("Entity type")];
-  if (entityCode) radio("Entity Type", entityCode);
+  if (entityCode) pick("Entity Type", entityCode);
 
   // fixed inspector details (same every report)
   text("INSPECTORS NAMES", INSPECTOR.name);
@@ -169,31 +184,23 @@ export async function fillReport(templateBytes: Uint8Array, p: FinalizePayload):
   text("LATEST TEST DATES ONE YEAR", r.test1);
   text("LATEST TEST DATES FIVE  YEAR", r.test5);
   if (INSP_TYPE_CB[r.inspType]) check(INSP_TYPE_CB[r.inspType]);
-  radio("Insp Cycle", r.cycle === "Res" ? "0" : r.cycle);
+  pick("Insp Cycle", r.cycle === "Res" ? "0" : r.cycle);
   if (r.certIssue === "Yes") check("CERTIFICATE ISSUE YES NO");
   if (r.condition === "No adverse conditions") check("NO ADVERSE CONDITIONS");
   if (r.condition === "Red Tag") check("RED TAG");
   if (r.condition === "Inactive") check("INACTIVE");
   if (r.condition === "Scrapped") check("SCRAPPED");
 
-  // violation lines: combo0.. hold the violation text (from the 261-option list)
-  r.added.forEach((v: AddedViolation, i: number) => {
-    const f = resolve("combo" + i);
-    if (f && f.constructor.name === "PDFDropdown") {
-      try {
-        (f as never as { select(o: string): void }).select(v.raw);
-      } catch {
-        /* not one of the listed options */
-      }
-    }
-  });
+  // Violation lines: dropdowns combo0, combo1, … each pick one line from the
+  // form's built-in 261-item list (the app's list uses the exact same wording).
+  // Note: the official form has no box for per-line comments, so those stay in the app.
+  r.added.forEach((v: AddedViolation, i: number) => pick("combo" + i, v.raw));
   text("VIOLATIONS", String(r.added.filter((v) => v.kind === "V").length));
   text("RECOMMENDATIONS", String(r.added.filter((v) => v.kind === "R").length));
 
-  // JS buttons in the form break the global appearance pass — flag the viewer to redraw.
-  (form as never as { acroForm: { dict: { set(k: unknown, v: unknown): void } } }).acroForm.dict.set(
-    PDFName.of("NeedAppearances"),
-    PDFBool.True,
-  );
+  // The form contains script buttons that crash pdf-lib's "redraw every field"
+  // step, so we skip that step and instead tell the PDF viewer to redraw the
+  // fields itself when it opens the file.
+  form.acroForm.dict.set(PDFName.of("NeedAppearances"), PDFBool.True);
   return doc.save({ updateFieldAppearances: false });
 }
