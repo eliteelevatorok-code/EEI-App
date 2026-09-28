@@ -28,13 +28,24 @@ async function qbKeys() {
 // Cache the short-lived access token in memory (it lasts ~60 min).
 let accessCache: { token: string; realmId: string; expires: number } | null = null;
 
-// Exchange the stored refresh token for an access token. The refresh token
-// rotates on use, so the moment QuickBooks hands back a new one we save it to
-// Config — otherwise the next run would try to use a dead token.
+// A valid access token, refreshing it when it's close to expiring. Only one
+// refresh runs at a time: two requests refreshing with the same token at once is
+// a known cause of QuickBooks "invalid_grant" failures.
+let refreshing: Promise<{ token: string; realmId: string }> | null = null;
 async function getAccess(): Promise<{ token: string; realmId: string }> {
   if (accessCache && accessCache.expires > Date.now() + 60_000) {
     return { token: accessCache.token, realmId: accessCache.realmId };
   }
+  refreshing ??= refreshAccess().finally(() => (refreshing = null));
+  return refreshing;
+}
+
+// Exchange the stored refresh token for an access token. The refresh token
+// rotates now and then, so the moment QuickBooks hands back a new one we save it
+// to Config — otherwise the next run would try to use a dead token. If the token
+// was just used up by another copy of the app (the server can run several at
+// once), re-read Config once: that copy will have saved the new one.
+async function refreshAccess(retried = false): Promise<{ token: string; realmId: string }> {
   const cfg = await qbKeys();
   if (!cfg.clientId || !cfg.refreshToken) throw new Error("QuickBooks keys are missing from Config");
   const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
@@ -49,6 +60,10 @@ async function getAccess(): Promise<{ token: string; realmId: string }> {
   });
   const tok = (await res.json()) as { access_token?: string; refresh_token?: string; expires_in?: number; error?: string };
   if (!res.ok || !tok.access_token) {
+    if (!retried && tok.error === "invalid_grant") {
+      await new Promise((r) => setTimeout(r, 1500)); // give the other copy time to save the new token
+      return refreshAccess(true);
+    }
     throw new Error(`QuickBooks sign-in failed (${res.status}): ${tok.error ?? "unknown"}`);
   }
   if (tok.refresh_token && tok.refresh_token !== cfg.refreshToken) {

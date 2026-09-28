@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useClerk } from "@clerk/nextjs";
 import { getInstallState, isIOS, subscribeInstall, triggerInstall } from "@/lib/pwa-install";
-import { alertsState, enableAlerts, type AlertState } from "@/lib/push-client";
+import { alertsState, enableAlerts, takePendingOpen, type AlertState } from "@/lib/push-client";
 import {
   CERT_ISSUE,
   CONDITIONS,
@@ -1553,6 +1553,37 @@ export default function Home() {
   const [openOkla, setOpenOkla] = useState(() =>
     typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("open") || "",
   );
+
+  // iPhone fallback: the service worker parks the tapped alert's elevator; pick
+  // it up when the app opens, gets a nudge from the worker, or comes to front.
+  // If the link itself already worked (Android/desktop), skip that one repeat.
+  const fromLink = useRef(openOkla);
+  useEffect(() => {
+    if (fromLink.current) window.history.replaceState(null, "", "/"); // refresh won't re-jump
+    const check = async () => {
+      const okla = await takePendingOpen();
+      if (!okla) return;
+      if (okla === fromLink.current) {
+        fromLink.current = "";
+        return;
+      }
+      setOpenOkla(okla);
+      setStage("list"); // the list screen does the jump once the roster loads
+    };
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === "open-elevator") check();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    check();
+    navigator.serviceWorker?.addEventListener("message", onMessage);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      navigator.serviceWorker?.removeEventListener("message", onMessage);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
 
   const logout = () => signOut({ redirectUrl: "/sign-in" });
   const openSettings = () => setSettingsOpen(true);

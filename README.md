@@ -30,10 +30,10 @@ If a column moves, search the code for its index (e.g. `37` for AL) — see `src
 - `src/app/{pay,po,maint}/` — public, login-free customer pages opened from email links (`?t=<token>`).
 - `src/app/switches/` — master on/off switch (two-step to pause everything).
 - `src/app/api/` — server endpoints. The ones the Make automation calls are guarded by
-  `?key=<pushRunSecret>` (`src/lib/schedulerKey.ts`): `/api/push/run`, `/api/invoice/run`, `/api/switches/master`.
+  an `x-scheduler-key: <pushRunSecret>` header (`src/lib/schedulerKey.ts`): `/api/push/run`, `/api/invoice/run`, `/api/switches/master`.
 - `src/lib/` — the logic: `google.ts` (Sheets/Drive), `roster.ts` (reads/writes elevator rows),
   `fillForm.ts` (the state PDF), `invoice.ts` + `quickbooks.ts` (billing), `switches.ts`, `push.ts` (phone alerts).
-- `src/middleware.ts` — login wall (Google sign-in via Clerk, limited to 4 approved emails in
+- `src/proxy.ts` — login wall (Google sign-in via Clerk, limited to 4 approved emails in
   `src/lib/allowlist.ts`) plus the list of public pages.
 - `templates/inspection-form.pdf` — Oklahoma DOL's official form that gets filled.
 - `scripts/` — small dev/maintenance tools; each file says what it does and how to run it.

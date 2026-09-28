@@ -43,22 +43,38 @@ function driveOwner(): OAuth2Client {
   return oauthClient;
 }
 
+const SHEET_URL = `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_ID}`;
+
+// One request to the Sheets API. If Google answers "too many requests" (429 —
+// the limit is 60 reads a minute) or has a brief server hiccup (5xx), wait and
+// try again: 1s, then 2s, then 4s, plus a little randomness — the retry pattern
+// Google recommends. Any other error, or a 4th failure, is passed on.
+// `repeatable: false` (appends) retries only on 429, which means Google did
+// nothing — a 5xx might have half-succeeded, and repeating would add a duplicate row.
+async function sheets<T>(opts: { url: string; method?: string; data?: unknown }, repeatable = true): Promise<T> {
+  const client = await auth().getClient();
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return (await client.request<T>(opts)).data;
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status ?? 0;
+      const retryable = status === 429 || (repeatable && status >= 500);
+      if (attempt >= 3 || !retryable) throw err;
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt + Math.random() * 400));
+    }
+  }
+}
+
 // Read a range; returns rows of string cells.
 export async function readRange(range: string): Promise<string[][]> {
-  const client = await auth().getClient();
-  const res = await client.request<{ values?: string[][] }>({
-    url: `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_ID}/values/${encodeURIComponent(range)}`,
-  });
-  return res.data.values ?? [];
+  const res = await sheets<{ values?: string[][] }>({ url: `${SHEET_URL}/values/${encodeURIComponent(range)}` });
+  return res.values ?? [];
 }
 
 // Overwrite a single cell (e.g. "Elevators!Y5") with a value.
 export async function writeCell(a1: string, value: string): Promise<void> {
-  const client = await auth().getClient();
-  await client.request({
-    url: `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_ID}/values/${encodeURIComponent(
-      a1,
-    )}?valueInputOption=USER_ENTERED`,
+  await sheets({
+    url: `${SHEET_URL}/values/${encodeURIComponent(a1)}?valueInputOption=USER_ENTERED`,
     method: "PUT",
     data: { values: [[value]] },
   });
@@ -68,26 +84,22 @@ export async function writeCell(a1: string, value: string): Promise<void> {
 // Cheaper than several writeCell calls and keeps Google's per-minute limit happy.
 export async function writeCells(cells: [a1: string, value: string][]): Promise<void> {
   if (!cells.length) return;
-  const client = await auth().getClient();
-  await client.request({
-    url: `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_ID}/values:batchUpdate`,
+  await sheets({
+    url: `${SHEET_URL}/values:batchUpdate`,
     method: "POST",
     data: { valueInputOption: "USER_ENTERED", data: cells.map(([range, v]) => ({ range, values: [[v]] })) },
   });
 }
 
 // Append a row to the end of a table (e.g. "Elevators!A:R"); returns the sheet
-// row number it landed on (parsed from the API's updatedRange).
+// row number it landed on (parsed from the API's updatedRange), or null.
 export async function appendRow(range: string, values: string[]): Promise<number | null> {
-  const client = await auth().getClient();
-  const res = await client.request<{ updates?: { updatedRange?: string } }>({
-    url: `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_ID}/values/${encodeURIComponent(
-      range,
-    )}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+  const res = await sheets<{ updates?: { updatedRange?: string } }>({
+    url: `${SHEET_URL}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
     method: "POST",
     data: { values: [values] },
-  });
-  const m = res.data.updates?.updatedRange?.match(/![A-Z]+(\d+):/);
+  }, false);
+  const m = res.updates?.updatedRange?.match(/![A-Z]+(\d+):/);
   return m ? parseInt(m[1], 10) : null;
 }
 

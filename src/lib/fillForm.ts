@@ -6,6 +6,7 @@ import {
   PDFName,
   PDFRadioGroup,
   PDFTextField,
+  StandardFonts,
   type PDFField,
   type PDFForm,
 } from "pdf-lib";
@@ -174,9 +175,25 @@ export async function fillReport(templateBytes: Uint8Array, p: FinalizePayload):
   text("VIOLATIONS", String(r.added.filter((v) => v.kind === "V").length));
   text("RECOMMENDATIONS", String(r.added.filter((v) => v.kind === "R").length));
 
-  // The form contains script buttons that crash pdf-lib's "redraw every field"
-  // step, so we skip that step and instead tell the PDF viewer to redraw the
-  // fields itself when it opens the file.
+  // Draw the filled-in values into the PDF. pdf-lib's "redraw every field" step
+  // crashes on the form's built-in script buttons, so instead we redraw only the
+  // fields we changed, one at a time, skipping any that can't be drawn. This
+  // matters on Apple devices: Safari, Preview and the iPhone's viewer ignore the
+  // "please redraw" flag below, and without drawn values they show blank boxes.
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (const f of form.getFields()) {
+    try {
+      // (Buttons are skipped entirely — even asking them if they need drawing crashes.)
+      if (f instanceof PDFTextField || f instanceof PDFDropdown) {
+        if (f.needsAppearancesUpdate()) f.defaultUpdateAppearances(font);
+      } else if (f instanceof PDFCheckBox || f instanceof PDFRadioGroup) {
+        if (f.needsAppearancesUpdate()) f.defaultUpdateAppearances();
+      }
+    } catch {
+      /* this field can't be drawn by pdf-lib — the flag below still covers other viewers */
+    }
+  }
+  // Also ask viewers that do honor it (Acrobat, Chrome) to redraw everything.
   form.acroForm.dict.set(PDFName.of("NeedAppearances"), PDFBool.True);
   return doc.save({ updateFieldAppearances: false });
 }

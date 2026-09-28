@@ -2,9 +2,11 @@ import { clerkClient, clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/
 import { NextResponse } from "next/server";
 import { isAllowed } from "@/lib/allowlist";
 
-// Public routes that never require sign-in. The PO submission page/API and the
-// push-run endpoint are public on purpose (a random token / secret authorizes
-// them), never signed in.
+// Login wall for the whole app (Next 16 calls this file proxy.ts; it used to be
+// middleware.ts). Public routes never require sign-in: the customer/maintenance
+// pages (PO, maint, pay, report) are opened from emails and authorized by the
+// random link token in the address; the scheduler endpoints (push/run,
+// invoice/run, switches/master) are authorized by the secret in schedulerKey.ts.
 const isPublic = createRouteMatcher([
   "/sign-in(.*)",
   "/not-authorized",

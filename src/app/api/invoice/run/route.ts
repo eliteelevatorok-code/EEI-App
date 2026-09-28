@@ -4,8 +4,8 @@ import { rejectUnlessScheduler } from "@/lib/schedulerKey";
 export const runtime = "nodejs";
 
 // Called by the Make "daily lifecycle" scenario, once per elevator row:
-//   /api/invoice/run?key=SECRET&row=N          → bill row N in QuickBooks (route 9)
-//   /api/invoice/run?key=SECRET&reconcileRow=N → mark row N Paid if its balance is 0 (route 10)
+//   /api/invoice/run?row=N          → bill row N in QuickBooks (route 9)
+//   /api/invoice/run?reconcileRow=N → mark row N Paid if its balance is 0 (route 10)
 // See src/lib/invoice.ts for the rules each step follows.
 async function handle(req: Request) {
   const denied = await rejectUnlessScheduler(req);
