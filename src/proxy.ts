@@ -11,6 +11,7 @@ import { isAllowed } from "@/lib/allowlist";
 const isPublic = createRouteMatcher([
   "/sign-in(.*)",
   "/not-authorized",
+  "/privacy",
   "/po(.*)",
   "/api/po(.*)",
   "/maint(.*)",
