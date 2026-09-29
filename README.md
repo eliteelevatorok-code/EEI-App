@@ -35,7 +35,7 @@ change its number there — and in the Make scenario, which refers to columns by
   an `x-scheduler-key: <pushRunSecret>` header (`src/lib/schedulerKey.ts`): `/api/push/run`, `/api/invoice/run`, `/api/switches/master`.
 - `src/app/globals.css` — **the style guide**: every color, corner, shadow and motion (tokens) plus the named pieces (`.glass`, `.btn-primary`, `.chip`, `.input`, `.list`, `.sheet`…). Never type a raw color in a component.
 - `src/components/ui.tsx` — the style guide as React pieces (Screen, Title, Glass, List, Button, Chips, Toggle, Sheet, PublicPage…). Screens are built from these.
-- `src/components/Assistant.tsx` + `src/app/api/assistant/` + `src/lib/assistant/` — the Ask tab: Claude (Robert's own Anthropic key, saved from Settings into the Config tab as `anthropicKey`) with read tools + change tools; every change waits for Confirm in the app.
+- `src/components/Assistant.tsx` + `src/app/api/assistant/` + `src/lib/assistant/` — the Ask tab: Claude (Robert's own Anthropic key, which he sets himself as the `ANTHROPIC_API_KEY` environment variable in Vercel — the app has no screen or endpoint that accepts a key) with read tools + change tools; every change waits for Confirm in the app.
 - `src/lib/` — the logic: `google.ts` (Sheets/Drive), `roster.ts` (reads/writes elevator rows),
   `fillForm.ts` (the state PDF), `invoice.ts` + `quickbooks.ts` (billing), `switches.ts`, `push.ts` (phone alerts).
 - `src/proxy.ts` — login wall (Google sign-in via Clerk, limited to 4 approved emails in

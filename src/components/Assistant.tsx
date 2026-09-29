@@ -5,7 +5,7 @@ import { refreshRoster } from "@/lib/roster-store";
 import { AskIcon, Button, Glass, Screen, SendIcon, Title, buzz } from "@/components/ui";
 
 // The "Ask" tab: a chat with the assistant (Claude, on Robert's own Anthropic
-// key). The conversation lives on this phone; the server (/api/assistant) does
+// key, which lives only in the server's settings on Vercel). The conversation lives on this phone; the server (/api/assistant) does
 // the thinking and the lookups. When the assistant wants to change something, a
 // Confirm / Cancel card appears here — nothing changes until Confirm is tapped.
 
@@ -48,7 +48,7 @@ function loadChat(): { messages: Msg[]; pending: Pending | null } {
   return { messages: [], pending: null };
 }
 
-export function Assistant({ onOpenSettings }: { onOpenSettings: () => void }) {
+export function Assistant() {
   const [chat, setChat] = useState(loadChat);
   const { messages, pending } = chat;
   const [text, setText] = useState("");
@@ -59,7 +59,7 @@ export function Assistant({ onOpenSettings }: { onOpenSettings: () => void }) {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch("/api/assistant/key")
+    fetch("/api/assistant")
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { connected?: boolean } | null) => setConnected(Boolean(d?.connected)))
       .catch(() => setConnected(null));
@@ -143,11 +143,9 @@ export function Assistant({ onOpenSettings }: { onOpenSettings: () => void }) {
         <Glass pad className="mt-6">
           <p className="font-semibold">Connect the assistant</p>
           <p className="mt-1 text-sm text-ink-2">
-            It runs on your own Anthropic account. Add your key in Settings once and it&apos;s ready.
+            It runs on your own Anthropic account. Once your Anthropic key is added to the app&apos;s settings on
+            Vercel, this tab is ready.
           </p>
-          <Button className="mt-4" onClick={onOpenSettings}>
-            Open Settings
-          </Button>
         </Glass>
       )}
 

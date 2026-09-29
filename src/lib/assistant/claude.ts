@@ -1,13 +1,12 @@
-import { readConfig } from "@/lib/config";
 import { SYSTEM_PROMPT } from "@/lib/assistant/prompt";
 import { TOOLS } from "@/lib/assistant/tools";
 
 // One call to Anthropic's Messages API with the assistant's tools and
-// instructions. The API key is Robert's own, saved from the app's Settings into
-// the dashboard's private Config tab (row "anthropicKey"); it never leaves the server.
+// instructions. The API key is Robert's own. He enters it himself as the
+// ANTHROPIC_API_KEY environment variable in the Vercel project settings — the
+// app has no screen or endpoint that accepts it, and it never leaves the server.
 
 export const MODEL = process.env.ASSISTANT_MODEL ?? "claude-sonnet-5-5";
-const KEY_NAME = "anthropicKey";
 // Local testing only: point at a stand-in server with a stand-in key, so the
 // loop can be exercised without a real Anthropic account. Ignored on the live site.
 const DEV = process.env.NODE_ENV !== "production";
@@ -21,16 +20,15 @@ export type Msg = { role: "user" | "assistant"; content: string | Block[] };
 
 export async function getKey(): Promise<string> {
   if (DEV && process.env.ASSISTANT_TEST_BASE) return "sk-ant-local-test-key";
-  return (await readConfig()).get(KEY_NAME) ?? "";
+  return process.env.ANTHROPIC_API_KEY ?? "";
 }
-export { KEY_NAME };
 
 // A friendly message for the person when the call fails.
 export class AssistantError extends Error {}
 
 export async function callClaude(messages: Msg[]): Promise<{ content: Block[]; stop_reason: string }> {
   const key = await getKey();
-  if (!key) throw new AssistantError("The assistant isn't connected yet — add your Anthropic key in Settings.");
+  if (!key) throw new AssistantError("The assistant isn't connected yet — the Anthropic key hasn't been added to the app's Vercel settings.");
   const today = new Date().toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
   const body = JSON.stringify({
@@ -59,7 +57,7 @@ export async function callClaude(messages: Msg[]): Promise<{ content: Block[]; s
       continue;
     }
     const detail = ((await res.json().catch(() => ({}))) as { error?: { message?: string } }).error?.message ?? "";
-    if (res.status === 401) throw new AssistantError("Anthropic didn't accept the saved key — check it in Settings.");
+    if (res.status === 401) throw new AssistantError("Anthropic didn't accept the saved key — check the key in the app's Vercel settings.");
     if (res.status === 429) throw new AssistantError("Anthropic says we're over the rate or spending limit. Try again in a minute, or check your Anthropic plan.");
     throw new AssistantError(`The assistant couldn't answer (Anthropic ${res.status}${detail ? `: ${detail}` : ""}).`);
   }

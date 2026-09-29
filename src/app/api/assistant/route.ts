@@ -1,4 +1,4 @@
-import { AssistantError, callClaude, type Block, type Msg } from "@/lib/assistant/claude";
+import { AssistantError, callClaude, getKey, type Block, type Msg } from "@/lib/assistant/claude";
 import { describe, isChange, runTool, type ChangeCard } from "@/lib/assistant/tools";
 
 export const runtime = "nodejs";
@@ -20,6 +20,12 @@ const MAX_ROUNDS = 6;
 const MAX_HISTORY = 40;
 
 type Pending = { id: string; name: string; input: Record<string, unknown>; card: ChangeCard; results: Block[] };
+
+// GET → { connected }: whether the Anthropic key has been added to the server's
+// settings. Yes/no only — the key itself is never sent anywhere but Anthropic.
+export async function GET() {
+  return Response.json({ connected: Boolean(await getKey()) });
+}
 
 export async function POST(req: Request) {
   let body: { messages?: Msg[]; resume?: { results?: Block[]; decision?: { id?: string; approve?: boolean } } };
