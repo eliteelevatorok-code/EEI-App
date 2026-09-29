@@ -6,7 +6,8 @@ type Info = { building: string; price?: string; alreadyPaid?: boolean };
 
 // The "Pay now" screen. Shows the building and amount and one button that marks
 // the invoice paid so the lifecycle can continue. In the live system the paid
-// state comes from QuickBooks; this button stands in for it during testing.
+// state comes from QuickBooks; this button stands in for it during testing (the
+// server refuses it once QuickBooks is on the real company — see /api/pay).
 export default function PayForm({ token }: { token: string }) {
   const [info, setInfo] = useState<Info | null>(null);
   const [loadErr, setLoadErr] = useState("");

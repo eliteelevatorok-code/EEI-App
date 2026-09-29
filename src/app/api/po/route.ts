@@ -3,6 +3,10 @@ import { findForPO, recordPO } from "@/lib/po";
 
 export const runtime = "nodejs";
 
+// Vercel turns away any upload over 4.5 MB before this code even runs, so keep
+// the limit under that (PoForm checks the same number before sending).
+const MAX_PO_FILE = 4 * 1024 * 1024;
+
 // GET /api/po?t=<token> → { building, okla, alreadyPO } so the page can greet
 // the customer with their building name. Never reveals anything without the token.
 export async function GET(req: Request) {
@@ -33,8 +37,8 @@ export async function POST(req: Request) {
 
   let fileLink = "";
   if (file && typeof file !== "string" && file.size > 0) {
-    if (file.size > 15 * 1024 * 1024) {
-      return Response.json({ error: "That file is over 15 MB — please send a smaller one." }, { status: 400 });
+    if (file.size > MAX_PO_FILE) {
+      return Response.json({ error: "That file is over 4 MB — please send a smaller one." }, { status: 400 });
     }
     const bytes = new Uint8Array(await file.arrayBuffer());
     const safeName = `PO-${el.okla}-${po}`.replace(/[^\w.-]/g, "_");

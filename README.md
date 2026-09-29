@@ -22,7 +22,9 @@ Live at **https://eeireports.sbs** — deployed by Vercel on every push to `main
 Access, Visit, Trip day, Report, Invoice, Follow-ups, Paid, New timer) · `AH` link token ·
 `AI`/`AJ` PO # / PO file · `AK` QuickBooks invoice id · `AL` Active (on/off switch) ·
 `AM`/`AN` last inspection result/date (from the maintenance form) · `AO` report file link.
-If a column moves, search the code for its index (e.g. `37` for AL) — see `src/lib/*.ts`.
+The app knows these columns by name in exactly one place, `src/lib/sheet.ts`. If a column moves,
+change its number there — and in the Make scenario, which refers to columns by the same
+0-based numbers (e.g. `{{100.`37`}}` = AL).
 
 ## Folder guide
 

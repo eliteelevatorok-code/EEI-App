@@ -32,12 +32,17 @@ export default function PoForm({ token }: { token: string }) {
       setSubmitErr("Please enter your PO number.");
       return;
     }
+    const f = fileRef.current?.files?.[0];
+    // Same 4 MB cap as the server (our host rejects bigger uploads outright).
+    if (f && f.size > 4 * 1024 * 1024) {
+      setSubmitErr("That file is over 4 MB — please attach a smaller one, or send just the PO number.");
+      return;
+    }
     setBusy(true);
     setSubmitErr("");
     const fd = new FormData();
     fd.set("token", token);
     fd.set("po", po.trim());
-    const f = fileRef.current?.files?.[0];
     if (f) fd.set("file", f);
     try {
       const r = await fetch("/api/po", { method: "POST", body: fd });
