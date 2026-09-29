@@ -10,10 +10,15 @@ const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).jo
 
 // Change screens with a soft crossfade/glide (Chrome's View Transitions). Falls
 // back to an instant change where the browser can't animate it.
+// (Skipped when the page isn't on screen — the browser cancels the animation
+// then; the change itself still happens either way.)
 export function go(update: () => void) {
-  const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
-  if (doc.startViewTransition) doc.startViewTransition(() => flushSync(update));
-  else update();
+  type VT = { ready: Promise<void>; finished: Promise<void>; updateCallbackDone: Promise<void> };
+  const doc = document as Document & { startViewTransition?: (cb: () => void) => VT };
+  if (!doc.startViewTransition || document.visibilityState !== "visible") return update();
+  const t = doc.startViewTransition(() => flushSync(update));
+  // A cancelled animation isn't an error worth reporting.
+  for (const p of [t.ready, t.finished, t.updateCallbackDone]) p.catch(() => {});
 }
 
 // A light tap on Android phones for moments that matter (a save, a switch).

@@ -1154,7 +1154,12 @@ function Report({
           <div className="mt-3 flex flex-col gap-3">
             {r.added.map((a) => (
               <div key={a.raw} className={"finding " + (a.kind !== "V" ? "finding-" + a.kind : "")}>
-                <p className="px-3.5 pt-3 text-[15px] leading-snug">{a.violation}</p>
+                <div className="flex items-start gap-3 px-3.5 pt-3">
+                  <p className="flex-1 text-[15px] leading-snug">{a.violation}</p>
+                  <button onClick={() => toggleViolation(a.raw)} className="text-sm font-semibold text-danger">
+                    Remove
+                  </button>
+                </div>
                 <code className="block px-3.5 pb-2 pt-1 font-mono text-xs text-ink-3">{parseViolation(a.raw).code}</code>
                 <textarea
                   className="w-full resize-none bg-fill px-3.5 py-2.5 text-[15px] outline-none placeholder:text-ink-3"
@@ -1163,7 +1168,7 @@ function Report({
                   value={a.comment}
                   onChange={(e) => setLine(a.raw, { comment: e.target.value })}
                 />
-                <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
+                <div className="flex flex-wrap gap-2 px-3 py-2.5">
                   {KINDS.map((k) => (
                     <button
                       key={k}
@@ -1173,10 +1178,6 @@ function Report({
                       {KIND_LABEL[k]}
                     </button>
                   ))}
-                  <span className="grow" />
-                  <button onClick={() => toggleViolation(a.raw)} className="text-sm font-semibold text-danger">
-                    Remove
-                  </button>
                 </div>
               </div>
             ))}
