@@ -37,9 +37,9 @@ export async function POST(req: Request) {
   if (!el) return Response.json({ error: "This link isn't recognized." }, { status: 404 });
   try {
     await recordMaint(el.row, result, date);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Save failed";
-    return Response.json({ error: message }, { status: 502 });
+  } catch {
+    // Public page: never show outsiders the internal error.
+    return Response.json({ error: "Couldn't save just now — please try again in a minute." }, { status: 502 });
   }
   return Response.json({ ok: true });
 }

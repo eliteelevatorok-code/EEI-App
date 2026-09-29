@@ -1,5 +1,6 @@
 import { invoiceRow, reconcileRow } from "@/lib/invoice";
 import { rejectUnlessScheduler } from "@/lib/schedulerKey";
+import { FIRST_ROW } from "@/lib/sheet";
 
 export const runtime = "nodejs";
 
@@ -14,7 +15,7 @@ async function handle(req: Request) {
   const params = new URL(req.url).searchParams;
   const toRow = (v: string | null) => {
     const n = parseInt(v ?? "", 10);
-    return Number.isInteger(n) && n >= 2 ? n : null; // row 1 is the header
+    return Number.isInteger(n) && n >= FIRST_ROW ? n : null; // row 1 is the header
   };
   try {
     if (params.has("reconcileRow")) {

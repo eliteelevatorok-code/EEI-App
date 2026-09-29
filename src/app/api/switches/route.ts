@@ -1,3 +1,4 @@
+import { FIRST_ROW } from "@/lib/sheet";
 import { readSwitches, setMaster, setElevatorSwitch } from "@/lib/switches";
 
 export const runtime = "nodejs";
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
 
     if (body.target === "elevator") {
       const row = body.row;
-      if (!Number.isInteger(row) || (row as number) < 2 || (row as number) > 100000) {
+      if (!Number.isInteger(row) || (row as number) < FIRST_ROW || (row as number) > 100000) {
         return Response.json({ error: "Bad row" }, { status: 400 });
       }
       await setElevatorSwitch(row as number, body.on);

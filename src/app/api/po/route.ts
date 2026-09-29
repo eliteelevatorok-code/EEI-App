@@ -49,9 +49,9 @@ export async function POST(req: Request) {
 
   try {
     await recordPO(el.row, po, fileLink);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Save failed";
-    return Response.json({ error: message }, { status: 502 });
+  } catch {
+    // Public page: never show outsiders the internal error.
+    return Response.json({ error: "Couldn't save just now — please try again in a minute." }, { status: 502 });
   }
   return Response.json({ ok: true, fileSaved: Boolean(fileLink) });
 }

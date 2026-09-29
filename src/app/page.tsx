@@ -654,6 +654,8 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
   const set = <K extends keyof NewForm>(k: K, v: string) => setF((p) => ({ ...p, [k]: v }));
   const ready = f.okla.trim() && f.building.trim() && f.account.trim();
   const cycle = computeCycle(f.type, annual);
+  const floors = parseInt(f.floors, 10) || 0;
+  const price = computePrice(f.type, floors); // null until Type (and Floors, for elevators) are picked
 
   async function create() {
     if (!ready) {
@@ -663,9 +665,7 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
     setBusy(true);
     setErr("");
     try {
-      const floors = parseInt(f.floors, 10) || 0;
-      const priceNum = computePrice(f.type, floors);
-      const payload = { ...f, cycle, price: priceNum == null ? "" : `$${priceNum}` };
+      const payload = { ...f, cycle, price: price == null ? "" : `$${price}` };
       const res = await fetch("/api/elevators", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -685,7 +685,7 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
         area: f.area,
         city: f.city,
         type: f.type,
-        floors: parseInt(f.floors, 10) || 0,
+        floors,
         cycle: cycleNum,
         due: f.due,
         row: data.row ?? undefined,
@@ -787,9 +787,9 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
       <Card title="Billing">
         <div className="mb-3 flex items-center justify-between rounded-lg bg-stone-800 px-4 py-3 text-stone-100">
           <span className="text-xs font-bold uppercase tracking-wider text-stone-400">Price (auto)</span>
-          <span className="font-mono text-xl font-medium">{formatPrice(computePrice(f.type, parseInt(f.floors, 10) || 0))}</span>
+          <span className="font-mono text-xl font-medium">{formatPrice(price)}</span>
         </div>
-        {computePrice(f.type, parseInt(f.floors, 10) || 0) == null && (
+        {price == null && (
           <p className="mb-3 text-xs text-amber-700">Pick a Type (and Floors, for elevators) above to price it.</p>
         )}
         <Field label="Money path">
@@ -936,22 +936,23 @@ function LifecycleEditor({
 
 function Profile({
   elevator,
+  onChange,
   onBack,
   onStartReport,
   onSettings,
 }: {
   elevator: Elevator;
+  onChange: (e: Elevator) => void; // a saved edit — the app keeps it, so the profile is right after a report and back
   onBack: () => void;
   onStartReport: () => void;
   onSettings: () => void;
 }) {
   const e = elevator;
-  const [lifecycle, setLifecycle] = useState<LifecycleStage[]>(elevator.lifecycle);
   const [editing, setEditing] = useState<LifecycleStage | null>(null);
 
   // This elevator's on/off switch. Pausing takes two confirmations (a warning,
   // then a final yes); resuming takes one.
-  const [swOn, setSwOn] = useState(elevator.active !== false);
+  const swOn = e.active !== false;
   const [swStep, setSwStep] = useState<null | "pause1" | "pause2" | "resume">(null);
   const [swBusy, setSwBusy] = useState(false);
   const [swErr, setSwErr] = useState("");
@@ -968,7 +969,7 @@ function Profile({
       });
       const d = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(d.error || "Save failed");
-      setSwOn(next);
+      onChange({ ...e, active: next });
       closeSw();
     } catch (err) {
       setSwErr(err instanceof Error ? err.message : "Save failed");
@@ -995,7 +996,7 @@ function Profile({
           row={e.row}
           onClose={() => setEditing(null)}
           onSaved={(value) => {
-            setLifecycle((prev) => prev.map((s) => (s.key === editing.key ? { ...s, value } : s)));
+            onChange({ ...e, lifecycle: e.lifecycle.map((s) => (s.key === editing.key ? { ...s, value } : s)) });
             setEditing(null);
           }}
         />
@@ -1019,15 +1020,12 @@ function Profile({
         </div>
       </div>
 
-      {/* primary actions */}
-      <div className="mb-3 grid grid-cols-1 gap-2">
-        <button
-          onClick={onStartReport}
-          className="rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50 active:opacity-90"
-        >
-          Start inspection report
-        </button>
-      </div>
+      <button
+        onClick={onStartReport}
+        className="mb-3 w-full rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50 active:opacity-90"
+      >
+        Start inspection report
+      </button>
 
       {/* this elevator's on/off switch */}
       <Card title="This elevator">
@@ -1104,7 +1102,7 @@ function Profile({
       {/* lifecycle — tap any step to change it (writes to the dashboard after a confirm) */}
       <Card title="Customer lifecycle">
         <div className="flex flex-col gap-1.5">
-          {lifecycle.map((s) => (
+          {e.lifecycle.map((s) => (
             <button
               key={s.key}
               onClick={() => setEditing(s)}
@@ -1322,9 +1320,6 @@ function Report({
       <div className="sticky top-0 z-30 border-b border-stone-200 bg-stone-100/95 px-4 py-2 backdrop-blur">
         <div className="flex items-center gap-2">
           <div className="text-sm font-extrabold tracking-wide text-[#1F4B45]">ELITE / FIELD</div>
-          <span className="rounded-full border border-stone-300 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-stone-500">
-            Phone
-          </span>
           <div className="grow" />
           <button onClick={onBack} className="text-xs font-semibold text-stone-600">
             ‹ Profile
@@ -1556,6 +1551,7 @@ export default function Home() {
         <Profile
           key={selected.okla}
           elevator={selected}
+          onChange={setSelected}
           onBack={() => setStage("list")}
           onStartReport={() => setStage("report")}
           onSettings={openSettings}

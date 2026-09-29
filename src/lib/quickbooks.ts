@@ -10,6 +10,8 @@ import { readConfig, writeConfig } from "@/lib/config";
 // keys in Config for production keys.
 
 const QB_BASE = process.env.QB_BASE ?? "https://sandbox-quickbooks.api.intuit.com";
+// True while billing runs against the fake test company (the default).
+export const IS_SANDBOX = QB_BASE.includes("sandbox");
 const TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 const MINOR = "minorversion=75";
 const ITEM_NAME = "Elevator Inspection";
@@ -138,7 +140,7 @@ async function findOrCreateItem(): Promise<Item> {
   return res.Item;
 }
 
-export type InvoiceInput = {
+type InvoiceInput = {
   customerName: string;
   email: string;
   amount: number;

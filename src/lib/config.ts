@@ -1,4 +1,4 @@
-import { readRange, writeCell } from "@/lib/google";
+import { readRange, writeCells } from "@/lib/google";
 
 // The dashboard's private Config tab: one setting per row — name in column A,
 // value in column B. Holds the phone-alert keys, the scheduler secret, the master
@@ -15,10 +15,10 @@ export async function readConfig(): Promise<Map<string, string>> {
 // Save one setting, adding a row for it if the name isn't there yet.
 export async function writeConfig(name: string, value: string): Promise<void> {
   const rows = await readRange(NAMES);
-  let i = rows.findIndex((r) => (r[0] ?? "").trim() === name);
-  if (i === -1) {
-    i = rows.length;
-    await writeCell(`Config!A${i + 1}`, name);
-  }
-  await writeCell(`Config!B${i + 1}`, value);
+  const i = rows.findIndex((r) => (r[0] ?? "").trim() === name);
+  const row = (i === -1 ? rows.length : i) + 1; // sheet rows start at 1
+  await writeCells([
+    ...(i === -1 ? ([[`Config!A${row}`, name]] as [string, string][]) : []),
+    [`Config!B${row}`, value],
+  ]);
 }

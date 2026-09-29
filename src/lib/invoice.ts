@@ -1,5 +1,5 @@
 import { cell, readRow, writeRow } from "@/lib/sheet";
-import { createInvoice, sendInvoice, getInvoiceBalance } from "@/lib/quickbooks";
+import { IS_SANDBOX, createInvoice, sendInvoice, getInvoiceBalance } from "@/lib/quickbooks";
 import { isMasterOn, isRowPaused } from "@/lib/switches";
 
 // The billing steps the Make automation triggers (via /api/invoice/run):
@@ -13,8 +13,6 @@ import { isMasterOn, isRowPaused } from "@/lib/switches";
 // Both refuse to act on a paused elevator or when the master switch is off.
 // In production QuickBooks also emails its own official invoice; in the sandbox
 // it can't, so testing relies on the /pay link in Make's invoice email instead.
-
-const IS_SANDBOX = (process.env.QB_BASE ?? "https://sandbox-quickbooks.api.intuit.com").includes("sandbox");
 
 // Turn "$1,175.50" or "175" into a number. Returns 0 if it can't be read.
 function parsePrice(raw: string): number {

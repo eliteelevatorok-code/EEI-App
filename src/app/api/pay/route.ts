@@ -1,4 +1,5 @@
 import { findForPay, markPaid } from "@/lib/pay";
+import { IS_SANDBOX } from "@/lib/quickbooks";
 
 export const runtime = "nodejs";
 
@@ -13,7 +14,13 @@ export async function GET(req: Request) {
 
 // POST { token } → flips the row's Paid box to "Paid". A deliberate button press,
 // not a link the email client can trigger by prefetching.
+// TEST ONLY: once QuickBooks is on the real company, payment is detected from the
+// QuickBooks balance, so this button is refused — otherwise anyone holding the
+// link could mark a bill paid without paying.
 export async function POST(req: Request) {
+  if (!IS_SANDBOX) {
+    return Response.json({ error: "Please pay using the link in your QuickBooks invoice." }, { status: 403 });
+  }
   let body: { token?: string };
   try {
     body = (await req.json()) as { token?: string };
@@ -24,9 +31,8 @@ export async function POST(req: Request) {
   if (!el) return Response.json({ error: "This link isn't recognized." }, { status: 404 });
   try {
     await markPaid(el.row);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Save failed";
-    return Response.json({ error: message }, { status: 502 });
+  } catch {
+    return Response.json({ error: "Couldn't save just now — please try again in a minute." }, { status: 502 });
   }
   return Response.json({ ok: true });
 }

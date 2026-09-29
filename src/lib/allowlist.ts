@@ -11,7 +11,7 @@ const DEFAULT_APPROVED = [
   "s.barton.ok@gmail.com",
 ];
 
-export function allowedEmails(): Set<string> {
+function allowedEmails(): Set<string> {
   const fromEnv = (process.env.ALLOWLIST_EMAILS ?? "")
     .split(",")
     .map((e) => e.trim().toLowerCase())

@@ -18,8 +18,8 @@ function auth(): GoogleAuth {
   return authInstance;
 }
 
-export const DASHBOARD_ID = "1HlV3pkQc0sdwghuzlcMRgC0WAkR-pSBOLDM8xjVP4Ss";
-export const REPORTS_FOLDER_ID = "17-QkyhTDbDCkfRVU0QfYAiPjUS0cXO8w";
+const DASHBOARD_ID = "1HlV3pkQc0sdwghuzlcMRgC0WAkR-pSBOLDM8xjVP4Ss";
+const REPORTS_FOLDER_ID = "17-QkyhTDbDCkfRVU0QfYAiPjUS0cXO8w";
 
 // Drive uploads run as Robert's own account (a service account has no storage
 // of its own on a personal Gmail). Uses the one-time sign-in's refresh token —
@@ -143,4 +143,3 @@ export async function uploadFile(
   });
   return res.data.webViewLink ?? `https://drive.google.com/file/d/${res.data.id}/view`;
 }
-
