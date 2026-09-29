@@ -177,9 +177,9 @@ export async function fillReport(templateBytes: Uint8Array, p: FinalizePayload):
 
   // Draw the filled-in values into the PDF. pdf-lib's "redraw every field" step
   // crashes on the form's built-in script buttons, so instead we redraw only the
-  // fields we changed, one at a time, skipping any that can't be drawn. This
-  // matters on Apple devices: Safari, Preview and the iPhone's viewer ignore the
-  // "please redraw" flag below, and without drawn values they show blank boxes.
+  // fields we changed, one at a time, skipping any that can't be drawn. Many PDF
+  // viewers (email previews, phone viewers) ignore the "please redraw" flag
+  // below, and without drawn values they show blank boxes.
   const font = await doc.embedFont(StandardFonts.Helvetica);
   for (const f of form.getFields()) {
     try {

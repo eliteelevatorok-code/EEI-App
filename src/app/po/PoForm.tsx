@@ -53,7 +53,7 @@ export default function PoForm({ token }: { token: string }) {
 
   const wrap: React.CSSProperties = {
     maxWidth: 460, margin: "0 auto", padding: "32px 20px",
-    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif", color: "#1a1a1a",
+    fontFamily: "system-ui, Segoe UI, Roboto, sans-serif", color: "#1a1a1a",
   };
   const label: React.CSSProperties = { display: "block", fontWeight: 600, margin: "18px 0 6px" };
   const input: React.CSSProperties = {

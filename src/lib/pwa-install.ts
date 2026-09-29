@@ -19,9 +19,7 @@ const emit = () => listeners.forEach((l) => l());
 
 function detectStandalone(): boolean {
   if (typeof window === "undefined") return false;
-  const mm = window.matchMedia?.("(display-mode: standalone)").matches;
-  const iosStandalone = (window.navigator as unknown as { standalone?: boolean }).standalone === true;
-  return Boolean(mm || iosStandalone);
+  return Boolean(window.matchMedia?.("(display-mode: standalone)").matches);
 }
 
 // Called once at app startup (AppBoot). Safe to call more than once.
@@ -79,15 +77,4 @@ export async function triggerInstall(): Promise<boolean> {
   if (choice.outcome === "accepted") installed = true;
   emit();
   return choice.outcome === "accepted";
-}
-
-// Is this an iOS device? (iOS Safari never fires beforeinstallprompt, so install
-// there is only via the Share sheet — we show steps instead of a button.)
-export function isIOS(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent;
-  const iOSDevice = /iPad|iPhone|iPod/.test(ua);
-  // iPadOS 13+ reports as a Mac but has touch — catch that too.
-  const iPadOS = navigator.platform === "MacIntel" && (navigator as unknown as { maxTouchPoints?: number }).maxTouchPoints! > 1;
-  return iOSDevice || iPadOS;
 }

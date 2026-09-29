@@ -49,7 +49,7 @@ export default function PayForm({ token }: { token: string }) {
 
   const wrap: React.CSSProperties = {
     maxWidth: 460, margin: "0 auto", padding: "32px 20px",
-    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif", color: "#1a1a1a",
+    fontFamily: "system-ui, Segoe UI, Roboto, sans-serif", color: "#1a1a1a",
   };
   const btn: React.CSSProperties = {
     width: "100%", padding: "14px", fontSize: 16, fontWeight: 600, marginTop: 22,

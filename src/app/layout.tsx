@@ -7,8 +7,7 @@ export const metadata: Metadata = {
   title: "EEI Field Reports",
   description: "Elite Elevator Inspections — field report and dashboard control.",
   manifest: "/manifest.webmanifest",
-  icons: { icon: "/favicon-32.png", apple: "/apple-touch-icon.png" },
-  appleWebApp: { capable: true, title: "EEI Field", statusBarStyle: "default" },
+  icons: { icon: "/favicon-32.png" },
 };
 
 export const viewport: Viewport = {

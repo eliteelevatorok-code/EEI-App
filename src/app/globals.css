@@ -9,7 +9,7 @@ body {
   height: 100%;
 }
 
-/* keep inputs comfortable on mobile and prevent iOS zoom-on-focus */
+/* keep inputs big enough to tap comfortably on a phone */
 input,
 select,
 textarea,

@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useClerk } from "@clerk/nextjs";
-import { getInstallState, isIOS, subscribeInstall, triggerInstall } from "@/lib/pwa-install";
-import { alertsState, enableAlerts, takePendingOpen, type AlertState } from "@/lib/push-client";
+import { getInstallState, subscribeInstall, triggerInstall } from "@/lib/pwa-install";
+import { alertsState, enableAlerts, type AlertState } from "@/lib/push-client";
 import {
   CERT_ISSUE,
   CONDITIONS,
@@ -151,16 +151,15 @@ const inputCls =
 // (Settings only ever opens after a tap, so reading browser-only state up front is safe.)
 function useInstall() {
   const [state, setState] = useState(getInstallState);
-  const [ios] = useState(isIOS);
   useEffect(() => subscribeInstall(() => setState(getInstallState())), []);
   const install = () => {
     void triggerInstall();
   };
-  return { installed: state.installed, canInstall: state.canInstall, install, ios };
+  return { installed: state.installed, canInstall: state.canInstall, install };
 }
 
 function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => void }) {
-  const { installed, canInstall, install, ios } = useInstall();
+  const { installed, canInstall, install } = useInstall();
   const [scale, setScale] = useState(currentFontScale);
 
   // Live master-switch state, so the System card shows on/off at a glance.
@@ -221,31 +220,6 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
                 Install app on this device
               </button>
             </>
-          ) : ios ? (
-            <div className="text-sm text-stone-700">
-              <p className="mb-2">
-                To add EEI Field Reports to your iPhone (Apple doesn&apos;t allow a one-tap button):
-              </p>
-              <ol className="ml-1 space-y-2">
-                <li>
-                  1. Tap the <span className="font-semibold">Share</span> button — the square with an arrow
-                  pointing up{" "}
-                  <span aria-hidden className="inline-block align-middle text-[#1F4B45]">⬆️</span> — at the
-                  bottom of Safari.
-                </li>
-                <li>
-                  2. Scroll down and tap <span className="font-semibold">Add to Home Screen</span>.
-                </li>
-                <li>
-                  3. Tap <span className="font-semibold">Add</span> at the top right. The app icon lands on your
-                  home screen.
-                </li>
-              </ol>
-              <p className="mt-3 text-stone-500">
-                Must be in <span className="font-semibold">Safari</span> (not Chrome) for this to appear. Once
-                added, this box will say “Installed.”
-              </p>
-            </div>
           ) : (
             <div className="text-sm text-stone-700">
               <p className="mb-2">To add EEI Field Reports as an app on this phone:</p>
@@ -281,8 +255,7 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
             </p>
           ) : alerts === "unsupported" ? (
             <p className="text-sm text-stone-700">
-              This browser can&apos;t do phone alerts. On iPhone, first add the app to your home screen (above),
-              open it from there, then turn alerts on.
+              This browser can&apos;t do phone alerts. Open the app in Chrome on your phone, then turn alerts on.
             </p>
           ) : (
             <>
@@ -1553,37 +1526,6 @@ export default function Home() {
   const [openOkla, setOpenOkla] = useState(() =>
     typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("open") || "",
   );
-
-  // iPhone fallback: the service worker parks the tapped alert's elevator; pick
-  // it up when the app opens, gets a nudge from the worker, or comes to front.
-  // If the link itself already worked (Android/desktop), skip that one repeat.
-  const fromLink = useRef(openOkla);
-  useEffect(() => {
-    if (fromLink.current) window.history.replaceState(null, "", "/"); // refresh won't re-jump
-    const check = async () => {
-      const okla = await takePendingOpen();
-      if (!okla) return;
-      if (okla === fromLink.current) {
-        fromLink.current = "";
-        return;
-      }
-      setOpenOkla(okla);
-      setStage("list"); // the list screen does the jump once the roster loads
-    };
-    const onMessage = (e: MessageEvent) => {
-      if (e.data?.type === "open-elevator") check();
-    };
-    const onVisible = () => {
-      if (document.visibilityState === "visible") check();
-    };
-    check();
-    navigator.serviceWorker?.addEventListener("message", onMessage);
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      navigator.serviceWorker?.removeEventListener("message", onMessage);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, []);
 
   const logout = () => signOut({ redirectUrl: "/sign-in" });
   const openSettings = () => setSettingsOpen(true);

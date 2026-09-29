@@ -23,7 +23,6 @@ const jobs = [
   { file: "public/icon-192.png", size: 192, scale: 0.5, rounded: true },
   { file: "public/icon-512.png", size: 512, scale: 0.5, rounded: true },
   { file: "public/icon-maskable-512.png", size: 512, scale: 0.4, rounded: false },
-  { file: "public/apple-touch-icon.png", size: 180, scale: 0.5, rounded: false },
   { file: "public/favicon-32.png", size: 32, scale: 0.55, rounded: true },
 ];
 

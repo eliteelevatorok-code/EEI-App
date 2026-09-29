@@ -12,23 +12,6 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
   return out;
 }
 
-// The elevator (OK#) a tapped alert wanted to open, or "" if none. Reads and
-// clears what the service worker parked on tap (sw.js) — iPhone home-screen
-// apps ignore the alert's link, so this is how the app finds out.
-export async function takePendingOpen(): Promise<string> {
-  if (typeof caches === "undefined") return "";
-  try {
-    const box = await caches.open("eei-pending");
-    const hit = await box.match("/__pending-open");
-    if (!hit) return "";
-    await box.delete("/__pending-open");
-    const target = new URL(await hit.text(), window.location.origin);
-    return target.searchParams.get("open") || "";
-  } catch {
-    return "";
-  }
-}
-
 export type AlertState = "unsupported" | "off" | "on" | "blocked";
 
 export async function alertsState(): Promise<AlertState> {

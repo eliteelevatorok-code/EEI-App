@@ -4,20 +4,13 @@
 const CACHE = "eei-shell-v4";
 const SHELL = ["/", "/sign-in", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
-// iPhone home-screen apps ignore the link on a tapped alert and just open the
-// start page. So on tap we also park the destination here; the app picks it up
-// when it opens or comes to the front (see takePendingOpen in push-client.ts).
-const PENDING = "eei-pending";
-const PENDING_KEY = "/__pending-open";
-
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (e) => {
-  const keep = [CACHE, PENDING];
   e.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => !keep.includes(k)).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
+    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
   );
 });
 
@@ -48,17 +41,9 @@ self.addEventListener("notificationclick", (e) => {
   const target = e.notification.data?.url || "/";
   e.waitUntil(
     (async () => {
-      // Park the destination first (iPhone fallback), then nudge any open window.
-      try {
-        const box = await caches.open(PENDING);
-        await box.put(PENDING_KEY, new Response(target));
-      } catch {
-        /* storage blocked — the link below still works on Android/desktop */
-      }
       const list = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       for (const c of list) {
         if ("focus" in c) {
-          c.postMessage({ type: "open-elevator" });
           await c.focus();
           if ("navigate" in c) {
             try {
