@@ -12,11 +12,16 @@ const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).jo
 // back to an instant change where the browser can't animate it.
 // (Skipped when the page isn't on screen — the browser cancels the animation
 // then; the change itself still happens either way.)
-export function go(update: () => void) {
+// `after` runs once the new screen is on the page (e.g. to restore its scroll spot).
+export function go(update: () => void, after?: () => void) {
   type VT = { ready: Promise<void>; finished: Promise<void>; updateCallbackDone: Promise<void> };
   const doc = document as Document & { startViewTransition?: (cb: () => void) => VT };
-  if (!doc.startViewTransition || document.visibilityState !== "visible") return update();
-  const t = doc.startViewTransition(() => flushSync(update));
+  const run = () => {
+    flushSync(update);
+    after?.();
+  };
+  if (!doc.startViewTransition || document.visibilityState !== "visible") return run();
+  const t = doc.startViewTransition(run);
   // A cancelled animation isn't an error worth reporting.
   for (const p of [t.ready, t.finished, t.updateCallbackDone]) p.catch(() => {});
 }
@@ -190,6 +195,43 @@ export function DueDot({ days, fallback }: { days: number | null; fallback: stri
     </span>
   );
 }
+
+/* ---- Tab bar ------------------------------------------------------------------- */
+
+export type TabItem<T extends string> = { key: T; label: string; icon: React.ReactNode; badge?: number };
+
+// The glass bar at the bottom for moving between the app's main places.
+export function TabBar<T extends string>({ tabs, value, onChange }: { tabs: TabItem<T>[]; value: T; onChange: (t: T) => void }) {
+  return (
+    <nav className="tab-bar glass-strong" aria-label="Main">
+      {tabs.map((t) => (
+        <button
+          key={t.key}
+          type="button"
+          onClick={() => onChange(t.key)}
+          className={cx("tab", t.key === value && "tab-on")}
+          aria-current={t.key === value ? "page" : undefined}
+        >
+          <span className="relative">
+            {t.icon}
+            {t.badge ? <span className="tab-badge">{t.badge > 9 ? "9+" : t.badge}</span> : null}
+          </span>
+          {t.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+const icon = (d: React.ReactNode) => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    {d}
+  </svg>
+);
+export const TodayIcon = () => icon(<><circle cx="12" cy="12" r="9" /><path d="m8 12.5 2.7 2.7L16.5 9.5" /></>);
+export const ElevatorsIcon = () => icon(<><rect x="5" y="3" width="14" height="18" rx="2.5" /><path d="m9.5 9 2.5-2.5L14.5 9M9.5 15l2.5 2.5 2.5-2.5" /></>);
+export const MoneyIcon = () => icon(<><rect x="3" y="6" width="18" height="12" rx="2.5" /><circle cx="12" cy="12" r="2.5" /><path d="M6.5 9.5v5M17.5 9.5v5" /></>);
+export const SettingsIcon = () => icon(<><circle cx="12" cy="12" r="3" /><path d="M12 2.5v2.2M12 19.3v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6" /></>);
 
 /* ---- Public pages (opened by customers / maintenance companies from email) ---- */
 

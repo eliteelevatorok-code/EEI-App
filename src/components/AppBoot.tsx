@@ -11,7 +11,9 @@ export function AppBoot() {
   useEffect(() => {
     initInstall();
     applyFontScale(currentFontScale());
-    if ("serviceWorker" in navigator) {
+    // Live site only: while developing, file names don't change between edits, so
+    // the worker's "serve from the phone" rule would show stale code.
+    if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
     }
   }, []);

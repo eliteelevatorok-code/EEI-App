@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
+import { getRoster, getServerRoster, patchElevator, refreshRoster, subscribeRoster } from "@/lib/roster-store";
 import { useClerk } from "@clerk/nextjs";
 import { getInstallState, subscribeInstall, triggerInstall } from "@/lib/pwa-install";
 import { alertsState, enableAlerts, type AlertState } from "@/lib/push-client";
@@ -26,19 +27,23 @@ import {
   CheckIcon,
   Chips,
   DueDot,
+  ElevatorsIcon,
   Field,
-  GearIcon,
   Glass,
   InfoRow,
   List,
+  MoneyIcon,
   Pill,
   PlusIcon,
   Screen,
   SearchIcon,
   SectionLabel,
   Segmented,
+  SettingsIcon,
   Sheet,
+  TabBar,
   Title,
+  TodayIcon,
   Toggle,
   TopBar,
   buzz,
@@ -48,7 +53,48 @@ import {
 // All styling comes from the style guide (src/app/globals.css) and the pieces in
 // src/components/ui.tsx — no raw colors or one-off looks in this file.
 
-type Stage = "list" | "profile" | "report" | "new";
+// The four places in the tab bar, and the screens opened on top of them.
+type Tab = "today" | "elevators" | "money" | "settings";
+type Stage = "tabs" | "profile" | "report" | "new";
+
+// The elevator list, shared by every tab: shown instantly from the phone's saved
+// copy, refreshed from the dashboard when the app opens or comes back to front.
+function useRoster() {
+  const roster = useSyncExternalStore(subscribeRoster, getRoster, getServerRoster);
+  useEffect(() => {
+    void refreshRoster();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshRoster();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+  return roster;
+}
+
+// One lifecycle cell's value on an elevator (e.g. stage(e, "visit") → "Booked").
+const stage = (e: Elevator, key: string) => e.lifecycle.find((s) => s.key === key)?.value ?? "";
+
+// "$1,175.50" → 1175.5; falls back to the rate card when the cell is empty.
+function priceOf(e: Elevator): number {
+  const n = Number((e.price ?? "").replace(/[^0-9.]/g, ""));
+  return n > 0 ? n : (computePrice(e.type, e.floors) ?? 0);
+}
+const money = (n: number) => "$" + n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+// Shown by a tab while the list hasn't arrived yet, or if it can't be reached.
+function RosterStatus({ error }: { error: string }) {
+  if (!error) return <p className="mt-10 text-center text-sm text-ink-3">Loading your list…</p>;
+  return (
+    <Glass pad className="mt-6">
+      <p className="font-semibold text-danger">Couldn&apos;t load your elevator list.</p>
+      <p className="mt-1 text-sm text-ink-2">{error}</p>
+      <Button className="mt-4" onClick={() => void refreshRoster()}>
+        Try again
+      </Button>
+    </Glass>
+  );
+}
 
 // Parse a m/d/yyyy (or yyyy-mm-dd) due date to a Date for sorting/coloring.
 function parseDue(s: string): Date | null {
@@ -109,14 +155,6 @@ function freshReport(e: Elevator): ReportDraft {
   };
 }
 
-function SettingsButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button onClick={onClick} className="icon-btn glass" aria-label="Settings">
-      <GearIcon />
-    </button>
-  );
-}
-
 /* ---------- settings ---------- */
 
 // Reads the app-wide install state captured at startup (see lib/pwa-install).
@@ -132,14 +170,14 @@ function useInstall() {
   return { installed: state.installed, canInstall: state.canInstall, install };
 }
 
-function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => void }) {
+function SettingsTab({ onLogout }: { onLogout: () => void }) {
   const { installed, canInstall, install } = useInstall();
   const [scale, setScale] = useState(currentFontScale);
 
   // Live master-switch state, so the System card shows on/off at a glance.
   const [master, setMaster] = useState<boolean | null>(null);
   useEffect(() => {
-    fetch("/api/switches")
+    fetch("/api/switches?only=master") // just the master switch — one small read
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { master?: boolean } | null) => setMaster(d && typeof d.master === "boolean" ? d.master : null))
       .catch(() => setMaster(null));
@@ -167,13 +205,8 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
   const buildTime = process.env.NEXT_PUBLIC_BUILD_TIME || "";
 
   return (
-    <Sheet onClose={onClose}>
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-[21px] font-bold tracking-tight">Settings</h3>
-        <Button variant="quiet" onClick={onClose} className="text-base">
-          Done
-        </Button>
-      </div>
+    <Screen bottomSpace>
+      <Title eyebrow="This phone and the system">Settings</Title>
 
       <SectionLabel>This device</SectionLabel>
       <Glass pad>
@@ -263,7 +296,7 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
         Build <span className="font-mono">{buildSha}</span>
         {buildTime && <> · {new Date(buildTime).toLocaleString()}</>}
       </p>
-    </Sheet>
+    </Screen>
   );
 }
 
@@ -283,65 +316,115 @@ function UnitRow({ u, onPick, showAccount }: { u: Elevator; onPick: (e: Elevator
   );
 }
 
-function Picker({
+// Today: what needs Robert right now, what's overdue, and what's coming up.
+function TodayTab({ accounts, error, onPick }: { accounts: Account[] | null; error: string; onPick: (e: Elevator) => void }) {
+  const hour = new Date().getHours();
+  const hello = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  if (!accounts) {
+    return (
+      <Screen bottomSpace>
+        <Title eyebrow={today}>{hello}</Title>
+        <RosterStatus error={error} />
+      </Screen>
+    );
+  }
+  const { needs, overdue, soon } = todayLists(accounts);
+
+  return (
+    <Screen bottomSpace>
+      <Title eyebrow={today}>{hello}</Title>
+
+      {needs.length + overdue.length === 0 && (
+        <Glass pad className="mt-6 text-center">
+          <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-accent-soft text-accent-ink">
+            <TodayIcon />
+          </div>
+          <p className="mt-3 font-semibold">All clear</p>
+          <p className="mt-1 text-sm text-ink-2">Nothing needs you right now. The automation is handling the rest.</p>
+        </Glass>
+      )}
+
+      {needs.length > 0 && (
+        <>
+          <SectionLabel>Needs you · {needs.length}</SectionLabel>
+          <List>
+            {needs.map(({ u, what }) => (
+              <button key={u.okla + what} onClick={() => onPick(u)} className="row">
+                <span className="dot text-accent" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-semibold">{u.building}</div>
+                  <div className="mt-0.5 truncate text-sm text-ink-2">{what}</div>
+                </div>
+              </button>
+            ))}
+          </List>
+        </>
+      )}
+
+      {overdue.length > 0 && (
+        <>
+          <SectionLabel>Overdue · {overdue.length}</SectionLabel>
+          <List>
+            {overdue.map((u) => (
+              <UnitRow key={u.okla} u={u} onPick={onPick} showAccount />
+            ))}
+          </List>
+        </>
+      )}
+
+      <SectionLabel>Coming up · next 30 days</SectionLabel>
+      {soon.length > 0 ? (
+        <List>
+          {soon.map((u) => (
+            <UnitRow key={u.okla} u={u} onPick={onPick} showAccount />
+          ))}
+        </List>
+      ) : (
+        <p className="px-1 text-sm text-ink-3">Nothing due in the next 30 days.</p>
+      )}
+    </Screen>
+  );
+}
+
+// What the Today tab lists (also used for the count bubble on its tab):
+// needs = things only a person can do (the same two the phone alerts cover),
+// overdue = past due and not inspected yet, soon = due within 30 days.
+function todayLists(accounts: Account[]) {
+  const all = accounts.flatMap((a) => a.units).filter((u) => u.active !== false);
+  const needs = all.flatMap((u) => {
+    const out: { u: Elevator; what: string }[] = [];
+    if (stage(u, "visit") === "Booked") out.push({ u, what: "Do the inspection — visit booked" });
+    if (stage(u, "maintConfirm") === "Waiting") out.push({ u, what: "Chase maintenance for records" });
+    return out;
+  });
+  const days = (u: Elevator) => daysUntil(u.due);
+  const notDone = (u: Elevator) => stage(u, "visit") !== "Inspected";
+  const overdue = all.filter((u) => (days(u) ?? 1) < 0 && notDone(u)).sort((a, b) => days(a)! - days(b)!);
+  const soon = all
+    .filter((u) => {
+      const d = days(u);
+      return d !== null && d >= 0 && d <= 30 && notDone(u);
+    })
+    .sort((a, b) => days(a)! - days(b)!);
+  return { needs, overdue, soon };
+}
+
+// Elevators: every elevator, searchable, grouped by account; + adds a new one.
+function ElevatorsTab({
+  accounts,
+  error,
   onPick,
   onNew,
-  onSettings,
-  openOkla,
 }: {
+  accounts: Account[] | null;
+  error: string;
   onPick: (e: Elevator) => void;
   onNew: () => void;
-  onSettings: () => void;
-  openOkla?: string; // from a ?open=<okla> deep-link (a phone alert): jump to it
 }) {
   const [q, setQ] = useState("");
   const [mode, setMode] = useState<"all" | "soon">("all");
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [loadState, setLoadState] = useState<"loading" | "live" | "error">("loading");
-  const [errMsg, setErrMsg] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
-  const jumpedTo = useRef("");
   const query = q.trim().toLowerCase();
-
-  // Deep-link from a phone alert: once the roster is live, open that elevator's
-  // profile straight away (only once per okla, so Back returns to the list).
-  useEffect(() => {
-    if (loadState !== "live" || !openOkla || jumpedTo.current === openOkla) return;
-    for (const a of accounts) {
-      const hit = a.units.find((u) => u.okla === openOkla);
-      if (hit) {
-        jumpedTo.current = openOkla;
-        onPick(hit);
-        return;
-      }
-    }
-  }, [loadState, openOkla, accounts, onPick]);
-
-  // Live dashboard only — no sample data. If it can't load, show why + Retry.
-  // (Re-runs when Retry bumps reloadKey; Retry itself flips the screen to "loading".)
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/roster");
-        const data = (await res.json()) as { accounts?: Account[]; error?: string };
-        if (!res.ok || !data.accounts) throw new Error(data.error || `Error ${res.status}`);
-        if (!cancelled) {
-          setAccounts(data.accounts);
-          setLoadState("live");
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setAccounts([]);
-          setErrMsg(e instanceof Error ? e.message : "Couldn't reach the dashboard");
-          setLoadState("error");
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [reloadKey]);
 
   const matches = (u: Elevator, accountName: string) =>
     !query ||
@@ -354,28 +437,28 @@ function Picker({
     if (db === null) return -1;
     return da - db;
   };
-
-  // "All" = grouped by account, each account's units soonest-due first.
-  // (Plain calculations — the roster is small, so there's nothing worth caching.)
-  const grouped = accounts
+  // "All" = grouped by account, soonest-due first. "Due soon" = one flat list
+  // within the window. (Plain calculations — the roster is small.)
+  const list = accounts ?? [];
+  const grouped = list
     .map((a) => ({ ...a, units: a.units.filter((u) => matches(u, a.name)).sort(byDue) }))
     .filter((a) => a.units.length > 0);
-  // "Due soon" = one flat list across all accounts, within the window, soonest first.
-  const dueSoon = accounts
+  const dueSoon = list
     .flatMap((a) => a.units.filter((u) => matches(u, a.name)))
     .filter((u) => {
       const d = daysUntil(u.due);
       return d !== null && d <= DUE_SOON_DAYS;
     })
     .sort(byDue);
-
-  const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const count = list.reduce((n, a) => n + a.units.length, 0);
 
   return (
     <Screen bottomSpace>
       <div className="flex items-end justify-between">
-        <Title eyebrow={today}>Elevators</Title>
-        <SettingsButton onClick={onSettings} />
+        <Title eyebrow={accounts ? `${count} on the dashboard` : " "}>Elevators</Title>
+        <button onClick={onNew} className="icon-btn btn-primary" aria-label="New elevator">
+          <PlusIcon />
+        </button>
       </div>
 
       <label className="relative mt-5 block">
@@ -401,9 +484,9 @@ function Picker({
         />
       </div>
 
-      {loadState === "loading" && <p className="mt-8 text-center text-sm text-ink-3">Loading your list…</p>}
+      {!accounts && <RosterStatus error={error} />}
 
-      {loadState === "live" && mode === "all" && (
+      {accounts && mode === "all" && (
         <>
           {grouped.map((a) => (
             <div key={a.name}>
@@ -421,7 +504,7 @@ function Picker({
         </>
       )}
 
-      {loadState === "live" && mode === "soon" && (
+      {accounts && mode === "soon" && (
         <>
           <SectionLabel>Due within {DUE_SOON_DAYS} days</SectionLabel>
           {dueSoon.length > 0 ? (
@@ -435,32 +518,97 @@ function Picker({
           )}
         </>
       )}
+    </Screen>
+  );
+}
 
-      {loadState === "error" && (
-        <Glass pad className="mt-6">
-          <p className="font-semibold text-danger">Couldn&apos;t load your elevator list.</p>
-          <p className="mt-1 text-sm text-ink-2">{errMsg}</p>
-          <Button
-            className="mt-4"
-            onClick={() => {
-              setLoadState("loading");
-              setReloadKey((k) => k + 1);
-            }}
-          >
-            Try again
-          </Button>
+// One row on the Money tab: building, what stage the bill is at, and the amount.
+function MoneyRow({ u, note, onPick }: { u: Elevator; note: string; onPick: (e: Elevator) => void }) {
+  return (
+    <button onClick={() => onPick(u)} className="row">
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-semibold">{u.building}</div>
+        <div className="mt-0.5 truncate text-sm text-ink-2">{note}</div>
+      </div>
+      <span className="font-semibold tabular-nums">{money(priceOf(u))}</span>
+    </button>
+  );
+}
+
+// Money: bills that are out and not paid yet, reports about to be billed, and
+// what's been collected this cycle. Read from the same list as the other tabs.
+function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; error: string; onPick: (e: Elevator) => void }) {
+  if (!accounts) {
+    return (
+      <Screen bottomSpace>
+        <Title eyebrow="This cycle">Money</Title>
+        <RosterStatus error={error} />
+      </Screen>
+    );
+  }
+  const all = accounts.flatMap((a) => a.units);
+  const paid = (u: Elevator) => stage(u, "paid") === "Paid";
+  const outstanding = all.filter((u) => stage(u, "invoice") === "Sent" && !paid(u));
+  const toBill = all.filter((u) => stage(u, "report") === "Sent" && stage(u, "invoice") !== "Sent" && !paid(u));
+  const collected = all.filter(paid);
+  const sum = (list: Elevator[]) => list.reduce((n, u) => n + priceOf(u), 0);
+
+  return (
+    <Screen bottomSpace>
+      <Title eyebrow="This cycle">Money</Title>
+
+      <div className="mt-6 grid grid-cols-2 gap-3">
+        <Glass pad>
+          <div className="text-sm text-ink-2">Waiting on</div>
+          <div className="mt-1 text-[26px] font-bold tracking-tight tabular-nums">{money(sum(outstanding))}</div>
+          <div className="text-xs text-ink-3">
+            {outstanding.length} {outstanding.length === 1 ? "bill" : "bills"} out
+          </div>
         </Glass>
+        <Glass pad>
+          <div className="text-sm text-ink-2">Collected</div>
+          <div className="mt-1 text-[26px] font-bold tracking-tight tabular-nums text-accent-ink">{money(sum(collected))}</div>
+          <div className="text-xs text-ink-3">{collected.length} paid</div>
+        </Glass>
+      </div>
+
+      <SectionLabel>Waiting on payment · {outstanding.length}</SectionLabel>
+      {outstanding.length > 0 ? (
+        <List>
+          {outstanding.map((u) => (
+            <MoneyRow
+              key={u.okla}
+              u={u}
+              onPick={onPick}
+              note={stage(u, "followUps") ? `Reminder ${stage(u, "followUps")}` : "Invoice sent"}
+            />
+          ))}
+        </List>
+      ) : (
+        <p className="px-1 text-sm text-ink-3">No unpaid bills.</p>
       )}
 
-      {/* floating "new elevator" button */}
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 mx-auto max-w-md px-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
-        <div className="flex justify-end">
-          <Button onClick={onNew} className="pointer-events-auto rounded-full px-5">
-            <PlusIcon />
-            New elevator
-          </Button>
-        </div>
-      </div>
+      {toBill.length > 0 && (
+        <>
+          <SectionLabel>Being billed now · {toBill.length}</SectionLabel>
+          <List>
+            {toBill.map((u) => (
+              <MoneyRow key={u.okla} u={u} onPick={onPick} note="Report filed — invoice going out" />
+            ))}
+          </List>
+        </>
+      )}
+
+      <SectionLabel>Paid · {collected.length}</SectionLabel>
+      {collected.length > 0 ? (
+        <List>
+          {collected.map((u) => (
+            <MoneyRow key={u.okla} u={u} onPick={onPick} note="Paid — next year's cycle is being set" />
+          ))}
+        </List>
+      ) : (
+        <p className="px-1 text-sm text-ink-3">Nothing paid yet this cycle.</p>
+      )}
     </Screen>
   );
 }
@@ -580,6 +728,7 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
         lastYear: { date: "", inspType: "Initial", test1: "", test5: "", certIssue: "Yes", condition: "No adverse conditions", notes: "" },
       };
       buzz();
+      void refreshRoster(); // the new elevator appears in the list
       onCreated(elevator);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Couldn't save");
@@ -800,15 +949,15 @@ function LifecycleEditor({
 function Profile({
   elevator,
   onChange,
+  backLabel,
   onBack,
   onStartReport,
-  onSettings,
 }: {
   elevator: Elevator;
   onChange: (e: Elevator) => void; // a saved edit — the app keeps it, so the profile is right after a report and back
+  backLabel: string; // the tab this was opened from ("Today", "Elevators", "Money")
   onBack: () => void;
   onStartReport: () => void;
-  onSettings: () => void;
 }) {
   const e = elevator;
   const [editing, setEditing] = useState<LifecycleStage | null>(null);
@@ -856,7 +1005,7 @@ function Profile({
         />
       )}
 
-      <TopBar back={{ label: "Elevators", onClick: onBack }} right={<SettingsButton onClick={onSettings} />} />
+      <TopBar back={{ label: backLabel, onClick: onBack }} />
       <Title eyebrow={<span className="font-mono">OK #{e.okla}</span>}>{e.building}</Title>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Pill tone={swOn ? "green" : "red"} dot>
@@ -1009,11 +1158,9 @@ const KINDS: LineKind[] = ["V", "R", "C"];
 function Report({
   elevator,
   onBack,
-  onSettings,
 }: {
   elevator: Elevator;
   onBack: () => void;
-  onSettings: () => void;
 }) {
   // Start from a draft saved earlier on this phone, if there is one.
   const [saved] = useState(() => loadDraft(elevator.okla));
@@ -1081,6 +1228,7 @@ function Report({
         /* storage may be unavailable */
       }
       buzz();
+      void refreshRoster(); // Visit → Inspected now shows on every tab
       const dashNote =
         writeback === "ok" ? "Dashboard updated (Visit → Inspected)." : "Dashboard update: " + writeback + ".";
       const driveNote = drive === "ok" ? "Saved to Drive." : "Drive save: " + drive + ".";
@@ -1107,7 +1255,7 @@ function Report({
       {sheet && <ViolationSheet addedRaws={addedRaws} onToggle={toggleViolation} onClose={() => setSheet(false)} />}
 
       <Screen bottomSpace>
-        <TopBar back={{ label: "Profile", onClick: onBack }} right={<SettingsButton onClick={onSettings} />} />
+        <TopBar back={{ label: "Profile", onClick: onBack }} />
         <Title eyebrow={<>Inspection report · <span className="font-mono">OK #{elevator.okla}</span></>}>
           {elevator.building}
         </Title>
@@ -1242,51 +1390,108 @@ function Tally({ n, label, tone }: { n: number; label: string; tone: string }) {
 
 export default function Home() {
   const { signOut } = useClerk();
-  const [stage, setStage] = useState<Stage>("list");
+  const roster = useRoster();
+  const [tab, setTab] = useState<Tab>("today");
+  const [stage, setStage] = useState<Stage>("tabs");
   const [selected, setSelected] = useState<Elevator | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  // A phone alert deep-links here as /?open=<okla>; the Picker jumps to it once,
-  // then we clear it so tapping Back to the list doesn't re-jump.
+  // Where each tab was scrolled to, so coming back from an elevator lands you
+  // where you were in the list.
+  const scrollSpots = useRef<Record<string, number>>({});
+  // A phone alert deep-links here as /?open=<okla>: open that elevator once the
+  // list is available, then forget it so Back doesn't re-open it.
   const [openOkla, setOpenOkla] = useState(() =>
     typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("open") || "",
   );
+  if (openOkla && roster.accounts) {
+    const hit = roster.accounts.flatMap((a) => a.units).find((u) => u.okla === openOkla);
+    if (hit) {
+      setOpenOkla("");
+      setSelected(hit);
+      setStage("profile");
+    }
+  }
 
   const logout = () => signOut({ redirectUrl: "/sign-in" });
-  const openSettings = () => setSettingsOpen(true);
-  // Every screen change glides (see go() in components/ui.tsx) and starts at the top.
-  const to = (next: Stage, pick?: Elevator) =>
-    go(() => {
-      if (pick) setSelected(pick);
-      setStage(next);
-      window.scrollTo(0, 0);
-    });
+
+  // Every change glides (see go() in components/ui.tsx). Leaving the tabs saves
+  // the scroll spot; returning to them restores it; anything else starts at the top.
+  const to = (next: Stage, pick?: Elevator) => {
+    if (stage === "tabs") scrollSpots.current[tab] = window.scrollY;
+    go(
+      () => {
+        if (pick) setSelected(pick);
+        setStage(next);
+      },
+      () => window.scrollTo(0, next === "tabs" ? (scrollSpots.current[tab] ?? 0) : 0),
+    );
+  };
+  const switchTab = (t: Tab) => {
+    if (t === tab && stage === "tabs") return window.scrollTo({ top: 0, behavior: "smooth" }); // tap again = back to top
+    if (stage === "tabs") scrollSpots.current[tab] = window.scrollY;
+    go(
+      () => {
+        setTab(t);
+        setStage("tabs");
+      },
+      () => window.scrollTo(0, scrollSpots.current[t] ?? 0),
+    );
+  };
+  const pick = (e: Elevator) => to("profile", e);
+  // A saved edit on the profile: keep it on screen and in the phone's copy of the list.
+  const changed = (e: Elevator) => {
+    setSelected(e);
+    patchElevator(e);
+  };
+
+  const badge = roster.accounts ? (() => {
+    const t = todayLists(roster.accounts);
+    return t.needs.length + t.overdue.length;
+  })() : 0;
+  const TAB_LABEL: Record<Tab, string> = { today: "Today", elevators: "Elevators", money: "Money", settings: "Settings" };
+  // The tab bar shows on the tabs and on an elevator's profile; the report and
+  // new-elevator screens have their own buttons at the bottom instead.
+  const showTabs = stage === "tabs" || stage === "profile";
+
+  let screen: React.ReactNode;
+  if (stage === "new") {
+    screen = <NewElevator onBack={() => to("tabs")} onCreated={(e) => to("report", e)} />;
+  } else if (stage === "profile" && selected) {
+    screen = (
+      <Profile
+        key={selected.okla}
+        elevator={selected}
+        onChange={changed}
+        backLabel={TAB_LABEL[tab]}
+        onBack={() => to("tabs")}
+        onStartReport={() => to("report")}
+      />
+    );
+  } else if (stage === "report" && selected) {
+    screen = <Report key={selected.okla} elevator={selected} onBack={() => to("profile")} />;
+  } else if (tab === "today") {
+    screen = <TodayTab accounts={roster.accounts} error={roster.error} onPick={pick} />;
+  } else if (tab === "elevators") {
+    screen = <ElevatorsTab accounts={roster.accounts} error={roster.error} onPick={pick} onNew={() => to("new")} />;
+  } else if (tab === "money") {
+    screen = <MoneyTab accounts={roster.accounts} error={roster.error} onPick={pick} />;
+  } else {
+    screen = <SettingsTab onLogout={logout} />;
+  }
 
   return (
     <>
-      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} onLogout={logout} />}
-      {stage === "new" ? (
-        <NewElevator onBack={() => to("list")} onCreated={(e) => to("report", e)} />
-      ) : stage === "list" || !selected ? (
-        <Picker
-          openOkla={openOkla}
-          onPick={(e) => {
-            setOpenOkla("");
-            to("profile", e);
-          }}
-          onNew={() => to("new")}
-          onSettings={openSettings}
+      {screen}
+      {showTabs && (
+        <TabBar<Tab>
+          value={tab}
+          onChange={switchTab}
+          tabs={[
+            { key: "today", label: "Today", icon: <TodayIcon />, badge },
+            { key: "elevators", label: "Elevators", icon: <ElevatorsIcon /> },
+            { key: "money", label: "Money", icon: <MoneyIcon /> },
+            { key: "settings", label: "Settings", icon: <SettingsIcon /> },
+          ]}
         />
-      ) : stage === "profile" ? (
-        <Profile
-          key={selected.okla}
-          elevator={selected}
-          onChange={setSelected}
-          onBack={() => to("list")}
-          onStartReport={() => to("report")}
-          onSettings={openSettings}
-        />
-      ) : (
-        <Report key={selected.okla} elevator={selected} onBack={() => to("profile")} onSettings={openSettings} />
       )}
     </>
   );

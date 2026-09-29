@@ -1,11 +1,13 @@
 import { FIRST_ROW } from "@/lib/sheet";
-import { readSwitches, setMaster, setElevatorSwitch } from "@/lib/switches";
+import { isMasterOn, readSwitches, setMaster, setElevatorSwitch } from "@/lib/switches";
 
 export const runtime = "nodejs";
 
 // GET /api/switches → the master switch and every elevator's switch.
-export async function GET() {
+// GET /api/switches?only=master → just { master } (one small read — for Settings).
+export async function GET(req: Request) {
   try {
+    if (new URL(req.url).searchParams.get("only") === "master") return Response.json({ master: await isMasterOn() });
     return Response.json(await readSwitches());
   } catch (err) {
     return Response.json({ error: err instanceof Error ? err.message : "Read failed" }, { status: 502 });

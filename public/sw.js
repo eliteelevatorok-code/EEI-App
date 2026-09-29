@@ -1,7 +1,11 @@
-// Minimal service worker: makes the app installable and serves a cached shell
-// if the network is briefly unavailable. Network-first so users always get the
-// latest; falls back to cache only when offline.
-const CACHE = "eei-shell-v5";
+// Service worker: makes the app installable, fast, and usable on a bad signal.
+//   - The app's code, styles, fonts and icons (/_next/static/…, icons) never
+//     change once published (their file names change instead), so they're served
+//     straight from the phone after the first visit — no waiting on the network.
+//   - Pages are network-first so you always get the latest version; the saved
+//     copy is used only when offline.
+//   - API calls and sign-in are never touched.
+const CACHE = "eei-shell-v6";
 const SHELL = ["/", "/sign-in", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -60,13 +64,37 @@ self.addEventListener("notificationclick", (e) => {
   );
 });
 
+// Files whose name changes whenever their content does — safe to serve from the phone.
+// (The icons keep their names: bump CACHE above whenever they're regenerated.)
+const isForever = (url) =>
+  url.pathname.startsWith("/_next/static/") || /\.(png|ico|woff2?|webmanifest)$/.test(url.pathname);
+
 self.addEventListener("fetch", (e) => {
   const req = e.request;
-  // Only handle same-origin GET navigations/assets; never touch API or auth calls.
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api")) return;
+
+  if (isForever(url)) {
+    // Phone first; fetch (and keep) only if it isn't saved yet.
+    e.respondWith(
+      caches.match(req).then(
+        (hit) =>
+          hit ||
+          fetch(req).then((res) => {
+            if (res.ok) {
+              const copy = res.clone();
+              caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+            }
+            return res;
+          }),
+      ),
+    );
+    return;
+  }
+
+  // Pages: network first, saved copy when offline.
   e.respondWith(
     fetch(req)
       .then((res) => {
