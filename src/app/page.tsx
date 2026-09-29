@@ -21,8 +21,10 @@ import { VHEAD, VIOLATIONS, parseViolation } from "@/lib/violations";
 import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from "@/lib/prefs";
 import { computeCycle, computePrice, formatPrice } from "@/lib/pricing";
 import { DEVICE_TYPE_CODE, ENTITY_TYPE_CODE, MACHINE_TYPE_CODE } from "@/lib/formCodes";
+import { Assistant } from "@/components/Assistant";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
+  AskIcon,
   Button,
   CheckIcon,
   Chips,
@@ -54,7 +56,7 @@ import {
 // src/components/ui.tsx — no raw colors or one-off looks in this file.
 
 // The four places in the tab bar, and the screens opened on top of them.
-type Tab = "today" | "elevators" | "money" | "settings";
+type Tab = "today" | "elevators" | "ask" | "money" | "settings";
 type Stage = "tabs" | "profile" | "report" | "new";
 
 // The elevator list, shared by every tab: shown instantly from the phone's saved
@@ -170,6 +172,117 @@ function useInstall() {
   return { installed: state.installed, canInstall: state.canInstall, install };
 }
 
+// Connect the assistant: paste your Anthropic key once. The app checks it with
+// Anthropic, saves it to the dashboard's private Config tab, and only ever shows
+// its last 4 characters back.
+function AssistantKey() {
+  const [status, setStatus] = useState<{ connected: boolean; ending: string } | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [confirmOff, setConfirmOff] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/assistant/key")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { connected: boolean; ending: string } | null) => setStatus(d))
+      .catch(() => setStatus(null));
+  }, []);
+
+  async function call(method: "POST" | "DELETE") {
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await fetch("/api/assistant/key", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: method === "POST" ? JSON.stringify({ key }) : undefined,
+      });
+      const d = (await r.json().catch(() => ({}))) as { connected?: boolean; ending?: string; error?: string };
+      if (!r.ok) throw new Error(d.error || "Couldn't save");
+      setStatus({ connected: Boolean(d.connected), ending: d.ending ?? "" });
+      setKey("");
+      setEditing(false);
+      setConfirmOff(false);
+      buzz();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't save");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const form = (
+    <>
+      <input
+        className="input mt-3 font-mono text-sm"
+        type="password"
+        autoComplete="off"
+        placeholder="sk-ant-…"
+        value={key}
+        onChange={(e) => setKey(e.target.value)}
+      />
+      {err && <p className="mt-2 text-sm font-semibold text-danger">{err}</p>}
+      <div className="mt-3 flex gap-2.5">
+        {status?.connected && (
+          <Button variant="secondary" className="flex-1" onClick={() => setEditing(false)} disabled={busy}>
+            Cancel
+          </Button>
+        )}
+        <Button className="flex-1" onClick={() => call("POST")} disabled={busy || !key.trim()}>
+          {busy ? "Checking…" : "Save key"}
+        </Button>
+      </div>
+    </>
+  );
+
+  return (
+    <Glass pad>
+      {status === null ? (
+        <p className="text-sm text-ink-3">Checking…</p>
+      ) : status.connected && !editing ? (
+        <>
+          <div className="flex items-center justify-between">
+            <span className="text-[15px]">Anthropic key</span>
+            <Pill tone="green" dot>
+              Connected · …{status.ending}
+            </Pill>
+          </div>
+          {confirmOff ? (
+            <div className="mt-4 flex gap-2.5">
+              <Button variant="secondary" className="flex-1" onClick={() => setConfirmOff(false)} disabled={busy}>
+                Keep it
+              </Button>
+              <Button variant="danger" className="flex-1" onClick={() => call("DELETE")} disabled={busy}>
+                Disconnect
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-4 flex gap-2.5">
+              <Button variant="secondary" className="flex-1" onClick={() => setEditing(true)}>
+                Replace key
+              </Button>
+              <Button variant="secondary" className="flex-1" onClick={() => setConfirmOff(true)}>
+                Disconnect
+              </Button>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="text-[15px] text-ink-2">
+            The Ask tab runs on your own Anthropic account. Paste an API key from console.anthropic.com (Settings → API
+            keys). It&apos;s stored in your dashboard&apos;s private Config tab and never shown again.
+          </p>
+          {form}
+        </>
+      )}
+      {status?.connected && editing && form}
+    </Glass>
+  );
+}
+
 function SettingsTab({ onLogout }: { onLogout: () => void }) {
   const { installed, canInstall, install } = useInstall();
   const [scale, setScale] = useState(currentFontScale);
@@ -263,6 +376,9 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
           </>
         )}
       </Glass>
+
+      <SectionLabel>Assistant</SectionLabel>
+      <AssistantKey />
 
       <SectionLabel>Text size</SectionLabel>
       <Glass pad>
@@ -1447,7 +1563,7 @@ export default function Home() {
     const t = todayLists(roster.accounts);
     return t.needs.length + t.overdue.length;
   })() : 0;
-  const TAB_LABEL: Record<Tab, string> = { today: "Today", elevators: "Elevators", money: "Money", settings: "Settings" };
+  const TAB_LABEL: Record<Tab, string> = { today: "Today", elevators: "Elevators", ask: "Ask", money: "Money", settings: "Settings" };
   // The tab bar shows on the tabs and on an elevator's profile; the report and
   // new-elevator screens have their own buttons at the bottom instead.
   const showTabs = stage === "tabs" || stage === "profile";
@@ -1472,6 +1588,8 @@ export default function Home() {
     screen = <TodayTab accounts={roster.accounts} error={roster.error} onPick={pick} />;
   } else if (tab === "elevators") {
     screen = <ElevatorsTab accounts={roster.accounts} error={roster.error} onPick={pick} onNew={() => to("new")} />;
+  } else if (tab === "ask") {
+    screen = <Assistant onOpenSettings={() => switchTab("settings")} />;
   } else if (tab === "money") {
     screen = <MoneyTab accounts={roster.accounts} error={roster.error} onPick={pick} />;
   } else {
@@ -1488,6 +1606,7 @@ export default function Home() {
           tabs={[
             { key: "today", label: "Today", icon: <TodayIcon />, badge },
             { key: "elevators", label: "Elevators", icon: <ElevatorsIcon /> },
+            { key: "ask", label: "Ask", icon: <AskIcon /> },
             { key: "money", label: "Money", icon: <MoneyIcon /> },
             { key: "settings", label: "Settings", icon: <SettingsIcon /> },
           ]}

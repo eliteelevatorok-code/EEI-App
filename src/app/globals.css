@@ -537,6 +537,71 @@
     text-align: center;
   }
 
+  /* ---- Assistant chat -------------------------------------------------------------- */
+  .bubble {
+    max-width: 85%;
+    border-radius: 1.25rem;
+    padding: 0.7rem 0.95rem;
+    font-size: 0.9375rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+  /* The person's message: green, on the right. */
+  .bubble-me {
+    margin-left: auto;
+    border-bottom-right-radius: 0.4rem;
+    background: var(--color-accent);
+    color: #fff;
+  }
+  /* The assistant's reply: glass, on the left. */
+  .bubble-ai {
+    border-bottom-left-radius: 0.4rem;
+  }
+  /* Small grey line for what the assistant looked at ("Checked QuickBooks"). */
+  .activity {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    color: var(--color-ink-3);
+  }
+  /* Three dots while the assistant is thinking. */
+  .thinking span {
+    display: inline-block;
+    width: 0.4rem;
+    height: 0.4rem;
+    margin: 0 0.12rem;
+    border-radius: 999px;
+    background: var(--color-ink-3);
+    animation: bounce 1.1s var(--ease-standard) infinite;
+  }
+  .thinking span:nth-child(2) { animation-delay: 0.15s; }
+  .thinking span:nth-child(3) { animation-delay: 0.3s; }
+  /* The message box, floating just above the tab bar. */
+  .composer {
+    position: fixed;
+    inset: auto 0.75rem calc(5.1rem + env(safe-area-inset-bottom)) 0.75rem;
+    z-index: 35;
+    margin: 0 auto;
+    display: flex;
+    max-width: 27rem;
+    align-items: flex-end;
+    gap: 0.5rem;
+    border-radius: 1.5rem;
+    padding: 0.4rem 0.4rem 0.4rem 1rem;
+  }
+  .composer textarea {
+    flex: 1;
+    max-height: 8rem;
+    resize: none;
+    background: transparent;
+    padding: 0.55rem 0;
+    outline: none;
+  }
+  .composer textarea::placeholder {
+    color: var(--color-ink-3);
+  }
+
   /* ---- Entrances ---------------------------------------------------------------- */
   /* Children of .rise fade up one after another when a screen opens. */
   .rise > * {
@@ -553,6 +618,10 @@
 @keyframes rise {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: none; }
+}
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
+  40% { transform: translateY(-4px); opacity: 1; }
 }
 @keyframes breathe {
   50% { transform: scale(0.6); opacity: 0.6; }
