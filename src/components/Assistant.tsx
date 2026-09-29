@@ -22,6 +22,7 @@ type Pending = {
   name: string;
   card: { title: string; lines: string[]; danger: boolean };
   results: Block[];
+  sig: string; // the server's stamp on this exact change — sent back with Confirm
 };
 type Chat = { id: string; title: string; updated: number; messages: Msg[]; pending: Pending | null };
 type Store = { chats: Chat[]; current: string }; // chats newest first; current may be a new, empty chat
@@ -201,7 +202,7 @@ function AssistantPanel({ context, onClose }: { context: AskContext; onClose: ()
   function decide(approve: boolean) {
     if (!pending || busy) return;
     if (approve && pending.card.danger && !armed) return setArmed(true);
-    void post({ messages, resume: { results: pending.results, decision: { id: pending.id, approve } } }, messages);
+    void post({ messages, resume: { results: pending.results, decision: { id: pending.id, approve }, sig: pending.sig } }, messages);
   }
 
   const startNew = () => {

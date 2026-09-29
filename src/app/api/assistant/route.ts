@@ -1,5 +1,7 @@
 import { AssistantError, callClaude, getKey, type Block, type Msg } from "@/lib/assistant/claude";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { describe, isChange, runTool, type ChangeCard } from "@/lib/assistant/tools";
+import { getPushConfig } from "@/lib/push";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // a few back-and-forth lookups can take a while
@@ -7,7 +9,7 @@ export const maxDuration = 60; // a few back-and-forth lookups can take a while
 // The assistant's conversation loop (signed-in users only — see proxy.ts).
 //
 // POST { messages }                      → a new question (last message = the person's text)
-// POST { messages, resume: {results, decision: {id, approve}} }
+// POST { messages, resume: {results, decision: {id, approve}, sig} }
 //                                        → the person answered a Confirm card
 //
 // Each round: ask Claude → if it wants lookups, run them and ask again → stop
@@ -19,7 +21,21 @@ export const maxDuration = 60; // a few back-and-forth lookups can take a while
 const MAX_ROUNDS = 6;
 const MAX_HISTORY = 40;
 
-type Pending = { id: string; name: string; input: Record<string, unknown>; card: ChangeCard; results: Block[] };
+type Pending = { id: string; name: string; input: Record<string, unknown>; card: ChangeCard; results: Block[]; sig: string };
+
+// Every change the assistant proposes is stamped with a signature made from a
+// server-only secret. Confirm works only if the signature matches that exact
+// change — so a tampered phone or script can't invent a change (or alter one)
+// and "confirm" it. (Found by break-testing: a forged change used to go through.)
+async function signChange(id: string, name: string, input: unknown): Promise<string> {
+  const secret = (await getPushConfig()).runSecret || process.env.CLERK_SECRET_KEY || "";
+  if (!secret) throw new AssistantError("The app is missing its signing secret — changes are turned off.");
+  return createHmac("sha256", secret).update(`${id}|${name}|${JSON.stringify(input)}`).digest("hex");
+}
+function sameSig(a: string, b: string): boolean {
+  const x = Buffer.from(a), y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
 
 // GET → { connected }: whether the Anthropic key has been added to the server's
 // settings. Yes/no only — the key itself is never sent anywhere but Anthropic.
@@ -30,7 +46,7 @@ export async function GET() {
 export async function POST(req: Request) {
   let body: {
     messages?: Msg[];
-    resume?: { results?: Block[]; decision?: { id?: string; approve?: boolean } };
+    resume?: { results?: Block[]; decision?: { id?: string; approve?: boolean }; sig?: string };
     context?: { okla?: string; building?: string } | null; // the elevator open in the app, if any
   };
   try {
@@ -40,6 +56,11 @@ export async function POST(req: Request) {
   }
   let messages = Array.isArray(body.messages) ? body.messages : [];
   if (!messages.length) return Response.json({ error: "Nothing to answer" }, { status: 400 });
+  // Keep each question a sensible size (a pasted wall of text would just run up the Anthropic bill).
+  const last = messages[messages.length - 1];
+  if (typeof last?.content === "string" && last.content.length > 4000) {
+    return Response.json({ error: "That message is too long — please keep it under about 4,000 characters." }, { status: 400 });
+  }
   let changed = false;
   const c = body.context;
   const looking =
@@ -56,6 +77,10 @@ export async function POST(req: Request) {
       }
       let result: Block;
       if (body.resume.decision?.approve) {
+        const expected = await signChange(pendingUse.id, pendingUse.name, pendingUse.input);
+        if (!sameSig(String(body.resume.sig ?? ""), expected)) {
+          return Response.json({ error: "That change wasn't proposed by the assistant, so it wasn't made." }, { status: 400 });
+        }
         try {
           const out = await runTool(pendingUse.name, pendingUse.input);
           result = { type: "tool_result", tool_use_id: pendingUse.id, content: JSON.stringify(out) };
@@ -94,7 +119,7 @@ export async function POST(req: Request) {
               results.push({ type: "tool_result", tool_use_id: b.id, content: errText(e), is_error: true });
               continue;
             }
-            pending = { id: b.id, name: b.name, input: b.input, card, results: [] };
+            pending = { id: b.id, name: b.name, input: b.input, card, results: [], sig: await signChange(b.id, b.name, b.input) };
           }
           continue;
         }
