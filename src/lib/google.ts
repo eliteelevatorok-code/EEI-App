@@ -1,5 +1,6 @@
 import { GoogleAuth, OAuth2Client } from "google-auth-library";
 import { readFileSync } from "node:fs";
+import { readConfig } from "@/lib/config"; // (config.ts imports this file too — fine, both only call each other inside functions)
 
 // The app's Google robot login. Locally it reads the key file in .secrets/;
 // on Vercel it reads the same JSON from an env var (no file on the server).
@@ -22,25 +23,46 @@ const DASHBOARD_ID = "1HlV3pkQc0sdwghuzlcMRgC0WAkR-pSBOLDM8xjVP4Ss";
 const REPORTS_FOLDER_ID = "17-QkyhTDbDCkfRVU0QfYAiPjUS0cXO8w";
 
 // Drive uploads run as Robert's own account (a service account has no storage
-// of its own on a personal Gmail). Uses the one-time sign-in's refresh token —
-// from env vars on Vercel, or the local .secrets files in development.
-let oauthClient: OAuth2Client | null = null;
-function driveOwner(): OAuth2Client {
-  if (oauthClient) return oauthClient;
+// of its own on a personal Gmail). That needs his Google sign-in, made from the
+// app: Settings → Google Drive → Connect. The sign-in's long-lived token is kept
+// in the private Config tab (row DRIVE_TOKEN), so reconnecting never involves
+// copying keys anywhere. (Older fallbacks: a Vercel env var, or the local
+// .secrets file in development.)
+export const DRIVE_TOKEN = "googleDriveToken";
+export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+
+// The app's Google sign-in client (id + secret from env vars, or .secrets locally).
+// `redirect` is needed only while signing in.
+export function googleSignIn(redirect?: string): OAuth2Client {
   let clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   let clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
-  const refreshToken =
-    process.env.GOOGLE_OAUTH_REFRESH_TOKEN ||
-    JSON.parse(readFileSync(".secrets/oauth-token.json", "utf8")).refresh_token;
   if (!clientId || !clientSecret) {
     const conf = JSON.parse(readFileSync(".secrets/oauth-client.json", "utf8"));
     const c = conf.web || conf.installed;
     clientId = c.client_id;
     clientSecret = c.client_secret;
   }
-  oauthClient = new OAuth2Client(clientId, clientSecret);
-  oauthClient.setCredentials({ refresh_token: refreshToken });
-  return oauthClient;
+  return new OAuth2Client(clientId, clientSecret, redirect);
+}
+
+async function driveOwner(): Promise<OAuth2Client> {
+  const refreshToken =
+    (await readConfig()).get(DRIVE_TOKEN) ||
+    process.env.GOOGLE_OAUTH_REFRESH_TOKEN ||
+    JSON.parse(readFileSync(".secrets/oauth-token.json", "utf8")).refresh_token;
+  const client = googleSignIn();
+  client.setCredentials({ refresh_token: refreshToken });
+  return client;
+}
+
+// Is the Drive sign-in still good? (Google can revoke it, e.g. if the password
+// changes.) Asks Google for a fresh access pass; false if it refuses.
+export async function driveConnected(): Promise<boolean> {
+  try {
+    return Boolean((await (await driveOwner()).getAccessToken()).token);
+  } catch {
+    return false;
+  }
 }
 
 const SHEET_URL = `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_ID}`;
@@ -119,7 +141,7 @@ export async function appendRow(range: string, values: string[]): Promise<number
 
 // Find a folder by name under a parent, or create it. Runs as Robert (owner).
 async function findOrCreateFolder(name: string, parentId: string): Promise<string> {
-  const client = driveOwner();
+  const client = await driveOwner();
   const safe = name.replace(/'/g, "\\'");
   const q = `mimeType='application/vnd.google-apps.folder' and trashed=false and '${parentId}' in parents and name='${safe}'`;
   const found = await client.request<{ files: { id: string }[] }>({
@@ -171,7 +193,7 @@ export async function uploadFile(
   mimeType = "application/pdf",
   account?: string,
 ): Promise<string> {
-  const client = driveOwner();
+  const client = await driveOwner();
   const parent = account ? await findOrCreateFolder(account, REPORTS_FOLDER_ID) : REPORTS_FOLDER_ID;
   const boundary = "eei" + Date.now().toString(16);
   const meta = JSON.stringify({ name, parents: [parent], mimeType });

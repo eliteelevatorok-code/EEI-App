@@ -194,6 +194,19 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
       .catch(() => setMaster(null));
   }, []);
 
+  // Can the app still save finished reports to Google Drive? (?drive=… is the
+  // result of coming back from Google's sign-in page.)
+  const [drive, setDrive] = useState<boolean | null>(null);
+  const [driveResult] = useState(() =>
+    typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("drive") || "",
+  );
+  useEffect(() => {
+    fetch("/api/google/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { connected?: boolean } | null) => setDrive(d ? Boolean(d.connected) : null))
+      .catch(() => setDrive(null));
+  }, []);
+
   const [alerts, setAlerts] = useState<AlertState>("off");
   const [alertBusy, setAlertBusy] = useState(false);
   useEffect(() => {
@@ -296,6 +309,32 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
           {master === false ? "Resume the system" : "Master switch"}
         </Link>
         <p className="mt-3 text-sm text-ink-3">Each elevator has its own switch on its profile.</p>
+      </Glass>
+
+      <SectionLabel>Google Drive</SectionLabel>
+      <Glass pad>
+        <div className="mb-3 flex items-center justify-between">
+          <span className="text-[15px]">Saving reports</span>
+          {drive === null ? (
+            <span className="text-sm text-ink-3">Checking…</span>
+          ) : (
+            <Pill tone={drive ? "green" : "red"} dot>
+              {drive ? "Connected" : "Not connected"}
+            </Pill>
+          )}
+        </div>
+        {driveResult === "failed" && (
+          <p className="mb-3 text-sm text-danger">That didn&apos;t go through. Try again, and choose Allow on Google&apos;s page.</p>
+        )}
+        {drive === false && (
+          <p className="mb-3 text-[15px] text-ink-2">
+            Finished reports can&apos;t be saved to Drive or emailed until you sign in to Google again.
+          </p>
+        )}
+        {/* A full page visit (not a fetch): Google's sign-in page takes over, then comes back here. */}
+        <a href="/api/google/connect" className={"btn w-full " + (drive === false ? "btn-primary" : "btn-secondary")}>
+          {drive === false ? "Connect Google Drive" : "Reconnect Google Drive"}
+        </a>
       </Glass>
 
       <SectionLabel>Account</SectionLabel>
