@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Account, Elevator, Field, LifecycleStage } from "@/lib/data";
 import { appendRow } from "@/lib/google";
 import { COL, FIRST_ROW, TAB, cell, letter, readRows, writeRow, type Col } from "@/lib/sheet";
+import { safetyAnswer } from "@/lib/records";
 import { isRowPaused } from "@/lib/switches";
 
 // Reading elevators off the dashboard for the phone app, and the few writes the
@@ -37,6 +38,14 @@ const CARRIED_LABELS = [
 ];
 const blankCarried = (): Field[] => CARRIED_LABELS.map((label) => ({ label, value: "" }));
 
+// "9/12/2026" or "2026-09-12" → "09/2026" (the state form's test-date format).
+function monthYear(s: string): string {
+  const m = s.match(/^(\d{1,2})\/\d{1,2}\/(\d{4})$/) ?? s.match(/^(\d{4})-(\d{1,2})-\d{1,2}$/);
+  if (!m) return "";
+  const [month, year] = s.includes("/") ? [m[1], m[2]] : [m[2], m[1]];
+  return `${month.padStart(2, "0")}/${year}`;
+}
+
 // The dashboard's Cycle cell ("1 yr", "2", "Res" …) → "1" | "2" | "3" | "Res".
 const parseCycle = (raw: string) => (/res/i.test(raw) ? "Res" : (raw.match(/\d+/)?.[0] ?? "1"));
 
@@ -70,14 +79,17 @@ function rowToElevator(r: string[], row: number): Elevator {
       options: d.options,
     })),
     carried: blankCarried(),
+    safetyTest: safetyAnswer(cell(r, "safetyTest")),
+    safetyTestDate: cell(r, "safetyTestDate"),
     lastYear: {
-      // From the maintenance company's /maint form: did it pass last time, and
-      // when. Blank until they answer.
-      date: cell(r, "lastInspected"),
+      // From the records step (form, phone call, or entered by hand): a passing
+      // safety test in the last 12 months and its date. The date pre-fills the
+      // report's one-year test box (MM/YYYY). Blank until answered.
+      date: cell(r, "safetyTestDate"),
       inspType: "Periodic",
-      test1: "",
+      test1: safetyAnswer(cell(r, "safetyTest")) === "Yes" ? monthYear(cell(r, "safetyTestDate")) : "",
       test5: "",
-      certIssue: cell(r, "lastResult") === "Fail" ? "No" : "Yes",
+      certIssue: safetyAnswer(cell(r, "safetyTest")) === "No" ? "No" : "Yes",
       condition: "No adverse conditions",
       notes: "",
     },

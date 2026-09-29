@@ -18,6 +18,8 @@ export async function GET(req: Request) {
 }
 
 // POST { token, result, date } → save the two answers into the row.
+// result = "Yes" / "No" (a passing safety test in the last 12 months); the date
+// is needed only for "Yes".
 export async function POST(req: Request) {
   let body: { token?: string; result?: string; date?: string };
   try {
@@ -27,16 +29,16 @@ export async function POST(req: Request) {
   }
   const result = String(body.result ?? "").trim();
   const date = String(body.date ?? "").trim();
-  if (result !== "Pass" && result !== "Fail") {
-    return Response.json({ error: "Please choose Pass or Fail." }, { status: 400 });
+  if (result !== "Yes" && result !== "No") {
+    return Response.json({ error: "Please choose Yes or No." }, { status: 400 });
   }
-  if (!date) {
-    return Response.json({ error: "Please enter the date it was last inspected." }, { status: 400 });
+  if (result === "Yes" && !date) {
+    return Response.json({ error: "Please enter the date of the safety test." }, { status: 400 });
   }
   const el = await findForMaint(String(body.token ?? ""));
   if (!el) return Response.json({ error: "This link isn't recognized." }, { status: 404 });
   try {
-    await recordMaint(el.row, result, date);
+    await recordMaint(el.row, result, result === "Yes" ? date : "");
   } catch {
     // Public page: never show outsiders the internal error.
     return Response.json({ error: "Couldn't save just now — please try again in a minute." }, { status: 502 });

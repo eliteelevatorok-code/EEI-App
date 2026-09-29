@@ -1,8 +1,9 @@
 import { cell, findByToken, writeRow } from "@/lib/sheet";
 
-// Maintenance-company form. The "Records needed" email's link opens
-// /maint?t=<token>. They answer two things about the elevator's LAST inspection —
-// did it pass, and when — which carry into this year's report (see roster.ts).
+// The records form. The "Records needed" email (sent to American Elevator, or
+// straight to the customer for any other maintenance company — see records.ts)
+// links to /maint?t=<token>. They answer: a passing safety test in the last 12
+// months (Yes/No), and its date. The date pre-fills the report's one-year test.
 
 export type MaintElevator = {
   row: number;
@@ -22,12 +23,14 @@ export async function findForMaint(token: string): Promise<MaintElevator | null>
     okla: cell(r, "okla"),
     building: cell(r, "building"),
     maintCo: cell(r, "maintCo"),
-    alreadyResult: cell(r, "lastResult"),
-    alreadyDate: cell(r, "lastInspected"),
+    alreadyResult: cell(r, "safetyTest"),
+    alreadyDate: cell(r, "safetyTestDate"),
   };
 }
 
 // Save the answers and mark Maint. confirm "Answered" so the lifecycle moves on.
+// Used by the public form and by the app (entered by hand after a phone call).
+// `result` is "Yes" / "No"; the date is only needed for "Yes".
 export async function recordMaint(row: number, result: string, date: string): Promise<void> {
-  await writeRow(row, { lastResult: result, lastInspected: date, maintConfirm: "Answered" });
+  await writeRow(row, { safetyTest: result, safetyTestDate: date, maintConfirm: "Answered" });
 }

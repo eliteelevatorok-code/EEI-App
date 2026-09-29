@@ -26,7 +26,7 @@ export const COL = {
   poNumber: 34, poFile: 35, // from the customer's PO form
   invoiceId: 36, // QuickBooks invoice id
   active: 37, // on/off switch for this elevator ("Off" pauses it)
-  lastResult: 38, lastInspected: 39, // from the maintenance company's form: Pass/Fail + date
+  safetyTest: 38, safetyTestDate: 39, // passing safety test in the last 12 months? Yes/No + its date (see records.ts)
   reportFile: 40, // Drive link to the latest finished report
 } as const;
 export type Col = keyof typeof COL;

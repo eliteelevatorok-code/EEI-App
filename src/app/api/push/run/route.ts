@@ -43,7 +43,7 @@ function compose(list: AlertItem[], morning: boolean) {
     return { title: i.title, body: i.body, url: `/?open=${encodeURIComponent(i.okla)}`, tag: `eei-${i.key}` };
   }
   // Group the same kind of thing into one sentence, the way you'd say it:
-  // "Still waiting on records for 5 buildings: Lawton Civic Center, Lawton Bank Tower and 3 more."
+  // "Still waiting on the safety test for 5 buildings: Lawton Civic Center, Lawton Bank Tower and 3 more."
   const kind = (i: AlertItem) => i.key.split(":")[0];
   const names = (g: AlertItem[]) =>
     g.length <= 2 ? g.map((i) => i.building).join(" and ") : `${g[0].building}, ${g[1].building} and ${g.length - 2} more`;
@@ -51,7 +51,7 @@ function compose(list: AlertItem[], morning: boolean) {
   for (const i of list.filter((x) => kind(x) === "inspect")) lines.push(i.title);
   const chase = list.filter((x) => kind(x) === "chase");
   if (chase.length === 1) lines.push(chase[0].title);
-  else if (chase.length) lines.push(`Still waiting on records for ${chase.length} buildings: ${names(chase)}.`);
+  else if (chase.length) lines.push(`Still waiting on the safety test for ${chase.length} buildings: ${names(chase)}.`);
   const overdue = list.filter((x) => kind(x) === "overdue");
   if (overdue.length === 1) lines.push(overdue[0].title);
   else if (overdue.length) lines.push(`${overdue.length} buildings are past due: ${names(overdue)}.`);

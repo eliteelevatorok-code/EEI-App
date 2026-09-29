@@ -1,0 +1,29 @@
+import { recordMaint } from "@/lib/maint";
+import { FIRST_ROW } from "@/lib/sheet";
+
+export const runtime = "nodejs";
+
+// POST { row, result, date } → enter the safety-test answer by hand (signed-in
+// app users only — see proxy.ts). For when April or Robert gets the answer on a
+// phone call instead of through the emailed form. Same rules as the form:
+// result "Yes" / "No"; the date is needed only for "Yes".
+export async function POST(req: Request) {
+  let body: { row?: number; result?: string; date?: string };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return Response.json({ error: "Bad request" }, { status: 400 });
+  }
+  const row = Number(body.row);
+  const result = String(body.result ?? "").trim();
+  const date = String(body.date ?? "").trim().slice(0, 40);
+  if (!Number.isInteger(row) || row < FIRST_ROW || row > 100000) return Response.json({ error: "Bad row" }, { status: 400 });
+  if (result !== "Yes" && result !== "No") return Response.json({ error: "Choose Yes or No." }, { status: 400 });
+  if (result === "Yes" && !date) return Response.json({ error: "Enter the date of the safety test." }, { status: 400 });
+  try {
+    await recordMaint(row, result, result === "Yes" ? date : "");
+    return Response.json({ ok: true });
+  } catch (err) {
+    return Response.json({ error: err instanceof Error ? err.message : "Save failed" }, { status: 502 });
+  }
+}

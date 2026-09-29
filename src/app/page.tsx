@@ -21,6 +21,7 @@ import { VHEAD, VIOLATIONS, parseViolation } from "@/lib/violations";
 import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from "@/lib/prefs";
 import { computeCycle, computePrice, formatPrice } from "@/lib/pricing";
 import { DEVICE_TYPE_CODE, ENTITY_TYPE_CODE, MACHINE_TYPE_CODE } from "@/lib/formCodes";
+import { APRIL, WHERE_TO_FIND, isAmerican, toIsoDate } from "@/lib/records";
 import { AssistantButton } from "@/components/Assistant";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
@@ -409,7 +410,7 @@ function todayLists(accounts: Account[]) {
       out.push({ u, what: daysUntil(trip) === 0 ? "You're inspecting it today" : trip ? `Booked for ${humanDate(trip)}` : "Visit booked" });
     }
     if (stage(u, "maintConfirm") === "Waiting")
-      out.push({ u, what: `Still waiting on records from ${u.maintCo || "the maintenance company"}` });
+      out.push({ u, what: isAmerican(u.maintCo) ? `Waiting on the safety test from ${u.maintCo}` : "Waiting on the safety test from the customer" });
     return out;
   });
   const days = (u: Elevator) => daysUntil(u.due);
@@ -969,7 +970,7 @@ type NextStep = {
   actions: { label: string; href?: string; onClick?: () => void }[];
   startsReport?: boolean;
 };
-function nextSteps(e: Elevator, onStartReport: () => void): NextStep[] {
+function nextSteps(e: Elevator, onStartReport: () => void, onEnterSafety: () => void): NextStep[] {
   const out: NextStep[] = [];
   const visit = stage(e, "visit");
   const trip = stage(e, "tripDay");
@@ -987,11 +988,19 @@ function nextSteps(e: Elevator, onStartReport: () => void): NextStep[] {
     });
   }
   if (stage(e, "maintConfirm") === "Waiting") {
-    const co = e.maintCo || "The maintenance company";
+    // American Elevator is asked directly; for anyone else we asked the customer.
+    const american = isAmerican(e.maintCo);
+    const who = american ? e.maintCo || "American Elevator" : e.contact || "The customer";
+    const phone = american ? e.maintPhone : e.phone;
+    const email = american ? e.maintEmail : e.email;
     out.push({
-      title: "Still waiting on records",
-      text: `${co} hasn't told us how the last inspection went.${!e.maintPhone && !e.maintEmail ? " There's no phone or email on file for them." : ""}`,
-      actions: [...call("Call them", e.maintPhone), ...mail("Email them", e.maintEmail, `Records for ${e.building}`)],
+      title: "Still waiting on the safety test",
+      text: `${who} hasn't told us yet whether it had a passing safety test in the last 12 months. If you get the answer by phone, enter it here.`,
+      actions: [
+        { label: "Enter answer", onClick: onEnterSafety },
+        ...call(american ? "Call them" : "Call customer", phone),
+        ...mail(american ? "Email them" : "Email customer", email, `Safety test for ${e.building}`),
+      ],
     });
   }
   const d = daysUntil(e.due);
@@ -1013,6 +1022,71 @@ function nextSteps(e: Elevator, onStartReport: () => void): NextStep[] {
   return out;
 }
 
+// Enter the safety-test answer by hand — for when April or Robert gets it on a
+// phone call instead of through the emailed form. Same two questions as the form.
+function SafetyEditor({ elevator, onClose, onSaved }: { elevator: Elevator; onClose: () => void; onSaved: (e: Elevator) => void }) {
+  const [answer, setAnswer] = useState<string>(elevator.safetyTest ?? "");
+  const [date, setDate] = useState(toIsoDate(elevator.safetyTestDate));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function save() {
+    if (answer !== "Yes" && answer !== "No") return setErr("Choose Yes or No.");
+    if (answer === "Yes" && !date) return setErr("Enter the date of the safety test.");
+    if (elevator.row == null) return setErr("This elevator has no saved row yet.");
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await fetch("/api/records", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ row: elevator.row, result: answer, date }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(d.error || "Save failed");
+      buzz();
+      // Show the answer everywhere right away (and move the records step on).
+      const [y, m, day] = date.split("-");
+      onSaved({
+        ...elevator,
+        safetyTest: answer as "Yes" | "No",
+        safetyTestDate: answer === "Yes" && y ? `${+m}/${+day}/${y}` : "",
+        lifecycle: elevator.lifecycle.map((s) => (s.key === "maintConfirm" ? { ...s, value: "Answered" } : s)),
+      });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Save failed");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet onClose={busy ? () => {} : onClose}>
+      <h3 className="text-[21px] font-bold tracking-tight">Safety test</h3>
+      <p className="mt-1 text-sm text-ink-3">{elevator.building} · entered by hand</p>
+      <div className="mt-5">
+        <Field label="Has it had a passing safety test in the last 12 months?">
+          <Chips options={["Yes", "No"]} value={answer} onChange={setAnswer} />
+        </Field>
+        {answer !== "No" && (
+          <Field label="What date was that safety test?">
+            <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+          </Field>
+        )}
+      </div>
+      <p className="mt-1 text-sm text-ink-3">{WHERE_TO_FIND}</p>
+      {err && <p className="mt-3 text-sm font-semibold text-danger">{err}</p>}
+      <div className="mt-5 flex flex-col gap-2.5">
+        <Button full onClick={save} disabled={busy}>
+          {busy ? "Saving…" : "Save answer"}
+        </Button>
+        <Button variant="secondary" full onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+    </Sheet>
+  );
+}
+
 function Profile({
   elevator,
   onChange,
@@ -1032,7 +1106,8 @@ function Profile({
   // This elevator's on/off switch. Pausing takes two confirmations (a warning,
   // then a final yes); resuming takes one.
   const swOn = e.active !== false;
-  const steps = nextSteps(e, onStartReport);
+  const [enteringSafety, setEnteringSafety] = useState(false);
+  const steps = nextSteps(e, onStartReport, () => setEnteringSafety(true));
   const [swStep, setSwStep] = useState<null | "pause1" | "pause2" | "resume">(null);
   const [swBusy, setSwBusy] = useState(false);
   const [swErr, setSwErr] = useState("");
@@ -1092,14 +1167,14 @@ function Profile({
               <div className="mt-0.5 text-lg font-bold tracking-tight">{s.title}</div>
               <p className="mt-1 text-[15px] text-ink-2">{s.text}</p>
               {s.actions.length > 0 && (
-                <div className="mt-4 flex gap-2.5">
+                <div className="mt-4 flex flex-wrap gap-2.5">
                   {s.actions.map((a, i) =>
                     a.href ? (
-                      <a key={a.label} href={a.href} className={"btn flex-1 " + (i === 0 ? "btn-primary" : "btn-secondary")}>
+                      <a key={a.label} href={a.href} className={"btn min-w-[8rem] flex-1 " + (i === 0 ? "btn-primary" : "btn-secondary")}>
                         {a.label}
                       </a>
                     ) : (
-                      <Button key={a.label} variant={i === 0 ? "primary" : "secondary"} className="flex-1" onClick={a.onClick}>
+                      <Button key={a.label} variant={i === 0 ? "primary" : "secondary"} className="min-w-[8rem] flex-1" onClick={a.onClick}>
                         {a.label}
                       </Button>
                     ),
@@ -1130,6 +1205,38 @@ function Profile({
         })}
       </Glass>
       <p className="mt-2 px-1 text-sm text-ink-3">Tap a step to change it — you&apos;ll confirm before it saves.</p>
+
+      <SectionLabel>Safety test</SectionLabel>
+      <List>
+        <div className="row justify-between">
+          <div className="min-w-0">
+            <div className="text-[15px]">
+              {e.safetyTest === "Yes"
+                ? `Passed${e.safetyTestDate ? ` on ${humanDate(e.safetyTestDate)}` : ""}`
+                : e.safetyTest === "No"
+                  ? "No passing test in the last 12 months"
+                  : "Not answered yet"}
+            </div>
+            <div className="text-sm text-ink-3">
+              {isAmerican(e.maintCo) ? "Asked of American Elevator" : "Asked of the customer"} · or call {APRIL.name}{" "}
+              {APRIL.phone}
+            </div>
+          </div>
+          <Button variant="soft" className="shrink-0 px-4 py-2.5 text-sm" onClick={() => setEnteringSafety(true)}>
+            {e.safetyTest ? "Change" : "Enter"}
+          </Button>
+        </div>
+      </List>
+      {enteringSafety && (
+        <SafetyEditor
+          elevator={e}
+          onClose={() => setEnteringSafety(false)}
+          onSaved={(next) => {
+            onChange(next);
+            setEnteringSafety(false);
+          }}
+        />
+      )}
 
       <SectionLabel>This elevator</SectionLabel>
       <List>

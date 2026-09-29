@@ -2,6 +2,7 @@ import webpush from "web-push";
 import { appendRow, readRange, writeCells } from "@/lib/google";
 import { readConfig, writeConfig } from "@/lib/config";
 import { cell, readRows } from "@/lib/sheet";
+import { isAmerican } from "@/lib/records";
 import { isMasterOn, isRowPaused } from "@/lib/switches";
 
 // Phone alerts (web push). The signing keys and the scheduler secret live in the
@@ -61,7 +62,7 @@ async function dropSubscription(row: number): Promise<void> {
 // and the PO/maintenance forms and QuickBooks handle their own steps — so only
 // three things buzz the phone:
 //   inspect — a visit is booked: go do the inspection
-//   chase   — the maintenance company hasn't answered the records request
+//   chase   — no answer yet on the safety test (asked of American Elevator, or the customer)
 //   overdue — past the due date and no visit booked or done
 // `key` identifies the item so the same thing isn't announced twice.
 export type AlertItem = { key: string; okla: string; building: string; title: string; body: string };
@@ -120,13 +121,16 @@ export async function alertItems(): Promise<AlertItem[]> {
       });
     }
     if (cell(r, "maintConfirm") === "Waiting") {
+      // American Elevator is asked directly; for anyone else we asked the customer.
       const co = cell(r, "maintCo");
       out.push({
         key: `chase:${okla}`,
         okla,
         building,
-        title: `Still waiting on records for ${building}`,
-        body: `${co || "The maintenance company"} hasn't told us how the last inspection went. Give them a call or send a quick email.`,
+        title: `Still waiting on the safety test for ${building}`,
+        body: isAmerican(co)
+          ? `${co} hasn't told us yet whether it passed a safety test in the last 12 months. Give them a call or send a quick email.`
+          : "The customer hasn't told us yet whether it passed a safety test in the last 12 months. Give them a call, or enter the answer if you already have it.",
       });
     }
     const due = dateNum(cell(r, "due"));

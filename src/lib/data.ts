@@ -37,6 +37,8 @@ export type Elevator = {
   maintContact?: string;
   maintEmail?: string;
   maintPhone?: string;
+  safetyTest?: "Yes" | "No" | ""; // passing safety test in the last 12 months? (see lib/records.ts)
+  safetyTestDate?: string;
   area: string;
   city: string;
   type: string;
