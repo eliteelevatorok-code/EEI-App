@@ -135,6 +135,7 @@
     line-height: 1.1;
     font-weight: 700;
     letter-spacing: -0.02em;
+    overflow-wrap: anywhere; /* a very long name wraps instead of pushing the page sideways */
   }
   /* Heading above a group of panels ("Customer lifecycle", "Details"). */
   .section-label {

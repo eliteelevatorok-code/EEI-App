@@ -546,7 +546,7 @@ function MoneyRow({ u, note, onPick }: { u: Elevator; note: string; onPick: (e: 
         <div className="truncate font-semibold">{u.building}</div>
         <div className="mt-0.5 truncate text-sm text-ink-2">{note}</div>
       </div>
-      <span className="font-semibold tabular-nums">{money(priceOf(u))}</span>
+      <span className={"font-semibold tabular-nums " + (priceOf(u) ? "" : "text-warn")}>{priceOf(u) ? money(priceOf(u)) : "No price"}</span>
     </button>
   );
 }
@@ -1609,7 +1609,19 @@ function Tally({ n, label, tone }: { n: number; label: string; tone: string }) {
 
 /* ---------- root ---------- */
 
+// True only in the phone's browser. The app screen is drawn there, not on the
+// server first: the server runs on a different clock and time zone, so things
+// like "Good afternoon" and today's date came out differently and React threw a
+// mismatch error on every load (found by break-testing).
+const noop = () => () => {};
+const useOnPhone = () => useSyncExternalStore(noop, () => true, () => false);
+
 export default function Home() {
+  const onPhone = useOnPhone();
+  return onPhone ? <App /> : <div className="min-h-dvh" />;
+}
+
+function App() {
   const { signOut } = useClerk();
   const roster = useRoster();
   // A summary alert links to /?tab=today; otherwise start on Today too.
