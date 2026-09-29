@@ -1,4 +1,4 @@
-import { FIRST_ROW } from "@/lib/sheet";
+import { FIRST_ROW, NoSuchRow, requireElevatorRow } from "@/lib/sheet";
 import { isMasterOn, readSwitches, setMaster, setElevatorSwitch } from "@/lib/switches";
 
 export const runtime = "nodejs";
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
 //     - turning the master OFF requires confirm === "STOP" (accident guard).
 //   { target: "elevator", row: number, on: boolean }
 export async function POST(req: Request) {
-  let body: { target?: string; on?: boolean; row?: number; confirm?: string };
+  let body: { target?: string; on?: boolean; row?: number; okla?: string; confirm?: string };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -44,12 +44,14 @@ export async function POST(req: Request) {
       if (!Number.isInteger(row) || (row as number) < FIRST_ROW || (row as number) > 100000) {
         return Response.json({ error: "Bad row" }, { status: 400 });
       }
-      await setElevatorSwitch(row as number, body.on);
-      return Response.json({ ok: true, row, on: body.on });
+      const at = await requireElevatorRow(row as number, body.okla); // the right elevator, even if rows moved
+      await setElevatorSwitch(at, body.on);
+      return Response.json({ ok: true, row: at, on: body.on });
     }
 
     return Response.json({ error: "Unknown target" }, { status: 400 });
   } catch (err) {
+    if (err instanceof NoSuchRow) return Response.json({ error: err.message }, { status: 404 });
     return Response.json({ error: err instanceof Error ? err.message : "Write failed" }, { status: 502 });
   }
 }

@@ -1,4 +1,4 @@
-import { appendElevator, type NewElevatorInput } from "@/lib/roster";
+import { appendElevator, findRowByOkla, type NewElevatorInput } from "@/lib/roster";
 
 export const runtime = "nodejs";
 
@@ -25,6 +25,10 @@ export async function POST(req: Request) {
   for (const k of FIELDS) clean[k] = String(body[k] ?? "").slice(0, 200).trim();
 
   try {
+    // One row per OK #: a second row with the same number would confuse every lookup.
+    if (await findRowByOkla(clean.okla)) {
+      return Response.json({ error: `OK # ${clean.okla} is already on the dashboard.` }, { status: 409 });
+    }
     const row = await appendElevator(clean);
     return Response.json({ ok: true, okla: clean.okla, row });
   } catch (err) {

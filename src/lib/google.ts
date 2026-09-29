@@ -65,6 +65,20 @@ async function sheets<T>(opts: { url: string; method?: string; data?: unknown },
   }
 }
 
+// Every value the app writes goes through here first. Google Sheets treats text
+// that starts with = (and sometimes + - @) as a FORMULA — so a customer typing
+// "=IMPORTXML(...)" as their PO number could plant a live formula in the
+// dashboard. Anything that looks like a formula is stored as plain text instead
+// (the leading apostrophe tells Sheets "this is text"; it isn't shown). Plain
+// numbers, dates and phone numbers like "-5", "+1 405 555 0100" or "9/29/2026"
+// are left alone.
+export function safeCell(v: string): string {
+  const s = String(v ?? "");
+  if (!/^[=+\-@]/.test(s)) return s;
+  if (/^[+-]?[\d\s().,/:-]+$/.test(s)) return s; // just a number / phone / date
+  return "'" + s;
+}
+
 // Read a range; returns rows of string cells.
 export async function readRange(range: string): Promise<string[][]> {
   const res = await sheets<{ values?: string[][] }>({ url: `${SHEET_URL}/values/${encodeURIComponent(range)}` });
@@ -76,7 +90,7 @@ export async function writeCell(a1: string, value: string): Promise<void> {
   await sheets({
     url: `${SHEET_URL}/values/${encodeURIComponent(a1)}?valueInputOption=USER_ENTERED`,
     method: "PUT",
-    data: { values: [[value]] },
+    data: { values: [[safeCell(value)]] },
   });
 }
 
@@ -87,7 +101,7 @@ export async function writeCells(cells: [a1: string, value: string][]): Promise<
   await sheets({
     url: `${SHEET_URL}/values:batchUpdate`,
     method: "POST",
-    data: { valueInputOption: "USER_ENTERED", data: cells.map(([range, v]) => ({ range, values: [[v]] })) },
+    data: { valueInputOption: "USER_ENTERED", data: cells.map(([range, v]) => ({ range, values: [[safeCell(v)]] })) },
   });
 }
 
@@ -97,7 +111,7 @@ export async function appendRow(range: string, values: string[]): Promise<number
   const res = await sheets<{ updates?: { updatedRange?: string } }>({
     url: `${SHEET_URL}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
     method: "POST",
-    data: { values: [values] },
+    data: { values: [values.map(safeCell)] },
   }, false);
   const m = res.updates?.updatedRange?.match(/![A-Z]+(\d+):/);
   return m ? parseInt(m[1], 10) : null;

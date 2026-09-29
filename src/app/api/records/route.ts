@@ -1,5 +1,5 @@
 import { recordMaint } from "@/lib/maint";
-import { FIRST_ROW } from "@/lib/sheet";
+import { FIRST_ROW, NoSuchRow, requireElevatorRow } from "@/lib/sheet";
 
 export const runtime = "nodejs";
 
@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 // phone call instead of through the emailed form. Same rules as the form:
 // result "Yes" / "No"; the date is needed only for "Yes".
 export async function POST(req: Request) {
-  let body: { row?: number; result?: string; date?: string };
+  let body: { row?: number; okla?: string; result?: string; date?: string };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -21,9 +21,11 @@ export async function POST(req: Request) {
   if (result !== "Yes" && result !== "No") return Response.json({ error: "Choose Yes or No." }, { status: 400 });
   if (result === "Yes" && !date) return Response.json({ error: "Enter the date of the safety test." }, { status: 400 });
   try {
-    await recordMaint(row, result, result === "Yes" ? date : "");
+    const at = await requireElevatorRow(row, body.okla); // the right elevator, even if rows moved
+    await recordMaint(at, result, result === "Yes" ? date : "");
     return Response.json({ ok: true });
   } catch (err) {
+    if (err instanceof NoSuchRow) return Response.json({ error: err.message }, { status: 404 });
     return Response.json({ error: err instanceof Error ? err.message : "Save failed" }, { status: 502 });
   }
 }

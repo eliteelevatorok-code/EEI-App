@@ -874,11 +874,13 @@ const IN_PROGRESS = new Set(["Waiting", "Awaiting", "Booked", "Review", "No answ
 function LifecycleEditor({
   stage,
   row,
+  okla,
   onClose,
   onSaved,
 }: {
   stage: LifecycleStage;
   row?: number;
+  okla: string; // sent with the row so the server can check it's still the same elevator
   onClose: () => void;
   onSaved: (value: string) => void;
 }) {
@@ -901,7 +903,7 @@ function LifecycleEditor({
       const res = await fetch("/api/lifecycle", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ row, col: stage.col, value: choice }),
+        body: JSON.stringify({ row, okla, col: stage.col, value: choice }),
       });
       if (!res.ok) {
         const e = (await res.json().catch(() => ({}))) as { error?: string };
@@ -1040,7 +1042,7 @@ function SafetyEditor({ elevator, onClose, onSaved }: { elevator: Elevator; onCl
       const r = await fetch("/api/records", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ row: elevator.row, result: answer, date }),
+        body: JSON.stringify({ row: elevator.row, okla: elevator.okla, result: answer, date }),
       });
       const d = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(d.error || "Save failed");
@@ -1120,7 +1122,7 @@ function Profile({
       const r = await fetch("/api/switches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target: "elevator", row: e.row, on: next }),
+        body: JSON.stringify({ target: "elevator", row: e.row, okla: e.okla, on: next }),
       });
       const d = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(d.error || "Save failed");
@@ -1140,6 +1142,7 @@ function Profile({
         <LifecycleEditor
           stage={editing}
           row={e.row}
+          okla={e.okla}
           onClose={() => setEditing(null)}
           onSaved={(value) => {
             onChange({ ...e, lifecycle: e.lifecycle.map((s) => (s.key === editing.key ? { ...s, value } : s)) });

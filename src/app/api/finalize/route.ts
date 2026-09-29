@@ -3,6 +3,7 @@ import path from "node:path";
 import { fillReport, type FinalizePayload } from "@/lib/fillForm";
 import { uploadFile } from "@/lib/google";
 import { findRowByOkla, markInspected, setReportFile } from "@/lib/roster";
+import { requireElevatorRow } from "@/lib/sheet";
 
 export const runtime = "nodejs";
 
@@ -40,7 +41,9 @@ export async function POST(req: Request) {
   let writeback = "ok";
   let sheetRow: number | null = null;
   try {
-    sheetRow = row ?? (okla ? await findRowByOkla(okla) : null);
+    // Use the row the phone sent, but only if it still holds this elevator (rows
+    // shift if the sheet is edited); otherwise find it by OK #.
+    sheetRow = row ? await requireElevatorRow(row, okla).catch(() => null) : okla ? await findRowByOkla(okla) : null;
     if (sheetRow) await markInspected(sheetRow, dateText);
     else writeback = "no-matching-row";
   } catch (err) {

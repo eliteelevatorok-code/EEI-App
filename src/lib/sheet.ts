@@ -45,8 +45,36 @@ export const cell = (row: string[], c: Col) => (row[COL[c]] ?? "").trim();
 // Every elevator row (A..AO). Array index i is sheet row FIRST_ROW + i.
 export const readRows = () => readRange(`${TAB}!A${FIRST_ROW}:${LAST}`);
 
-// One elevator row (A..AO), or [] if it's past the end.
-export const readRow = async (row: number) => (await readRange(`${TAB}!A${row}:${LAST}${row}`))[0] ?? [];
+// One elevator row (A..AO), or [] if it's blank or past the end of the sheet.
+export async function readRow(row: number): Promise<string[]> {
+  if (!Number.isInteger(row) || row < FIRST_ROW) return [];
+  try {
+    return (await readRange(`${TAB}!A${row}:${LAST}${row}`))[0] ?? [];
+  } catch (err) {
+    // Google refuses rows beyond the sheet's size ("exceeds grid limits") — that's just "no elevator here".
+    if (/grid limits/i.test(err instanceof Error ? err.message : "")) return [];
+    throw err;
+  }
+}
+
+// Before writing to a row: make sure it's the RIGHT elevator. The phone keeps a
+// saved copy of the list (row numbers included); if someone inserts or deletes a
+// row in the sheet, those numbers shift. So when the app says which elevator
+// (`okla`), check that row still holds it — and if not, find where it moved.
+// No elevator at all (blank line / past the end) → NoSuchRow, so nothing
+// creates a half-filled "phantom" elevator. Returns the row to write to.
+export async function requireElevatorRow(row: number, okla?: string): Promise<number> {
+  const r = await readRow(row);
+  const want = (okla ?? "").trim();
+  if (want && cell(r, "okla") !== want) {
+    const i = (await readRows()).findIndex((x) => cell(x, "okla") === want);
+    if (i === -1) throw new NoSuchRow(`OK # ${want} isn't on the dashboard any more.`);
+    return FIRST_ROW + i;
+  }
+  if (!cell(r, "okla")) throw new NoSuchRow(`There's no elevator on row ${row}.`);
+  return row;
+}
+export class NoSuchRow extends Error {}
 
 // Write any number of cells on one row in a single request, by column name.
 export const writeRow = (row: number, values: Partial<Record<Col, string>>) =>
