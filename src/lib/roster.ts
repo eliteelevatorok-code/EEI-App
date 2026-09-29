@@ -124,10 +124,12 @@ export async function appendElevator(f: NewElevatorInput): Promise<number | null
   return row;
 }
 
-// A report was finished: Visit → Inspected, Trip day → the inspection date,
-// Report → Sent (which lets the automation send the report and then bill).
+// A report was finished: Visit → Inspected, Trip day → the inspection date.
+// Leave Report alone: the automation's "Report filed" step (route 6) waits for
+// Visit = Inspected AND Report ≠ Sent, emails the report to the customer and
+// ODOL, and only then sets Report = Sent — which is what starts billing.
 export async function markInspected(row: number, dateText: string): Promise<void> {
-  await writeRow(row, { visit: "Inspected", tripDay: dateText, report: "Sent" });
+  await writeRow(row, { visit: "Inspected", tripDay: dateText });
 }
 
 // Keep the finished report's Drive link on the row.
