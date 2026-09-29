@@ -2,12 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { refreshRoster } from "@/lib/roster-store";
-import { AskIcon, Button, Glass, Screen, SendIcon, Title, buzz } from "@/components/ui";
+import { AskIcon, Button, Chevron, Glass, SendIcon, buzz } from "@/components/ui";
 
-// The "Ask" tab: a chat with the assistant (Claude, on Robert's own Anthropic
-// key, which lives only in the server's settings on Vercel). The conversation lives on this phone; the server (/api/assistant) does
-// the thinking and the lookups. When the assistant wants to change something, a
-// Confirm / Cancel card appears here — nothing changes until Confirm is tapped.
+// The assistant: a round button in the bottom-right of every app screen that
+// opens a chat with Claude (on Robert's own Anthropic key, which lives only in
+// the server's settings on Vercel). Chats are kept on this phone — start a new
+// one any time, or go back to an earlier one from the chat list. The server
+// (/api/assistant) does the thinking and the lookups. When the assistant wants
+// to change something, a Confirm / Cancel card appears — nothing changes until
+// Confirm is tapped.
 
 type Block =
   | { type: "text"; text: string }
@@ -20,13 +23,21 @@ type Pending = {
   card: { title: string; lines: string[]; danger: boolean };
   results: Block[];
 };
+type Chat = { id: string; title: string; updated: number; messages: Msg[]; pending: Pending | null };
+type Store = { chats: Chat[]; current: string }; // chats newest first; current may be a new, empty chat
 
-const STORAGE_KEY = "eei_chat_v1";
+// What the person has open when they tap the button (so "book it for Friday"
+// knows which elevator "it" is). null = a list or settings screen.
+export type AskContext = { okla: string; building: string } | null;
+
+const STORAGE_KEY = "eei_chats_v2";
+const OLD_KEY = "eei_chat_v1"; // the single chat from before the chat list existed
+const MAX_CHATS = 30;
 const SUGGESTIONS = [
   "What needs me today?",
   "Who hasn't paid yet?",
   "Which elevators are due in the next 60 days?",
-  "Add a note to an elevator",
+  "Add a note to an elevator…",
 ];
 
 // What the assistant looked at, in plain words (shown as small grey lines).
@@ -38,18 +49,69 @@ const LOOKED: Record<string, (i: Record<string, unknown>) => string> = {
   read_email_wording: () => "Read the email wording",
 };
 
-function loadChat(): { messages: Msg[]; pending: Pending | null } {
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const blank = (id: string): Chat => ({ id, title: "", updated: Date.now(), messages: [], pending: null });
+
+function loadStore(): Store {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    if (saved && Array.isArray(saved.messages)) return { messages: saved.messages, pending: saved.pending ?? null };
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null") as Store | null;
+    if (saved && Array.isArray(saved.chats)) return saved;
+    // Bring over the one chat saved by the earlier version, if any.
+    const old = JSON.parse(localStorage.getItem(OLD_KEY) || "null") as { messages?: Msg[]; pending?: Pending } | null;
+    if (old?.messages?.length) {
+      const c: Chat = { ...blank(newId()), messages: old.messages, pending: old.pending ?? null };
+      c.title = titleOf(c.messages);
+      return { chats: [c], current: c.id };
+    }
   } catch {
     /* ignore */
   }
-  return { messages: [], pending: null };
+  return { chats: [], current: newId() };
 }
 
-export function Assistant() {
-  const [chat, setChat] = useState(loadChat);
+// A chat's name in the list: its first question, shortened.
+function titleOf(messages: Msg[]): string {
+  const first = messages.find((m) => m.role === "user" && typeof m.content === "string")?.content as string | undefined;
+  if (!first) return "New chat";
+  return first.length > 60 ? first.slice(0, 57).trimEnd() + "…" : first;
+}
+
+// "Just now", "3:40 PM", "Yesterday", "Sep 12".
+function when(t: number): string {
+  const d = new Date(t);
+  const now = new Date();
+  if (now.getTime() - t < 60_000) return "Just now";
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const y = new Date(now);
+  y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return "Yesterday";
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+// The round assistant button, floating bottom-right on every app screen.
+// `lift` raises it above whatever bar sits at the bottom of that screen.
+export function AssistantButton({ context, lift }: { context: AskContext; lift: "tabs" | "bar" | "none" }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={"ask-fab btn-primary " + (lift === "tabs" ? "ask-fab-tabs" : lift === "bar" ? "ask-fab-bar" : "")}
+        aria-label="Ask the assistant"
+      >
+        <AskIcon />
+      </button>
+      {open && <AssistantPanel context={context} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+// The chat pop-up: the current chat, or the list of saved chats.
+function AssistantPanel({ context, onClose }: { context: AskContext; onClose: () => void }) {
+  const [store, setStore] = useState(loadStore);
+  const [view, setView] = useState<"chat" | "list">("chat");
+  const chat = store.chats.find((c) => c.id === store.current) ?? blank(store.current);
   const { messages, pending } = chat;
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -68,10 +130,10 @@ export function Assistant() {
   // Keep the newest message in view.
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, busy, pending]);
+  }, [messages.length, busy, pending, view]);
 
-  function save(next: { messages: Msg[]; pending: Pending | null }) {
-    setChat(next);
+  function persist(next: Store) {
+    setStore(next);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {
@@ -79,16 +141,35 @@ export function Assistant() {
     }
   }
 
-  async function post(body: unknown, optimistic: Msg[]) {
+  // Save the current chat's messages; it moves to the top of the list. A chat
+  // with no messages isn't kept in the list.
+  function saveChat(id: string, msgs: Msg[], pend: Pending | null) {
+    setStore((prev) => {
+      const others = prev.chats.filter((c) => c.id !== id);
+      const chats = msgs.length
+        ? [{ id, title: titleOf(msgs), updated: Date.now(), messages: msgs, pending: pend }, ...others].slice(0, MAX_CHATS)
+        : others;
+      const next = { ...prev, chats };
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
+
+  async function post(body: Record<string, unknown>, optimistic: Msg[]) {
+    const id = chat.id; // the chat this reply belongs to, even if the person switches away
     setBusy(true);
     setError("");
     setArmed(false);
-    save({ messages: optimistic, pending: null });
+    saveChat(id, optimistic, null);
     try {
       const res = await fetch("/api/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, context }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         messages?: Msg[];
@@ -98,9 +179,9 @@ export function Assistant() {
       };
       if (data.changed) {
         buzz();
-        void refreshRoster(); // every tab shows the change
+        void refreshRoster(); // every screen shows the change
       }
-      save({ messages: data.messages ?? optimistic, pending: data.pending ?? null });
+      saveChat(id, data.messages ?? optimistic, data.pending ?? null);
       if (!res.ok) setError(data.error || "The assistant couldn't answer. Try again.");
     } catch {
       setError("Couldn't reach the assistant — check your signal and try again.");
@@ -123,135 +204,203 @@ export function Assistant() {
     void post({ messages, resume: { results: pending.results, decision: { id: pending.id, approve } } }, messages);
   }
 
+  const startNew = () => {
+    persist({ ...store, current: newId() });
+    setError("");
+    setText("");
+    setView("chat");
+  };
+  const openChat = (id: string) => {
+    persist({ ...store, current: id });
+    setError("");
+    setView("chat");
+  };
+  const deleteChat = (id: string) =>
+    persist({ chats: store.chats.filter((c) => c.id !== id), current: id === store.current ? newId() : store.current });
+
   // Results by tool-call id, to label each change as saved / cancelled / failed.
   const results = new Map<string, Block & { type: "tool_result" }>();
   for (const m of messages)
     if (Array.isArray(m.content)) for (const b of m.content) if (b.type === "tool_result") results.set(b.tool_use_id, b);
 
+  const suggestions = context
+    ? [`How is ${context.building} doing?`, "Book the visit for…", "Add a note to it…"]
+    : SUGGESTIONS;
+
   return (
-    <Screen bottomSpace>
-      <div className="flex items-end justify-between">
-        <Title eyebrow="Your assistant">Ask</Title>
-        {messages.length > 0 && (
-          <Button variant="quiet" className="text-sm" onClick={() => save({ messages: [], pending: null })} disabled={busy}>
-            New chat
-          </Button>
-        )}
-      </div>
+    <>
+      <div className="scrim" onClick={busy ? undefined : onClose} />
+      <div className="sheet glass-strong chat-sheet" role="dialog" aria-modal="true" aria-label="Assistant">
+        <div className="sheet-grab" />
 
-      {connected === false && (
-        <Glass pad className="mt-6">
-          <p className="font-semibold">Connect the assistant</p>
-          <p className="mt-1 text-sm text-ink-2">
-            It runs on your own Anthropic account. Once your Anthropic key is added to the app&apos;s settings on
-            Vercel, this tab is ready.
-          </p>
-        </Glass>
-      )}
-
-      {messages.length === 0 && connected !== false && (
-        <div className="mt-6">
-          <Glass pad>
-            <div className="flex items-center gap-2 font-semibold text-accent-ink">
-              <AskIcon /> Ask anything about the business
-            </div>
-            <p className="mt-1.5 text-sm text-ink-2">
-              It can look up any elevator, tell you what needs you, check who&apos;s paid, and make changes to the
-              dashboard — you confirm every change before it saves.
-            </p>
-          </Glass>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {SUGGESTIONS.map((s) => (
-              <button key={s} className="chip glass" onClick={() => (s.startsWith("Add") ? setText(s + " ") : send(s))}>
-                {s}
-              </button>
-            ))}
+        {/* header */}
+        <div className="flex items-center justify-between gap-3">
+          {view === "list" ? (
+            <button onClick={() => setView("chat")} className="btn-quiet flex items-center gap-0.5 text-base">
+              <Chevron dir="left" />
+              Back
+            </button>
+          ) : (
+            <button onClick={() => setView("list")} className="btn-quiet text-base" disabled={busy}>
+              Chats{store.chats.length ? ` (${store.chats.length})` : ""}
+            </button>
+          )}
+          <div className="flex shrink-0 items-center gap-4">
+            <Button variant="quiet" className="text-base" onClick={startNew} disabled={busy}>
+              New chat
+            </Button>
+            <Button variant="quiet" className="text-base" onClick={onClose}>
+              Done
+            </Button>
           </div>
         </div>
-      )}
 
-      <div className="mt-6 flex flex-col gap-3 pb-24">
-        {messages.map((m, i) =>
-          typeof m.content === "string" ? (
-            m.role === "user" && (
-              <div key={i} className="bubble bubble-me">
-                {m.content}
+        {view === "list" ? (
+          <div className="chat-scroll">
+            <h3 className="mt-3 text-[21px] font-bold tracking-tight">Your chats</h3>
+            {store.chats.length === 0 ? (
+              <p className="mt-3 text-[15px] text-ink-3">No saved chats yet.</p>
+            ) : (
+              <div className="list glass mt-3 overflow-hidden">
+                {store.chats.map((c) => (
+                  <div key={c.id} className="row">
+                    <button onClick={() => openChat(c.id)} className="min-w-0 flex-1 text-left">
+                      <div className={"truncate font-semibold " + (c.id === store.current ? "text-accent-ink" : "")}>
+                        {c.title || "New chat"}
+                      </div>
+                      <div className="mt-0.5 text-sm text-ink-3">
+                        {when(c.updated)}
+                        {c.pending ? " · waiting for you to confirm" : ""}
+                      </div>
+                    </button>
+                    <button onClick={() => deleteChat(c.id)} className="text-sm font-semibold text-danger">
+                      Delete
+                    </button>
+                  </div>
+                ))}
               </div>
-            )
-          ) : m.role === "assistant" ? (
-            <div key={i} className="flex flex-col gap-2">
-              {m.content.map((b, j) =>
-                b.type === "text" && b.text.trim() ? (
-                  <div key={j} className="bubble bubble-ai glass">
-                    <Formatted text={b.text} />
-                  </div>
-                ) : b.type === "tool_use" ? (
-                  <div key={j} className="activity px-1">
-                    <span className="dot" />
-                    {LOOKED[b.name]?.(b.input) ?? changeLabel(results.get(b.id), pending?.id === b.id)}
-                  </div>
-                ) : null,
-              )}
-            </div>
-          ) : null,
-        )}
-
-        {pending && !busy && (
-          <Glass pad className={pending.card.danger ? "ring-2 ring-danger/40" : "ring-2 ring-accent/30"}>
-            <div className="text-sm font-medium text-ink-2">Confirm this change</div>
-            <div className="mt-1 text-lg font-bold tracking-tight">{pending.card.title}</div>
-            <ul className="mt-2 flex flex-col gap-1 text-[15px] text-ink-2">
-              {pending.card.lines.map((l) => (
-                <li key={l}>{l}</li>
-              ))}
-            </ul>
-            <div className="mt-4 flex gap-2.5">
-              <Button variant="secondary" className="flex-1" onClick={() => decide(false)}>
-                Cancel
-              </Button>
-              <Button variant={pending.card.danger ? "danger" : "primary"} className="flex-1" onClick={() => decide(true)}>
-                {pending.card.danger && armed ? "Tap again to confirm" : "Confirm"}
-              </Button>
-            </div>
-          </Glass>
-        )}
-
-        {busy && (
-          <div className="bubble bubble-ai glass thinking w-fit" aria-label="Thinking">
-            <span />
-            <span />
-            <span />
+            )}
           </div>
-        )}
-        {error && <p className="px-1 text-sm font-semibold text-danger">{error}</p>}
-        <div ref={endRef} />
-      </div>
+        ) : (
+          <>
+            <div className="mt-3 min-w-0">
+              <h3 className="truncate text-[21px] font-bold tracking-tight">{messages.length ? chat.title : "Ask"}</h3>
+              {context && <div className="truncate text-sm text-ink-3">Looking at {context.building}</div>}
+            </div>
 
-      <form
-        className="composer glass-strong"
-        onSubmit={(e) => {
-          e.preventDefault();
-          send(text);
-        }}
-      >
-        <textarea
-          rows={1}
-          value={text}
-          placeholder={pending ? "Or type something else…" : "Ask or tell it what to change…"}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send(text);
-            }
-          }}
-          disabled={connected === false}
-        />
-        <button type="submit" className="icon-btn btn-primary" disabled={busy || !text.trim()} aria-label="Send">
-          <SendIcon />
-        </button>
-      </form>
-    </Screen>
+            <div className="chat-scroll">
+              {connected === false && (
+                <Glass pad className="mt-4">
+                  <p className="font-semibold">The assistant isn&apos;t connected yet</p>
+                  <p className="mt-1 text-sm text-ink-2">
+                    It runs on your own Anthropic account. Once your Anthropic key is added to the app&apos;s settings
+                    on Vercel, it&apos;s ready.
+                  </p>
+                </Glass>
+              )}
+
+              {messages.length === 0 && connected !== false && (
+                <div className="mt-4">
+                  <p className="text-[15px] text-ink-2">
+                    Ask about anything in the business, or tell it what to change — you confirm every change before it
+                    saves.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {suggestions.map((s) => (
+                      <button key={s} className="chip" onClick={() => (s.endsWith("…") ? setText(s.slice(0, -1) + " ") : send(s))}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 flex flex-col gap-3">
+                {messages.map((m, i) =>
+                  typeof m.content === "string" ? (
+                    m.role === "user" && (
+                      <div key={i} className="bubble bubble-me">
+                        {m.content}
+                      </div>
+                    )
+                  ) : m.role === "assistant" ? (
+                    <div key={i} className="flex flex-col gap-2">
+                      {m.content.map((b, j) =>
+                        b.type === "text" && b.text.trim() ? (
+                          <div key={j} className="bubble bubble-ai glass">
+                            <Formatted text={b.text} />
+                          </div>
+                        ) : b.type === "tool_use" ? (
+                          <div key={j} className="activity px-1">
+                            <span className="dot" />
+                            {LOOKED[b.name]?.(b.input) ?? changeLabel(results.get(b.id), pending?.id === b.id)}
+                          </div>
+                        ) : null,
+                      )}
+                    </div>
+                  ) : null,
+                )}
+
+                {pending && !busy && (
+                  <Glass pad className={pending.card.danger ? "ring-2 ring-danger/40" : "ring-2 ring-accent/30"}>
+                    <div className="text-sm font-medium text-ink-2">Confirm this change</div>
+                    <div className="mt-1 text-lg font-bold tracking-tight">{pending.card.title}</div>
+                    <ul className="mt-2 flex flex-col gap-1 text-[15px] text-ink-2">
+                      {pending.card.lines.map((l) => (
+                        <li key={l}>{l}</li>
+                      ))}
+                    </ul>
+                    <div className="mt-4 flex gap-2.5">
+                      <Button variant="secondary" className="flex-1" onClick={() => decide(false)}>
+                        Cancel
+                      </Button>
+                      <Button variant={pending.card.danger ? "danger" : "primary"} className="flex-1" onClick={() => decide(true)}>
+                        {pending.card.danger && armed ? "Tap again to confirm" : "Confirm"}
+                      </Button>
+                    </div>
+                  </Glass>
+                )}
+
+                {busy && (
+                  <div className="bubble bubble-ai glass thinking w-fit" aria-label="Thinking">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                )}
+                {error && <p className="px-1 text-sm font-semibold text-danger">{error}</p>}
+                <div ref={endRef} />
+              </div>
+            </div>
+
+            <form
+              className="composer"
+              onSubmit={(e) => {
+                e.preventDefault();
+                send(text);
+              }}
+            >
+              <textarea
+                rows={1}
+                value={text}
+                placeholder={pending ? "Or type something else…" : "Ask or tell it what to change…"}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send(text);
+                  }
+                }}
+                disabled={connected === false}
+              />
+              <button type="submit" className="icon-btn btn-primary" disabled={busy || !text.trim()} aria-label="Send">
+                <SendIcon />
+              </button>
+            </form>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 

@@ -28,7 +28,11 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  let body: { messages?: Msg[]; resume?: { results?: Block[]; decision?: { id?: string; approve?: boolean } } };
+  let body: {
+    messages?: Msg[];
+    resume?: { results?: Block[]; decision?: { id?: string; approve?: boolean } };
+    context?: { okla?: string; building?: string } | null; // the elevator open in the app, if any
+  };
   try {
     body = await req.json();
   } catch {
@@ -37,6 +41,9 @@ export async function POST(req: Request) {
   let messages = Array.isArray(body.messages) ? body.messages : [];
   if (!messages.length) return Response.json({ error: "Nothing to answer" }, { status: 400 });
   let changed = false;
+  const c = body.context;
+  const looking =
+    c?.okla && c.building ? `${String(c.building).slice(0, 120)} (OK # ${String(c.okla).slice(0, 40)})` : undefined;
 
   try {
     // The person tapped Confirm or Cancel on a change card.
@@ -69,7 +76,7 @@ export async function POST(req: Request) {
 
     messages = trim(messages);
     for (let round = 0; round < MAX_ROUNDS; round++) {
-      const reply = await callClaude(messages);
+      const reply = await callClaude(messages, looking);
       messages = [...messages, { role: "assistant", content: reply.content }];
       if (reply.stop_reason !== "tool_use") return Response.json({ messages, changed });
 

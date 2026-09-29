@@ -21,10 +21,9 @@ import { VHEAD, VIOLATIONS, parseViolation } from "@/lib/violations";
 import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from "@/lib/prefs";
 import { computeCycle, computePrice, formatPrice } from "@/lib/pricing";
 import { DEVICE_TYPE_CODE, ENTITY_TYPE_CODE, MACHINE_TYPE_CODE } from "@/lib/formCodes";
-import { Assistant } from "@/components/Assistant";
+import { AssistantButton } from "@/components/Assistant";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
-  AskIcon,
   Button,
   CheckIcon,
   Chips,
@@ -56,7 +55,7 @@ import {
 // src/components/ui.tsx — no raw colors or one-off looks in this file.
 
 // The four places in the tab bar, and the screens opened on top of them.
-type Tab = "today" | "elevators" | "ask" | "money" | "settings";
+type Tab = "today" | "elevators" | "money" | "settings";
 type Stage = "tabs" | "profile" | "report" | "new";
 
 // The elevator list, shared by every tab: shown instantly from the phone's saved
@@ -414,7 +413,8 @@ function todayLists(accounts: Account[]) {
     return out;
   });
   const days = (u: Elevator) => daysUntil(u.due);
-  const notDone = (u: Elevator) => stage(u, "visit") !== "Inspected";
+  // Booked visits already show under "Needs you", so they are left out of these two.
+  const notDone = (u: Elevator) => !["Inspected", "Booked"].includes(stage(u, "visit"));
   const overdue = all.filter((u) => (days(u) ?? 1) < 0 && notDone(u)).sort((a, b) => days(a)! - days(b)!);
   const soon = all
     .filter((u) => {
@@ -1505,7 +1505,7 @@ export default function Home() {
   // A summary alert links to /?tab=today; otherwise start on Today too.
   const [tab, setTab] = useState<Tab>(() => {
     const t = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("tab");
-    return (["today", "elevators", "ask", "money", "settings"] as string[]).includes(t ?? "") ? (t as Tab) : "today";
+    return (["today", "elevators", "money", "settings"] as string[]).includes(t ?? "") ? (t as Tab) : "today";
   });
   const [stage, setStage] = useState<Stage>("tabs");
   const [selected, setSelected] = useState<Elevator | null>(null);
@@ -1562,7 +1562,7 @@ export default function Home() {
     const t = todayLists(roster.accounts);
     return t.needs.length + t.overdue.length;
   })() : 0;
-  const TAB_LABEL: Record<Tab, string> = { today: "Today", elevators: "Elevators", ask: "Ask", money: "Money", settings: "Settings" };
+  const TAB_LABEL: Record<Tab, string> = { today: "Today", elevators: "Elevators", money: "Money", settings: "Settings" };
   // The tab bar shows on the tabs and on an elevator's profile; the report and
   // new-elevator screens have their own buttons at the bottom instead.
   const showTabs = stage === "tabs" || stage === "profile";
@@ -1593,8 +1593,6 @@ export default function Home() {
     screen = <TodayTab accounts={roster.accounts} error={roster.error} onPick={pick} />;
   } else if (tab === "elevators") {
     screen = <ElevatorsTab accounts={roster.accounts} error={roster.error} onPick={pick} onNew={() => to("new")} />;
-  } else if (tab === "ask") {
-    screen = <Assistant />;
   } else if (tab === "money") {
     screen = <MoneyTab accounts={roster.accounts} error={roster.error} onPick={pick} />;
   } else {
@@ -1604,6 +1602,10 @@ export default function Home() {
   return (
     <>
       {screen}
+      <AssistantButton
+        context={(stage === "profile" || stage === "report") && live ? { okla: live.okla, building: live.building } : null}
+        lift={showTabs ? "tabs" : stage === "report" ? "bar" : "none"}
+      />
       {showTabs && (
         <TabBar<Tab>
           value={tab}
@@ -1611,7 +1613,6 @@ export default function Home() {
           tabs={[
             { key: "today", label: "Today", icon: <TodayIcon />, badge },
             { key: "elevators", label: "Elevators", icon: <ElevatorsIcon /> },
-            { key: "ask", label: "Ask", icon: <AskIcon /> },
             { key: "money", label: "Money", icon: <MoneyIcon /> },
             { key: "settings", label: "Settings", icon: <SettingsIcon /> },
           ]}

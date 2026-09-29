@@ -33,7 +33,7 @@ async function handle(req: Request) {
     // Remember today + what's currently waiting (things that went away drop off).
     await saveSent(items.map((i) => i.key));
   }
-  return Response.json({ ok: true, morning, waiting: items.length, alert, dry, ...result });
+  return Response.json({ ok: true, morning, waiting: items.length, alert, dry, ...result, ...(dry ? { items } : {}) });
 }
 
 // Turn the items into one phone alert, in plain words.
@@ -56,7 +56,7 @@ function compose(list: AlertItem[], morning: boolean) {
   if (overdue.length === 1) lines.push(overdue[0].title);
   else if (overdue.length) lines.push(`${overdue.length} buildings are past due: ${names(overdue)}.`);
   return {
-    title: morning ? `${list.length} things need you today` : `${list.length} new things need you`,
+    title: morning ? `Good morning — ${list.length} things need you` : `${list.length} new things need you`,
     body: lines.join("\n"),
     url: "/?tab=today",
     tag: "eei-summary",

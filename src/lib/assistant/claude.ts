@@ -26,7 +26,8 @@ export async function getKey(): Promise<string> {
 // A friendly message for the person when the call fails.
 export class AssistantError extends Error {}
 
-export async function callClaude(messages: Msg[]): Promise<{ content: Block[]; stop_reason: string }> {
+// `looking`: the elevator the person has open in the app, if any.
+export async function callClaude(messages: Msg[], looking?: string): Promise<{ content: Block[]; stop_reason: string }> {
   const key = await getKey();
   if (!key) throw new AssistantError("The assistant isn't connected yet — the Anthropic key hasn't been added to the app's Vercel settings.");
   const today = new Date().toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "long", year: "numeric", month: "long", day: "numeric" });
@@ -38,7 +39,7 @@ export async function callClaude(messages: Msg[]): Promise<{ content: Block[]; s
     // cache mark on the first block covers the tools too, which come before it).
     system: [
       { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
-      { type: "text", text: `Today is ${today} (Oklahoma time).` },
+      { type: "text", text: `Today is ${today} (Oklahoma time).${looking ? ` The person has ${looking} open in the app right now — when they say "it" or "this one", they mean that elevator.` : ""}` },
     ],
     tools: TOOLS,
     messages,
