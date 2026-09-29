@@ -5,7 +5,7 @@
 //   - Pages are network-first so you always get the latest version; the saved
 //     copy is used only when offline.
 //   - API calls and sign-in are never touched.
-const CACHE = "eei-shell-v6";
+const CACHE = "eei-shell-v7";
 const SHELL = ["/", "/sign-in", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -20,7 +20,7 @@ self.addEventListener("activate", (e) => {
 
 // Show a push alert when the server sends one (works with the app closed).
 self.addEventListener("push", (e) => {
-  let data = { title: "EEI Field Reports", body: "Something needs your attention.", url: "/" };
+  let data = { title: "EEI Field Reports", body: "Something needs your attention.", url: "/", tag: "eei-summary" };
   try {
     if (e.data) data = { ...data, ...e.data.json() };
   } catch {
@@ -32,7 +32,7 @@ self.addEventListener("push", (e) => {
       icon: "/icon-192.png",
       badge: "/icon-192.png",
       data: { url: data.url || "/" },
-      tag: "eei-action-needed", // newer alert replaces the old one instead of stacking
+      tag: data.tag || "eei-summary", // same tag = the newer alert replaces the older one
       renotify: true,
     }),
   );

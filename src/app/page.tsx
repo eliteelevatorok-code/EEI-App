@@ -116,6 +116,15 @@ function daysUntil(s: string): number | null {
 }
 const DUE_SOON_DAYS = 60;
 
+// "10/3/2026" → "Saturday, October 3" (year added if it isn't this year). Used
+// wherever the app talks to you about a date, so it reads like a person wrote it.
+function humanDate(s: string): string {
+  const d = parseDue(s);
+  if (!d) return s;
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) });
+}
+
 // The report being filled in on the phone (becomes the PDF on "Finish report").
 type ReportDraft = {
   date: string;
@@ -241,9 +250,9 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
       <Glass pad>
         {alerts === "on" ? (
           <p className="text-[15px] text-ink-2">
-            <span className="font-semibold text-accent-ink">Alerts on</span> — this phone buzzes when an elevator
-            needs you: a booked inspection to do, or a maintenance company to chase for records. Tap the alert to
-            jump straight to that elevator. Checked every hour, 8am–7pm.
+            <span className="font-semibold text-accent-ink">Alerts on</span> — you get one summary each morning of
+            what needs you (an inspection that&apos;s booked, records still missing, anything past due). During the day
+            it only buzzes when something new comes up. Tap an alert to go straight to it.
           </p>
         ) : alerts === "blocked" ? (
           <p className="text-[15px] text-ink-2">
@@ -396,8 +405,12 @@ function todayLists(accounts: Account[]) {
   const all = accounts.flatMap((a) => a.units).filter((u) => u.active !== false);
   const needs = all.flatMap((u) => {
     const out: { u: Elevator; what: string }[] = [];
-    if (stage(u, "visit") === "Booked") out.push({ u, what: "Do the inspection — visit booked" });
-    if (stage(u, "maintConfirm") === "Waiting") out.push({ u, what: "Chase maintenance for records" });
+    if (stage(u, "visit") === "Booked") {
+      const trip = stage(u, "tripDay");
+      out.push({ u, what: daysUntil(trip) === 0 ? "You're inspecting it today" : trip ? `Booked for ${humanDate(trip)}` : "Visit booked" });
+    }
+    if (stage(u, "maintConfirm") === "Waiting")
+      out.push({ u, what: `Still waiting on records from ${u.maintCo || "the maintenance company"}` });
     return out;
   });
   const days = (u: Elevator) => daysUntil(u.due);
@@ -948,6 +961,58 @@ function LifecycleEditor({
   );
 }
 
+// The "Next step" cards at the top of a profile — the same situations the phone
+// alerts are about, each with the button that deals with it. Most urgent first.
+type NextStep = {
+  title: string;
+  text: string;
+  actions: { label: string; href?: string; onClick?: () => void }[];
+  startsReport?: boolean;
+};
+function nextSteps(e: Elevator, onStartReport: () => void): NextStep[] {
+  const out: NextStep[] = [];
+  const visit = stage(e, "visit");
+  const trip = stage(e, "tripDay");
+  const call = (label: string, phone?: string) => (phone ? [{ label, href: `tel:${phone}` }] : []);
+  const mail = (label: string, email?: string, subject?: string) =>
+    email ? [{ label, href: `mailto:${email}${subject ? `?subject=${encodeURIComponent(subject)}` : ""}` }] : [];
+
+  if (visit === "Booked") {
+    const today = daysUntil(trip) === 0;
+    out.push({
+      title: today ? "You're inspecting this today" : trip ? `Booked for ${humanDate(trip)}` : "A visit is booked",
+      text: today ? "When you get there, start the report." : "Everything's set. Start the report when you're on site.",
+      actions: [{ label: "Start inspection", onClick: onStartReport }],
+      startsReport: true,
+    });
+  }
+  if (stage(e, "maintConfirm") === "Waiting") {
+    const co = e.maintCo || "The maintenance company";
+    out.push({
+      title: "Still waiting on records",
+      text: `${co} hasn't told us how the last inspection went.${!e.maintPhone && !e.maintEmail ? " There's no phone or email on file for them." : ""}`,
+      actions: [...call("Call them", e.maintPhone), ...mail("Email them", e.maintEmail, `Records for ${e.building}`)],
+    });
+  }
+  const d = daysUntil(e.due);
+  if (d !== null && d < 0 && visit !== "Booked" && visit !== "Inspected") {
+    out.push({
+      title: "Past due",
+      text: `It was due ${humanDate(e.due)} and no visit is booked yet.`,
+      actions: [...call("Call customer", e.phone), ...mail("Email customer", e.email, `Scheduling the inspection at ${e.building}`)],
+    });
+  }
+  if (stage(e, "invoice") === "Sent" && stage(e, "paid") !== "Paid") {
+    const reminder = stage(e, "followUps");
+    out.push({
+      title: "Waiting on payment",
+      text: `The ${e.price || "invoice"} bill is out${reminder ? ` and reminder ${reminder.replace(" sent", "")} has gone out` : ""}. Nothing to do unless it drags on.`,
+      actions: call("Call customer", e.phone),
+    });
+  }
+  return out;
+}
+
 function Profile({
   elevator,
   onChange,
@@ -967,6 +1032,7 @@ function Profile({
   // This elevator's on/off switch. Pausing takes two confirmations (a warning,
   // then a final yes); resuming takes one.
   const swOn = e.active !== false;
+  const steps = nextSteps(e, onStartReport);
   const [swStep, setSwStep] = useState<null | "pause1" | "pause2" | "resume">(null);
   const [swBusy, setSwBusy] = useState(false);
   const [swErr, setSwErr] = useState("");
@@ -1017,9 +1083,38 @@ function Profile({
         <DueDot days={daysUntil(e.due)} fallback="" />
       </div>
 
-      <Button full onClick={onStartReport} className="mt-6">
-        Start inspection
-      </Button>
+      {/* What to do next — where a tapped phone alert lands you */}
+      {steps.length > 0 && (
+        <div className="mt-6 flex flex-col gap-3">
+          {steps.map((s) => (
+            <Glass pad key={s.title} className="ring-2 ring-accent/25">
+              <div className="text-sm font-medium text-accent-ink">Next step</div>
+              <div className="mt-0.5 text-lg font-bold tracking-tight">{s.title}</div>
+              <p className="mt-1 text-[15px] text-ink-2">{s.text}</p>
+              {s.actions.length > 0 && (
+                <div className="mt-4 flex gap-2.5">
+                  {s.actions.map((a, i) =>
+                    a.href ? (
+                      <a key={a.label} href={a.href} className={"btn flex-1 " + (i === 0 ? "btn-primary" : "btn-secondary")}>
+                        {a.label}
+                      </a>
+                    ) : (
+                      <Button key={a.label} variant={i === 0 ? "primary" : "secondary"} className="flex-1" onClick={a.onClick}>
+                        {a.label}
+                      </Button>
+                    ),
+                  )}
+                </div>
+              )}
+            </Glass>
+          ))}
+        </div>
+      )}
+      {!steps.some((s) => s.startsReport) && (
+        <Button full variant={steps.length ? "secondary" : "primary"} onClick={onStartReport} className="mt-4">
+          Start inspection
+        </Button>
+      )}
 
       <SectionLabel>Customer lifecycle</SectionLabel>
       <Glass className="px-4 py-1.5">
@@ -1091,10 +1186,24 @@ function Profile({
         </ConfirmDialog>
       )}
 
-      <SectionLabel>Details</SectionLabel>
+      <SectionLabel>Customer</SectionLabel>
       <List>
         <InfoRow label="Account">{e.account || "—"}</InfoRow>
         <InfoRow label="Contact">{e.contact || "—"}</InfoRow>
+        <InfoRow label="Phone">{e.phone ? <a className="text-accent-ink" href={`tel:${e.phone}`}>{e.phone}</a> : "—"}</InfoRow>
+        <InfoRow label="Email">{e.email ? <a className="text-accent-ink" href={`mailto:${e.email}`}>{e.email}</a> : "—"}</InfoRow>
+      </List>
+
+      <SectionLabel>Maintenance company</SectionLabel>
+      <List>
+        <InfoRow label="Company">{e.maintCo || "—"}</InfoRow>
+        <InfoRow label="Contact">{e.maintContact || "—"}</InfoRow>
+        <InfoRow label="Phone">{e.maintPhone ? <a className="text-accent-ink" href={`tel:${e.maintPhone}`}>{e.maintPhone}</a> : "—"}</InfoRow>
+        <InfoRow label="Email">{e.maintEmail ? <a className="text-accent-ink" href={`mailto:${e.maintEmail}`}>{e.maintEmail}</a> : "—"}</InfoRow>
+      </List>
+
+      <SectionLabel>Details</SectionLabel>
+      <List>
         <InfoRow label="City">{[e.city, e.area].filter(Boolean).join(" · ") || "—"}</InfoRow>
         <InfoRow label="Type">{[e.type, e.floors ? `${e.floors} floors` : ""].filter(Boolean).join(" · ") || "—"}</InfoRow>
         <InfoRow label="Cycle">{e.cycle === "Res" ? "Residential" : `Every ${e.cycle === "1" ? "year" : `${e.cycle} years`}`}</InfoRow>
@@ -1393,7 +1502,11 @@ function Tally({ n, label, tone }: { n: number; label: string; tone: string }) {
 export default function Home() {
   const { signOut } = useClerk();
   const roster = useRoster();
-  const [tab, setTab] = useState<Tab>("today");
+  // A summary alert links to /?tab=today; otherwise start on Today too.
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("tab");
+    return (["today", "elevators", "ask", "money", "settings"] as string[]).includes(t ?? "") ? (t as Tab) : "today";
+  });
   const [stage, setStage] = useState<Stage>("tabs");
   const [selected, setSelected] = useState<Elevator | null>(null);
   // Where each tab was scrolled to, so coming back from an elevator lands you
@@ -1454,14 +1567,20 @@ export default function Home() {
   // new-elevator screens have their own buttons at the bottom instead.
   const showTabs = stage === "tabs" || stage === "profile";
 
+  // The open elevator, as the latest copy of the list has it — so when a fresh
+  // copy arrives from the dashboard, the open profile updates too. (A brand-new
+  // elevator isn't in the list until the next refresh, so fall back to `selected`.)
+  const live =
+    (selected && roster.accounts?.flatMap((a) => a.units).find((u) => u.okla === selected.okla)) || selected;
+
   let screen: React.ReactNode;
   if (stage === "new") {
     screen = <NewElevator onBack={() => to("tabs")} onCreated={(e) => to("report", e)} />;
-  } else if (stage === "profile" && selected) {
+  } else if (stage === "profile" && live) {
     screen = (
       <Profile
-        key={selected.okla}
-        elevator={selected}
+        key={live.okla}
+        elevator={live}
         onChange={changed}
         backLabel={TAB_LABEL[tab]}
         onBack={() => to("tabs")}

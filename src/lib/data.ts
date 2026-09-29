@@ -32,6 +32,11 @@ export type Elevator = {
   account: string;
   contact: string;
   email?: string; // customer email (col G) — also printed on the state form
+  phone?: string; // customer phone (col H)
+  maintCo?: string; // maintenance company (cols I–L): name, contact, email, phone
+  maintContact?: string;
+  maintEmail?: string;
+  maintPhone?: string;
   area: string;
   city: string;
   type: string;
