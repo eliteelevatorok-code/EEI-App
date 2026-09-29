@@ -1,17 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Button, Glass, Pill, Screen, Title, TopBar } from "@/components/ui";
 
 type State = { master: boolean; elevators: { on: boolean }[] };
-
-const BRAND = "#1F4B45";
 
 // The master switch page. Turning everything OFF takes two deliberate steps
 // (a warning, then typing STOP) so it can't be tripped by accident. Turning it
 // back on takes one confirm. Each elevator has its own switch on its profile.
 export default function SwitchesPage() {
+  const router = useRouter();
   const [state, setState] = useState<State | null>(null);
   const [loadErr, setLoadErr] = useState("");
   const [step, setStep] = useState<null | "stop1" | "stop2" | "resume">(null);
@@ -51,67 +51,54 @@ export default function SwitchesPage() {
     }
   }
 
-  if (loadErr) return <main className="mx-auto max-w-md p-6"><p className="text-sm text-red-700">{loadErr}</p></main>;
-  if (!state) return <main className="mx-auto max-w-md p-6"><p className="text-sm text-stone-500">Loading…</p></main>;
+  if (loadErr) return <Screen><p className="mt-10 text-center text-danger">{loadErr}</p></Screen>;
+  if (!state) return <Screen><p className="mt-10 text-center text-sm text-ink-3">Loading…</p></Screen>;
 
   const pausedCount = state.elevators.filter((e) => !e.on).length;
 
   return (
-    <div className="mx-auto max-w-md px-4 pb-16 pt-4">
-      <div className="mb-3 flex items-center justify-between">
-        <Link href="/" className="text-xs font-semibold text-stone-600">‹ Home</Link>
-        <div className="text-sm font-extrabold tracking-wide" style={{ color: BRAND }}>ELITE / MASTER SWITCH</div>
-      </div>
+    <Screen>
+      <TopBar back={{ label: "Home", onClick: () => router.push("/") }} />
+      <Title eyebrow="Master switch">The whole system</Title>
 
-      {err && !step && <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{err}</p>}
+      {err && !step && <p className="mt-4 text-sm font-semibold text-danger">{err}</p>}
 
-      <section
-        className="rounded-xl border-2 p-5"
-        style={{ borderColor: state.master ? BRAND : "#c92a2a", background: state.master ? "#fff" : "#fff5f5" }}
-      >
-        <div className="text-[11px] font-bold uppercase tracking-widest text-stone-500">The whole system is</div>
-        <div className="mt-1 text-4xl font-extrabold" style={{ color: state.master ? BRAND : "#c92a2a" }}>
-          {state.master ? "RUNNING" : "PAUSED"}
-        </div>
-        <p className="mt-3 text-sm text-stone-600">
+      <Glass pad className="mt-6">
+        <Pill tone={state.master ? "green" : "red"} dot>
+          {state.master ? "Running" : "Paused"}
+        </Pill>
+        <p className="mt-3 text-[15px] text-ink-2">
           {state.master
             ? "Every automatic email, invoice, and payment step is active. Pausing halts all of them at once."
             : "Everything automatic is halted. Nothing will happen until you resume."}
         </p>
         {state.master ? (
-          <button
-            onClick={() => setStep("stop1")}
-            className="mt-4 w-full rounded-lg bg-red-600 py-3.5 text-base font-bold uppercase tracking-wider text-white active:opacity-90"
-          >
+          <Button variant="danger" full className="mt-5" onClick={() => setStep("stop1")}>
             Pause everything
-          </button>
+          </Button>
         ) : (
-          <button
-            onClick={() => setStep("resume")}
-            className="mt-4 w-full rounded-lg py-3.5 text-base font-bold uppercase tracking-wider text-white active:opacity-90"
-            style={{ background: BRAND }}
-          >
+          <Button full className="mt-5" onClick={() => setStep("resume")}>
             Resume everything
-          </button>
+          </Button>
         )}
-      </section>
+      </Glass>
 
-      <p className="mt-4 px-1 text-xs text-stone-500">
+      <p className="mt-3 px-1 text-sm text-ink-3">
         To pause a single elevator, open its profile from the list — each one has its own switch.
-        {pausedCount > 0 && <span className="font-semibold text-red-600"> {pausedCount} currently paused.</span>}
+        {pausedCount > 0 && <span className="font-semibold text-danger"> {pausedCount} currently paused.</span>}
       </p>
 
       {/* Step 1 of 2 — warning */}
       {step === "stop1" && (
         <ConfirmDialog
           danger
-          title="Pause everything? (step 1 of 2)"
+          title="Pause everything?"
           confirmLabel="Continue"
           onCancel={close}
           onConfirm={() => setStep("stop2")}
         >
-          This halts every automatic email, invoice, and payment step for <span className="font-semibold">all</span>{" "}
-          elevators at once. You&apos;ll confirm once more on the next screen.
+          This halts every automatic email, invoice, and payment step for <span className="font-semibold text-ink">all</span>{" "}
+          elevators at once. You&apos;ll confirm once more.
         </ConfirmDialog>
       )}
 
@@ -119,7 +106,7 @@ export default function SwitchesPage() {
       {step === "stop2" && (
         <ConfirmDialog
           danger
-          title="Final confirmation (step 2 of 2)"
+          title="Final confirmation"
           confirmLabel="Pause all"
           busyLabel="Pausing…"
           busy={busy}
@@ -128,10 +115,10 @@ export default function SwitchesPage() {
           onCancel={close}
           onConfirm={() => setMaster(false)}
         >
-          Type <span className="font-bold">STOP</span> to pause the whole system.
+          Type <span className="font-bold text-ink">STOP</span> to pause the whole system.
           <input
             autoFocus
-            className="mt-3 w-full rounded-lg border border-stone-300 px-3 py-2.5 text-base text-stone-900 outline-none focus:border-red-500"
+            className="input mt-3"
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             placeholder="Type STOP"
@@ -153,6 +140,6 @@ export default function SwitchesPage() {
           Automatic steps start again for every elevator that is switched on.
         </ConfirmDialog>
       )}
-    </div>
+    </Screen>
   );
 }

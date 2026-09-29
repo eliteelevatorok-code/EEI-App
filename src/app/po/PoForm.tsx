@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Button, Field, Notice, PublicPage } from "@/components/ui";
 
 type Info = { building: string; okla: string; alreadyPO?: string };
 
@@ -56,56 +57,40 @@ export default function PoForm({ token }: { token: string }) {
     }
   }
 
-  const wrap: React.CSSProperties = {
-    maxWidth: 460, margin: "0 auto", padding: "32px 20px",
-    fontFamily: "system-ui, Segoe UI, Roboto, sans-serif", color: "#1a1a1a",
-  };
-  const label: React.CSSProperties = { display: "block", fontWeight: 600, margin: "18px 0 6px" };
-  const input: React.CSSProperties = {
-    width: "100%", padding: "12px 14px", fontSize: 16, border: "1px solid #cbd2d9",
-    borderRadius: 10, boxSizing: "border-box",
-  };
-  const btn: React.CSSProperties = {
-    width: "100%", padding: "14px", fontSize: 16, fontWeight: 600, marginTop: 22,
-    background: busy ? "#7aa7c7" : "#1f6feb", color: "#fff", border: "none", borderRadius: 10,
-    cursor: busy ? "default" : "pointer",
-  };
-
   if (!token) {
-    return <main style={wrap}><p style={{ fontSize: 17 }}>This link is missing its code. Please use the link from your quote email.</p></main>;
+    return <PublicPage title="Link incomplete">This link is missing its code. Please use the link from your quote email.</PublicPage>;
   }
-  if (loadErr) return <main style={wrap}><p style={{ fontSize: 17 }}>{loadErr}</p></main>;
-  if (!info) return <main style={wrap}><p>Loading…</p></main>;
+  if (loadErr) return <PublicPage title="Link not found">{loadErr}</PublicPage>;
+  if (!info) return <PublicPage><p className="text-center text-sm text-ink-3">Loading…</p></PublicPage>;
 
   if (done) {
     return (
-      <main style={wrap}>
-        <h1 style={{ fontSize: 22 }}>Got it — thank you.</h1>
-        <p style={{ fontSize: 17, lineHeight: 1.5 }}>
-          We&apos;ve received PO <strong>{po.trim()}</strong> for {info.building}. Nothing else is needed from you.
+      <PublicPage title="Got it — thank you.">
+        <p className="text-[15px] text-ink-2">
+          We&apos;ve received PO <span className="font-semibold text-ink">{po.trim()}</span> for {info.building}. Nothing else is
+          needed from you.
         </p>
-      </main>
+      </PublicPage>
     );
   }
 
   return (
-    <main style={wrap}>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>Send us your PO</h1>
-      <p style={{ color: "#52606d", marginTop: 0 }}>For {info.building} (Elevator #{info.okla})</p>
+    <PublicPage title="Send us your PO" subtitle={<>For {info.building} (Elevator #{info.okla})</>}>
       {info.alreadyPO ? (
-        <p style={{ background: "#fff8e1", padding: "10px 12px", borderRadius: 8, fontSize: 14 }}>
-          We already have PO <strong>{info.alreadyPO}</strong> on file. Submitting again will replace it.
-        </p>
+        <Notice tone="warn">
+          We already have PO <span className="font-semibold">{info.alreadyPO}</span> on file. Submitting again will replace it.
+        </Notice>
       ) : null}
       <form onSubmit={submit}>
-        <label style={label} htmlFor="po">PO number</label>
-        <input id="po" style={input} value={po} onChange={(e) => setPo(e.target.value)}
-          placeholder="e.g. 4500123987" autoComplete="off" />
-        <label style={label} htmlFor="file">Attach the PO (optional)</label>
-        <input id="file" ref={fileRef} type="file" style={{ ...input, padding: 10 }} />
-        {submitErr ? <p style={{ color: "#c92a2a", marginTop: 12 }}>{submitErr}</p> : null}
-        <button type="submit" style={btn} disabled={busy}>{busy ? "Sending…" : "Submit PO"}</button>
+        <Field label="PO number">
+          <input className="input" value={po} onChange={(e) => setPo(e.target.value)} placeholder="e.g. 4500123987" autoComplete="off" />
+        </Field>
+        <Field label="Attach the PO (optional, up to 4 MB)">
+          <input ref={fileRef} type="file" className="input text-sm file:mr-3 file:rounded-full file:border-0 file:bg-accent-soft file:px-3 file:py-1.5 file:font-semibold file:text-accent-ink" />
+        </Field>
+        {submitErr ? <p className="mt-3 text-sm font-semibold text-danger">{submitErr}</p> : null}
+        <Button type="submit" full className="mt-5" disabled={busy}>{busy ? "Sending…" : "Submit PO"}</Button>
       </form>
-    </main>
+    </PublicPage>
   );
 }

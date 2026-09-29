@@ -1,7 +1,7 @@
 // Minimal service worker: makes the app installable and serves a cached shell
 // if the network is briefly unavailable. Network-first so users always get the
 // latest; falls back to cache only when offline.
-const CACHE = "eei-shell-v4";
+const CACHE = "eei-shell-v5";
 const SHELL = ["/", "/sign-in", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (e) => {

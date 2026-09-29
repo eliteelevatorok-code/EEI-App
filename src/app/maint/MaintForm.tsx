@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Button, Field, PublicPage } from "@/components/ui";
 
 type Info = { building: string; okla: string; maintCo?: string; alreadyResult?: string; alreadyDate?: string };
 
@@ -59,62 +60,44 @@ export default function MaintForm({ token }: { token: string }) {
     }
   }
 
-  const wrap: React.CSSProperties = {
-    maxWidth: 460, margin: "0 auto", padding: "32px 20px",
-    fontFamily: "system-ui, Segoe UI, Roboto, sans-serif", color: "#1a1a1a",
-  };
-  const label: React.CSSProperties = { display: "block", fontWeight: 600, margin: "18px 0 8px" };
-  const input: React.CSSProperties = {
-    width: "100%", padding: "12px 14px", fontSize: 16, border: "1px solid #cbd2d9",
-    borderRadius: 10, boxSizing: "border-box",
-  };
-  const btn: React.CSSProperties = {
-    width: "100%", padding: "14px", fontSize: 16, fontWeight: 600, marginTop: 24,
-    background: busy ? "#7aa7c7" : "#1f6feb", color: "#fff", border: "none", borderRadius: 10,
-    cursor: busy ? "default" : "pointer",
-  };
-  const choice = (v: string): React.CSSProperties => ({
-    flex: 1, padding: "12px", fontSize: 16, fontWeight: 600, borderRadius: 10, cursor: "pointer",
-    border: "1px solid " + (result === v ? "#1f6feb" : "#cbd2d9"),
-    background: result === v ? "#1f6feb" : "#f6f8fa",
-    color: result === v ? "#fff" : "#1a1a1a",
-  });
-
   if (!token) {
-    return <main style={wrap}><p style={{ fontSize: 17 }}>This link is missing its code. Please use the link from our email.</p></main>;
+    return <PublicPage title="Link incomplete">This link is missing its code. Please use the link from our email.</PublicPage>;
   }
-  if (loadErr) return <main style={wrap}><p style={{ fontSize: 17 }}>{loadErr}</p></main>;
-  if (!info) return <main style={wrap}><p>Loading…</p></main>;
+  if (loadErr) return <PublicPage title="Link not found">{loadErr}</PublicPage>;
+  if (!info) return <PublicPage><p className="text-center text-sm text-ink-3">Loading…</p></PublicPage>;
 
   if (done) {
     return (
-      <main style={wrap}>
-        <h1 style={{ fontSize: 22 }}>Got it — thank you.</h1>
-        <p style={{ fontSize: 17, lineHeight: 1.5 }}>
+      <PublicPage title="Got it — thank you.">
+        <p className="text-[15px] text-ink-2">
           We&apos;ve recorded your answer for {info.building}. Nothing else is needed from you.
         </p>
-      </main>
+      </PublicPage>
     );
   }
 
   return (
-    <main style={wrap}>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>Records needed</h1>
-      <p style={{ color: "#52606d", marginTop: 0 }}>For {info.building} (Elevator #{info.okla})</p>
-      <p style={{ fontSize: 15, lineHeight: 1.5, marginTop: 12 }}>
-        For the upcoming state inspection, please tell us two things about this elevator&apos;s <strong>last</strong> inspection:
+    <PublicPage title="Records needed" subtitle={<>For {info.building} (Elevator #{info.okla})</>}>
+      <p className="mb-5 text-[15px] text-ink-2">
+        For the upcoming state inspection, please tell us two things about this elevator&apos;s{" "}
+        <span className="font-semibold text-ink">last</span> inspection:
       </p>
       <form onSubmit={submit}>
-        <label style={label}>Did it pass its last inspection?</label>
-        <div style={{ display: "flex", gap: 10 }}>
-          <button type="button" style={choice("Pass")} onClick={() => setResult("Pass")}>Pass</button>
-          <button type="button" style={choice("Fail")} onClick={() => setResult("Fail")}>Fail</button>
-        </div>
-        <label style={label} htmlFor="date">Date it was last inspected</label>
-        <input id="date" type="date" style={input} value={date} onChange={(e) => setDate(e.target.value)} />
-        {submitErr ? <p style={{ color: "#c92a2a", marginTop: 12 }}>{submitErr}</p> : null}
-        <button type="submit" style={btn} disabled={busy}>{busy ? "Sending…" : "Submit"}</button>
+        <Field label="Did it pass its last inspection?">
+          <div className="grid grid-cols-2 gap-2.5">
+            {["Pass", "Fail"].map((v) => (
+              <button key={v} type="button" onClick={() => setResult(v)} className={"btn " + (result === v ? "btn-primary" : "btn-secondary")}>
+                {v}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field label="Date it was last inspected">
+          <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+        {submitErr ? <p className="mt-3 text-sm font-semibold text-danger">{submitErr}</p> : null}
+        <Button type="submit" full className="mt-5" disabled={busy}>{busy ? "Sending…" : "Submit"}</Button>
       </form>
-    </main>
+    </PublicPage>
   );
 }

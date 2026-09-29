@@ -21,6 +21,32 @@ import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from 
 import { computeCycle, computePrice, formatPrice } from "@/lib/pricing";
 import { DEVICE_TYPE_CODE, ENTITY_TYPE_CODE, MACHINE_TYPE_CODE } from "@/lib/formCodes";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import {
+  Button,
+  CheckIcon,
+  Chips,
+  DueDot,
+  Field,
+  GearIcon,
+  Glass,
+  InfoRow,
+  List,
+  Pill,
+  PlusIcon,
+  Screen,
+  SearchIcon,
+  SectionLabel,
+  Segmented,
+  Sheet,
+  Title,
+  Toggle,
+  TopBar,
+  buzz,
+  go,
+} from "@/components/ui";
+
+// All styling comes from the style guide (src/app/globals.css) and the pieces in
+// src/components/ui.tsx — no raw colors or one-off looks in this file.
 
 type Stage = "list" | "profile" | "report" | "new";
 
@@ -42,7 +68,7 @@ function daysUntil(s: string): number | null {
 }
 const DUE_SOON_DAYS = 60;
 
-// The report being filled in on the phone (becomes the PDF on "Finish & finalize").
+// The report being filled in on the phone (becomes the PDF on "Finish report").
 type ReportDraft = {
   date: string;
   inspType: string;
@@ -83,70 +109,18 @@ function freshReport(e: Elevator): ReportDraft {
   };
 }
 
-/* ---------- small building blocks ---------- */
-
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function SettingsButton({ onClick }: { onClick: () => void }) {
   return (
-    <section className="mb-3 rounded-lg border border-stone-300 bg-white p-4 shadow-sm">
-      <h2 className="mb-3 border-b border-stone-200 pb-2 text-xs font-bold uppercase tracking-widest text-stone-500">
-        {title}
-      </h2>
-      {children}
-    </section>
+    <button onClick={onClick} className="icon-btn glass" aria-label="Settings">
+      <GearIcon />
+    </button>
   );
 }
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="mb-3 block last:mb-0">
-      <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-stone-500">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-
-function Chips({
-  options,
-  value,
-  onChange,
-}: {
-  options: string[];
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {options.map((o) => {
-        const on = o === value;
-        return (
-          <button
-            key={o}
-            type="button"
-            onClick={() => onChange(o)}
-            className={
-              "rounded-full border px-3 py-2 text-sm font-semibold transition " +
-              (on
-                ? "border-[#1F4B45] bg-[#1F4B45] text-stone-50"
-                : "border-stone-300 bg-stone-50 text-stone-700 active:bg-stone-200")
-            }
-          >
-            {o}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-const inputCls =
-  "w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2.5 text-base outline-none focus:border-[#1F4B45] focus:ring-2 focus:ring-[#1F4B45]/20";
 
 /* ---------- settings ---------- */
 
 // Reads the app-wide install state captured at startup (see lib/pwa-install).
-// Because the browser's install event is captured on load — not when this popup
+// Because the browser's install event is captured on load — not when this sheet
 // opens — the button is available here even though the event fired earlier.
 // (Settings only ever opens after a tap, so reading browser-only state up front is safe.)
 function useInstall() {
@@ -182,7 +156,9 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
     setAlertBusy(false);
   };
 
-  const setSize = (s: number) => {
+  const sizeLabels = FONT_SCALES.map((s) => FONT_SCALE_LABELS[s]);
+  const setSize = (label: string) => {
+    const s = FONT_SCALES.find((x) => FONT_SCALE_LABELS[x] === label) ?? 1;
     setScale(s);
     saveFontScale(s);
   };
@@ -191,214 +167,121 @@ function Settings({ onClose, onLogout }: { onClose: () => void; onLogout: () => 
   const buildTime = process.env.NEXT_PUBLIC_BUILD_TIME || "";
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-stone-100">
-      <div className="flex items-center justify-between border-b border-stone-200 bg-white p-3">
-        <h3 className="text-sm font-bold uppercase tracking-widest">Settings</h3>
-        <button
-          onClick={onClose}
-          className="rounded-full bg-[#1F4B45] px-4 py-2 text-xs font-bold uppercase tracking-wider text-stone-50"
-        >
+    <Sheet onClose={onClose}>
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-[21px] font-bold tracking-tight">Settings</h3>
+        <Button variant="quiet" onClick={onClose} className="text-base">
           Done
-        </button>
+        </Button>
       </div>
 
-      <div className="flex-1 overflow-auto p-4">
-        {/* Install to device */}
-        <Card title="This device">
-          {installed ? (
-            <p className="text-sm text-stone-700">
-              <span className="font-bold text-[#1F4B45]">Installed ✓</span> — you&apos;re running the app from
-              your home screen.
-            </p>
-          ) : canInstall ? (
-            <>
-              <p className="mb-3 text-sm text-stone-600">Add EEI Field Reports to this device as an app.</p>
-              <button
-                onClick={install}
-                className="w-full rounded-lg bg-[#1F4B45] py-3 text-base font-bold uppercase tracking-wider text-stone-50"
-              >
-                Install app on this device
-              </button>
-            </>
-          ) : (
-            <div className="text-sm text-stone-700">
-              <p className="mb-2">To add EEI Field Reports as an app on this phone:</p>
-              <ol className="ml-1 space-y-2">
-                <li>
-                  1. Tap the <span className="font-semibold">⋮</span> menu at the top-right of Chrome.
-                </li>
-                <li>
-                  2. Tap <span className="font-semibold">Install app</span> (or{" "}
-                  <span className="font-semibold">Add to Home screen</span>).
-                </li>
-              </ol>
-              <p className="mt-3 text-stone-500">
-                If neither shows, reload this page once and reopen Settings — the one-tap button appears here
-                as soon as the phone is ready.
-              </p>
-            </div>
-          )}
-        </Card>
-
-        {/* Phone alerts */}
-        <Card title="Alerts">
-          {alerts === "on" ? (
-            <p className="text-sm text-stone-700">
-              <span className="font-bold text-[#1F4B45]">Alerts on ✓</span> — this phone will buzz you when an
-              elevator needs you: a booked inspection to do, or a maintenance company to chase for records. Tap
-              the alert to jump straight to that elevator. Checked every hour, 8am–7pm.
-            </p>
-          ) : alerts === "blocked" ? (
-            <p className="text-sm text-stone-700">
-              Alerts are blocked for this site in your phone&apos;s settings. Turn notifications back on for
-              eeireports.sbs, then come back here.
-            </p>
-          ) : alerts === "unsupported" ? (
-            <p className="text-sm text-stone-700">
-              This browser can&apos;t do phone alerts. Open the app in Chrome on your phone, then turn alerts on.
-            </p>
-          ) : (
-            <>
-              <p className="mb-3 text-sm text-stone-600">
-                Get a buzz on this phone when something needs you — even when the app is closed.
-              </p>
-              <button
-                onClick={turnOnAlerts}
-                disabled={alertBusy}
-                className="w-full rounded-lg bg-[#1F4B45] py-3 text-base font-bold uppercase tracking-wider text-stone-50 disabled:opacity-60"
-              >
-                {alertBusy ? "Turning on…" : "Turn on alerts for this phone"}
-              </button>
-            </>
-          )}
-        </Card>
-
-        {/* Text size */}
-        <Card title="Text size">
-          <p className="mb-3 text-sm text-stone-600">Make everything bigger for easier reading.</p>
-          <div className="flex flex-wrap gap-2">
-            {FONT_SCALES.map((s) => {
-              const on = s === scale;
-              return (
-                <button
-                  key={s}
-                  onClick={() => setSize(s)}
-                  className={
-                    "rounded-full border px-4 py-2 text-sm font-semibold " +
-                    (on
-                      ? "border-[#1F4B45] bg-[#1F4B45] text-stone-50"
-                      : "border-stone-300 bg-stone-50 text-stone-700")
-                  }
-                >
-                  {FONT_SCALE_LABELS[s]}
-                </button>
-              );
-            })}
-          </div>
-        </Card>
-
-        {/* System switches */}
-        <Card title="System">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-sm text-stone-600">Whole system</span>
-            {master === null ? (
-              <span className="text-xs font-semibold text-stone-400">checking…</span>
-            ) : (
-              <span
-                className={
-                  "rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider " +
-                  (master ? "bg-[#DDE8E4] text-[#1F4B45]" : "bg-red-100 text-red-700")
-                }
-              >
-                {master ? "● Running" : "● Paused"}
-              </span>
-            )}
-          </div>
-          <Link
-            href="/switches"
-            className="block w-full rounded-lg bg-[#1F4B45] py-3 text-center text-base font-bold uppercase tracking-wider text-stone-50"
-          >
-            {master === false ? "Resume the system" : "Master switch"}
-          </Link>
-          <p className="mt-2 text-xs text-stone-400">Each elevator has its own switch on its profile.</p>
-        </Card>
-
-        {/* Account */}
-        <Card title="Account">
-          <button
-            onClick={onLogout}
-            className="w-full rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700 active:bg-stone-200"
-          >
-            Log out
-          </button>
-        </Card>
-
-        {/* Build */}
-        <Card title="Version">
-          <dl className="divide-y divide-stone-100 text-sm">
-            <div className="flex justify-between py-2">
-              <dt className="text-stone-500">Build</dt>
-              <dd className="font-mono text-stone-700">{buildSha}</dd>
-            </div>
-            {buildTime && (
-              <div className="flex justify-between py-2">
-                <dt className="text-stone-500">Deployed</dt>
-                <dd className="text-stone-700">{new Date(buildTime).toLocaleString()}</dd>
-              </div>
-            )}
-          </dl>
-          <p className="mt-2 text-xs text-stone-400">
-            Full history of every build lives in the project&apos;s Vercel dashboard.
+      <SectionLabel>This device</SectionLabel>
+      <Glass pad>
+        {installed ? (
+          <p className="text-[15px]">
+            <span className="font-semibold text-accent-ink">Installed</span> — you&apos;re running the app from your
+            home screen.
           </p>
-        </Card>
-      </div>
-    </div>
+        ) : canInstall ? (
+          <>
+            <p className="mb-3 text-[15px] text-ink-2">Add EEI Field Reports to this phone as an app.</p>
+            <Button full onClick={install}>
+              Install the app
+            </Button>
+          </>
+        ) : (
+          <div className="text-[15px] text-ink-2">
+            <p className="mb-2 text-ink">To add EEI Field Reports as an app on this phone:</p>
+            <p>1. Tap the ⋮ menu at the top-right of Chrome.</p>
+            <p>2. Tap Install app (or Add to Home screen).</p>
+            <p className="mt-2 text-sm text-ink-3">
+              If neither shows, reload once and reopen Settings — the one-tap button appears here as soon as the
+              phone is ready.
+            </p>
+          </div>
+        )}
+      </Glass>
+
+      <SectionLabel>Alerts</SectionLabel>
+      <Glass pad>
+        {alerts === "on" ? (
+          <p className="text-[15px] text-ink-2">
+            <span className="font-semibold text-accent-ink">Alerts on</span> — this phone buzzes when an elevator
+            needs you: a booked inspection to do, or a maintenance company to chase for records. Tap the alert to
+            jump straight to that elevator. Checked every hour, 8am–7pm.
+          </p>
+        ) : alerts === "blocked" ? (
+          <p className="text-[15px] text-ink-2">
+            Alerts are blocked for this site in your phone&apos;s settings. Turn notifications back on for
+            eeireports.sbs, then come back here.
+          </p>
+        ) : alerts === "unsupported" ? (
+          <p className="text-[15px] text-ink-2">
+            This browser can&apos;t do phone alerts. Open the app in Chrome on your phone, then turn alerts on.
+          </p>
+        ) : (
+          <>
+            <p className="mb-3 text-[15px] text-ink-2">
+              Get a buzz on this phone when something needs you — even when the app is closed.
+            </p>
+            <Button full onClick={turnOnAlerts} disabled={alertBusy}>
+              {alertBusy ? "Turning on…" : "Turn on alerts"}
+            </Button>
+          </>
+        )}
+      </Glass>
+
+      <SectionLabel>Text size</SectionLabel>
+      <Glass pad>
+        <Chips options={sizeLabels} value={FONT_SCALE_LABELS[scale]} onChange={setSize} />
+      </Glass>
+
+      <SectionLabel>System</SectionLabel>
+      <Glass pad>
+        <div className="mb-4 flex items-center justify-between">
+          <span className="text-[15px]">Whole system</span>
+          {master === null ? (
+            <span className="text-sm text-ink-3">Checking…</span>
+          ) : (
+            <Pill tone={master ? "green" : "red"} dot>
+              {master ? "Running" : "Paused"}
+            </Pill>
+          )}
+        </div>
+        <Link href="/switches" className={"btn w-full " + (master === false ? "btn-primary" : "btn-secondary")}>
+          {master === false ? "Resume the system" : "Master switch"}
+        </Link>
+        <p className="mt-3 text-sm text-ink-3">Each elevator has its own switch on its profile.</p>
+      </Glass>
+
+      <SectionLabel>Account</SectionLabel>
+      <Button variant="secondary" full onClick={onLogout}>
+        Log out
+      </Button>
+
+      <p className="mt-6 text-center text-xs text-ink-3">
+        Build <span className="font-mono">{buildSha}</span>
+        {buildTime && <> · {new Date(buildTime).toLocaleString()}</>}
+      </p>
+    </Sheet>
   );
 }
 
-/* ---------- shared bits ---------- */
+/* ---------- elevator list ---------- */
 
-function dueTone(days: number | null): string {
-  if (days === null) return "border-stone-300 bg-stone-50 text-stone-600";
-  if (days < 0) return "border-red-300 bg-red-50 text-red-700";
-  if (days <= 30) return "border-amber-300 bg-amber-50 text-amber-700";
-  if (days <= DUE_SOON_DAYS) return "border-[#1F4B45]/40 bg-[#DDE8E4] text-[#1F4B45]";
-  return "border-stone-300 bg-stone-50 text-stone-600";
-}
-function DueBadge({ due }: { due: string }) {
-  const d = daysUntil(due);
-  const label =
-    d === null ? due || "no date" : d < 0 ? `${-d}d overdue` : d === 0 ? "due today" : `due in ${d}d`;
-  return (
-    <span
-      className={
-        "inline-block shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider " +
-        dueTone(d)
-      }
-    >
-      {label}
-    </span>
-  );
-}
 function UnitRow({ u, onPick, showAccount }: { u: Elevator; onPick: (e: Elevator) => void; showAccount?: boolean }) {
   return (
-    <button
-      onClick={() => onPick(u)}
-      className="w-full rounded-lg border border-stone-300 bg-white p-3 text-left active:bg-stone-100"
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="font-semibold">{u.building}</div>
-        <DueBadge due={u.due} />
+    <button onClick={() => onPick(u)} className="row">
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-semibold">{u.building}</div>
+        <div className="mt-0.5 truncate text-sm text-ink-2">
+          {[u.city, u.type, showAccount ? u.account : ""].filter(Boolean).join(" · ")}
+        </div>
       </div>
-      <div className="mt-0.5 text-xs text-stone-500">
-        {[u.city, u.type, showAccount ? u.account : ""].filter(Boolean).join(" · ")}
-      </div>
-      <div className="mt-1 font-mono text-xs font-medium text-[#1F4B45]">#{u.okla} · due {u.due || "—"}</div>
+      <DueDot days={daysUntil(u.due)} fallback={u.due} />
     </button>
   );
 }
-
-/* ---------- screens ---------- */
 
 function Picker({
   onPick,
@@ -486,100 +369,103 @@ function Picker({
     })
     .sort(byDue);
 
+  const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+
   return (
-    <div className="mx-auto max-w-md px-4 pb-16 pt-4">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="text-sm font-extrabold tracking-wide text-[#1F4B45]">ELITE / FIELD</div>
-        <button onClick={onSettings} className="text-xs font-semibold uppercase tracking-wider text-stone-500">
-          ⚙ Settings
-        </button>
-      </div>
-      <h1 className="mb-3 text-lg font-bold">Elevators</h1>
-
-      {/* All vs Due soon */}
-      <div className="mb-3 flex gap-2">
-        {(["all", "soon"] as const).map((m) => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            className={
-              "flex-1 rounded-lg border py-2 text-sm font-bold uppercase tracking-wider " +
-              (mode === m
-                ? "border-[#1F4B45] bg-[#1F4B45] text-stone-50"
-                : "border-stone-300 bg-stone-50 text-stone-600")
-            }
-          >
-            {m === "all" ? "All" : "Due soon"}
-          </button>
-        ))}
+    <Screen bottomSpace>
+      <div className="flex items-end justify-between">
+        <Title eyebrow={today}>Elevators</Title>
+        <SettingsButton onClick={onSettings} />
       </div>
 
-      <input
-        className={inputCls + " mb-3"}
-        placeholder="Search building, account, or Oklahoma number"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-      />
+      <label className="relative mt-5 block">
+        <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3">
+          <SearchIcon />
+        </span>
+        <input
+          className="input pl-10"
+          placeholder="Search buildings, accounts, or OK #"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      </label>
 
-      <button
-        onClick={onNew}
-        className="mb-4 w-full rounded-lg border-2 border-dashed border-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-[#1F4B45] active:bg-[#DDE8E4]"
-      >
-        + New elevator
-      </button>
+      <div className="mt-3">
+        <Segmented
+          options={[
+            ["all", "All"],
+            ["soon", "Due soon"],
+          ]}
+          value={mode}
+          onChange={setMode}
+        />
+      </div>
 
-      {loadState === "loading" && <p className="px-1 text-sm text-stone-500">Loading your list…</p>}
+      {loadState === "loading" && <p className="mt-8 text-center text-sm text-ink-3">Loading your list…</p>}
 
       {loadState === "live" && mode === "all" && (
         <>
           {grouped.map((a) => (
-            <div key={a.name} className="mb-4">
-              <div className="mb-1 px-1 text-xs font-bold uppercase tracking-wider text-stone-500">{a.name}</div>
-              <div className="flex flex-col gap-2">
+            <div key={a.name}>
+              <SectionLabel>
+                {a.name} · {a.units.length}
+              </SectionLabel>
+              <List>
                 {a.units.map((u) => (
                   <UnitRow key={u.okla} u={u} onPick={onPick} />
                 ))}
-              </div>
+              </List>
             </div>
           ))}
-          {grouped.length === 0 && <p className="px-1 text-sm text-stone-500">No matches.</p>}
+          {grouped.length === 0 && <p className="mt-8 text-center text-sm text-ink-3">No matches.</p>}
         </>
       )}
 
       {loadState === "live" && mode === "soon" && (
         <>
-          <div className="mb-1 px-1 text-xs font-bold uppercase tracking-wider text-stone-500">
-            Due within {DUE_SOON_DAYS} days
-          </div>
-          <div className="flex flex-col gap-2">
-            {dueSoon.map((u) => (
-              <UnitRow key={u.okla} u={u} onPick={onPick} showAccount />
-            ))}
-          </div>
-          {dueSoon.length === 0 && (
-            <p className="px-1 text-sm text-stone-500">Nothing due in the next {DUE_SOON_DAYS} days.</p>
+          <SectionLabel>Due within {DUE_SOON_DAYS} days</SectionLabel>
+          {dueSoon.length > 0 ? (
+            <List>
+              {dueSoon.map((u) => (
+                <UnitRow key={u.okla} u={u} onPick={onPick} showAccount />
+              ))}
+            </List>
+          ) : (
+            <p className="mt-4 text-center text-sm text-ink-3">Nothing due in the next {DUE_SOON_DAYS} days.</p>
           )}
         </>
       )}
 
       {loadState === "error" && (
-        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4">
-          <p className="text-sm font-semibold text-red-700">Couldn&apos;t load your elevator list.</p>
-          <p className="mt-1 text-xs text-red-600">{errMsg}</p>
-          <button
+        <Glass pad className="mt-6">
+          <p className="font-semibold text-danger">Couldn&apos;t load your elevator list.</p>
+          <p className="mt-1 text-sm text-ink-2">{errMsg}</p>
+          <Button
+            className="mt-4"
             onClick={() => {
               setLoadState("loading");
               setReloadKey((k) => k + 1);
             }}
-            className="mt-3 rounded-lg bg-[#1F4B45] px-4 py-2 text-sm font-bold text-stone-50"
           >
-            Retry
-          </button>
-        </div>
+            Try again
+          </Button>
+        </Glass>
       )}
-    </div>
+
+      {/* floating "new elevator" button */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 mx-auto max-w-md px-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+        <div className="flex justify-end">
+          <Button onClick={onNew} className="pointer-events-auto rounded-full px-5">
+            <PlusIcon />
+            New elevator
+          </Button>
+        </div>
+      </div>
+    </Screen>
   );
 }
+
+/* ---------- new elevator ---------- */
 
 const NEW_TYPES = [
   "Elevator (Traction)",
@@ -641,7 +527,7 @@ function TextRow({
 }) {
   return (
     <Field label={label}>
-      <input className={inputCls} type={type} value={value} onChange={(e) => onChange(e.target.value)} />
+      <input className="input" type={type} value={value} onChange={(e) => onChange(e.target.value)} />
     </Field>
   );
 }
@@ -693,6 +579,7 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
         carried: carriedFromForm(f),
         lastYear: { date: "", inspType: "Initial", test1: "", test5: "", certIssue: "Yes", condition: "No adverse conditions", notes: "" },
       };
+      buzz();
       onCreated(elevator);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Couldn't save");
@@ -701,14 +588,12 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
   }
 
   return (
-    <div className="mx-auto max-w-md px-4 pb-28 pt-4">
-      <div className="mb-3 flex items-center gap-2">
-        <button onClick={onBack} className="text-xs font-semibold text-stone-600">‹ List</button>
-        <div className="grow" />
-      </div>
-      <h1 className="mb-3 text-lg font-bold">New elevator</h1>
+    <Screen>
+      <TopBar back={{ label: "Elevators", onClick: onBack }} />
+      <Title eyebrow="Add to the dashboard">New elevator</Title>
 
-      <Card title="Identity">
+      <SectionLabel>Identity</SectionLabel>
+      <Glass pad>
         <TextRow label="Oklahoma # (required)" value={f.okla} onChange={(v) => set("okla", v)} />
         <TextRow label="Building (required)" value={f.building} onChange={(v) => set("building", v)} />
         <TextRow label="Account (required)" value={f.account} onChange={(v) => set("account", v)} />
@@ -716,25 +601,26 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
           <Chips options={NEW_TYPES} value={f.type} onChange={(v) => set("type", v)} />
         </Field>
         <TextRow label="Floors" value={f.floors} onChange={(v) => set("floors", v)} type="number" />
-        <Field label="Inspection cycle (auto)">
-          <div className="flex items-center justify-between rounded-lg border border-stone-300 bg-stone-50 px-3 py-2.5">
-            <span className="text-base font-semibold">{cycle}</span>
-            <span className="text-xs text-stone-400">{annual ? "annual exception" : "from type"}</span>
+        <Field label="Inspection cycle (automatic)">
+          <div className="flex items-center justify-between rounded-field bg-fill px-3.5 py-3">
+            <span className="font-semibold">{cycle}</span>
+            <span className="text-sm text-ink-3">{annual ? "annual exception" : "from type"}</span>
           </div>
         </Field>
-        <label className="mb-3 flex items-start gap-2 text-sm text-stone-700">
+        <label className="mb-4 flex items-start gap-2.5 text-[15px] text-ink-2">
           <input
             type="checkbox"
             checked={annual}
             onChange={(e) => setAnnual(e.target.checked)}
-            className="mt-0.5 h-4 w-4"
+            className="mt-1 h-4 w-4 accent-accent"
           />
-          <span>Hospital, nursing home, or mobility-restricted facility (inspect annually regardless of type)</span>
+          <span>Hospital, nursing home, or mobility-restricted facility (inspect every year regardless of type)</span>
         </label>
         <TextRow label="Next due date" value={f.due} onChange={(v) => set("due", v)} type="date" />
-      </Card>
+      </Glass>
 
-      <Card title="Technical details (for the PDF)">
+      <SectionLabel>Technical details (for the state form)</SectionLabel>
+      <Glass pad>
         <div className="grid grid-cols-2 gap-3">
           <TextRow label="Serial number" value={f.serial} onChange={(v) => set("serial", v)} />
           <TextRow label="Permit #" value={f.permit} onChange={(v) => set("permit", v)} />
@@ -765,9 +651,10 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
         <TextRow label="Owner" value={f.owner} onChange={(v) => set("owner", v)} />
         <TextRow label="Owner address" value={f.ownerAddr} onChange={(v) => set("ownerAddr", v)} />
         <TextRow label="Location address" value={f.locAddr} onChange={(v) => set("locAddr", v)} />
-      </Card>
+      </Glass>
 
-      <Card title="Location & contact">
+      <SectionLabel>Location & contact</SectionLabel>
+      <Glass pad>
         <div className="grid grid-cols-2 gap-3">
           <TextRow label="City" value={f.city} onChange={(v) => set("city", v)} />
           <TextRow label="Area" value={f.area} onChange={(v) => set("area", v)} />
@@ -775,45 +662,50 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
         <TextRow label="Contact name" value={f.contact} onChange={(v) => set("contact", v)} />
         <TextRow label="Customer email" value={f.email} onChange={(v) => set("email", v)} type="email" />
         <TextRow label="Customer phone" value={f.phone} onChange={(v) => set("phone", v)} />
-      </Card>
+      </Glass>
 
-      <Card title="Maintenance company">
+      <SectionLabel>Maintenance company</SectionLabel>
+      <Glass pad>
         <TextRow label="Company" value={f.maintCo} onChange={(v) => set("maintCo", v)} />
         <TextRow label="Contact" value={f.maintContact} onChange={(v) => set("maintContact", v)} />
         <TextRow label="Email" value={f.maintEmail} onChange={(v) => set("maintEmail", v)} type="email" />
         <TextRow label="Phone" value={f.maintPhone} onChange={(v) => set("maintPhone", v)} />
-      </Card>
+      </Glass>
 
-      <Card title="Billing">
-        <div className="mb-3 flex items-center justify-between rounded-lg bg-stone-800 px-4 py-3 text-stone-100">
-          <span className="text-xs font-bold uppercase tracking-wider text-stone-400">Price (auto)</span>
-          <span className="font-mono text-xl font-medium">{formatPrice(price)}</span>
+      <SectionLabel>Billing</SectionLabel>
+      <Glass pad>
+        <div className="mb-4 flex items-baseline justify-between rounded-control bg-accent-soft px-4 py-3.5">
+          <span className="text-sm font-medium text-accent-ink">Price (automatic)</span>
+          <span className="text-2xl font-bold tracking-tight text-accent-ink">{formatPrice(price)}</span>
         </div>
         {price == null && (
-          <p className="mb-3 text-xs text-amber-700">Pick a Type (and Floors, for elevators) above to price it.</p>
+          <p className="mb-4 text-sm text-warn">Pick a Type (and Floors, for elevators) above to price it.</p>
         )}
         <Field label="Money path">
           <Chips options={MONEY_PATHS} value={f.moneyPath} onChange={(v) => set("moneyPath", v)} />
         </Field>
-      </Card>
+      </Glass>
 
-      {err && <p className="mb-3 px-1 text-sm font-semibold text-red-600">{err}</p>}
+      {err && <p className="mt-5 px-1 text-sm font-semibold text-danger">{err}</p>}
 
-      <button
-        onClick={create}
-        disabled={busy}
-        className="w-full rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50 disabled:opacity-50"
-      >
+      <Button full onClick={create} disabled={busy} className="mt-6">
         {busy ? "Saving…" : "Save & start first inspection"}
-      </button>
-      <p className="mt-3 px-1 text-xs text-stone-400">
-        Adds the elevator to your dashboard, then opens its first inspection (date, condition, violations) so its
-        first PDF is saved to Drive — a new account gets its own Drive folder automatically.
+      </Button>
+      <p className="mt-3 px-1 text-sm text-ink-3">
+        Adds the elevator to your dashboard, then opens its first inspection so its first report is saved to Drive —
+        a new account gets its own Drive folder automatically.
       </p>
-    </div>
+    </Screen>
   );
 }
 
+/* ---------- profile ---------- */
+
+// Lifecycle values that mean "in progress, waiting on someone" (shown as the
+// breathing "now" node); any other value means the step is done.
+const IN_PROGRESS = new Set(["Waiting", "Awaiting", "Booked", "Review", "No answer"]);
+
+// Tap a lifecycle step → a sheet to change it; saving asks once more in the same sheet.
 function LifecycleEditor({
   stage,
   row,
@@ -850,6 +742,7 @@ function LifecycleEditor({
         const e = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(e.error || `Error ${res.status}`);
       }
+      buzz();
       onSaved(choice);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Save failed");
@@ -860,77 +753,47 @@ function LifecycleEditor({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-stone-100">
-      <div className="flex items-center justify-between border-b border-stone-200 bg-white p-3">
-        <h3 className="text-sm font-bold uppercase tracking-widest">{stage.label}</h3>
-        <button onClick={onClose} className="text-xs font-semibold uppercase tracking-wider text-stone-500">
-          Cancel
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-auto p-4">
-        <Card title="Set status">
+    <Sheet onClose={busy ? () => {} : onClose}>
+      {confirm ? (
+        <>
+          <h3 className="text-[21px] font-bold tracking-tight">Are you sure?</h3>
+          <p className="mt-1.5 text-[15px] text-ink-2">
+            Set <span className="font-semibold text-ink">{stage.label}</span> to{" "}
+            <span className="font-semibold text-ink">{show(choice)}</span> on the live dashboard?
+          </p>
+          <div className="mt-6 flex flex-col gap-2.5">
+            <Button full onClick={save} disabled={busy}>
+              {busy ? "Saving…" : "Yes, save"}
+            </Button>
+            <Button variant="secondary" full onClick={() => setConfirm(false)} disabled={busy}>
+              Back
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <h3 className="text-[21px] font-bold tracking-tight">{stage.label}</h3>
+          <p className="mb-4 mt-1 text-sm text-ink-3">Now: {show(stage.value)}</p>
           {stage.options.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {stage.options.map((o) => {
-                const on = o === choice;
-                return (
-                  <button
-                    key={o}
-                    onClick={() => setChoice(o)}
-                    className={
-                      "rounded-full border px-4 py-2 text-sm font-semibold " +
-                      (on ? "border-[#1F4B45] bg-[#1F4B45] text-stone-50" : "border-stone-300 bg-stone-50 text-stone-700")
-                    }
-                  >
-                    {o}
-                  </button>
-                );
-              })}
-            </div>
+            <Chips options={stage.options} value={choice} onChange={setChoice} />
           ) : (
-            <input
-              className={inputCls}
-              placeholder="Type a value"
-              value={choice}
-              onChange={(e) => setChoice(e.target.value)}
-            />
+            <input className="input" placeholder="Type a value" value={choice} onChange={(e) => setChoice(e.target.value)} />
           )}
-          <button
-            onClick={() => setChoice("")}
-            className="mt-3 text-xs font-semibold uppercase tracking-wider text-stone-500"
-          >
+          <Button variant="quiet" onClick={() => setChoice("")} className="mt-3 text-sm">
             Clear this step
-          </button>
-          {err && <p className="mt-3 text-sm font-semibold text-red-600">{err}</p>}
-        </Card>
-      </div>
-
-      <div className="border-t border-stone-200 bg-white p-4">
-        <button
-          onClick={() => setConfirm(true)}
-          disabled={!changed || busy}
-          className="w-full rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50 disabled:opacity-40"
-        >
-          {busy ? "Saving…" : "Save"}
-        </button>
-      </div>
-
-      {/* double-confirm before any write */}
-      {confirm && (
-        <ConfirmDialog
-          title="Are you sure?"
-          confirmLabel="Yes, save"
-          busyLabel="Saving…"
-          busy={busy}
-          onCancel={() => setConfirm(false)}
-          onConfirm={save}
-        >
-          Set <span className="font-semibold">{stage.label}</span> to{" "}
-          <span className="font-semibold">{show(choice)}</span> on the live dashboard?
-        </ConfirmDialog>
+          </Button>
+          {err && <p className="mt-2 text-sm font-semibold text-danger">{err}</p>}
+          <div className="mt-5 flex flex-col gap-2.5">
+            <Button full onClick={() => setConfirm(true)} disabled={!changed}>
+              Save
+            </Button>
+            <Button variant="secondary" full onClick={onClose}>
+              Cancel
+            </Button>
+          </div>
+        </>
       )}
-    </div>
+    </Sheet>
   );
 }
 
@@ -969,6 +832,7 @@ function Profile({
       });
       const d = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(d.error || "Save failed");
+      buzz();
       onChange({ ...e, active: next });
       closeSw();
     } catch (err) {
@@ -977,19 +841,9 @@ function Profile({
       setSwBusy(false);
     }
   }
-  const details: [string, string][] = [
-    ["Account", e.account],
-    ["Contact", e.contact],
-    ["City", e.city],
-    ["Area", e.area],
-    ["Type", e.type],
-    ["Floors", e.floors ? String(e.floors) : "—"],
-    ["Cycle", e.cycle === "Res" ? "Residential" : `${e.cycle} year`],
-    ["Price", e.price || formatPrice(computePrice(e.type, e.floors))],
-    ["Money path", e.moneyPath || "—"],
-  ];
+
   return (
-    <div className="mx-auto max-w-md px-4 pb-24 pt-4">
+    <Screen>
       {editing && (
         <LifecycleEditor
           stage={editing}
@@ -1001,80 +855,67 @@ function Profile({
           }}
         />
       )}
-      <div className="mb-3 flex items-center gap-2">
-        <button onClick={onBack} className="text-xs font-semibold text-stone-600">‹ List</button>
-        <div className="grow" />
-        <button onClick={onSettings} className="text-xs font-semibold uppercase tracking-wider text-stone-500">
-          ⚙ Settings
-        </button>
+
+      <TopBar back={{ label: "Elevators", onClick: onBack }} right={<SettingsButton onClick={onSettings} />} />
+      <Title eyebrow={<span className="font-mono">OK #{e.okla}</span>}>{e.building}</Title>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Pill tone={swOn ? "green" : "red"} dot>
+          {swOn ? "Running" : "Paused"}
+        </Pill>
+        <Pill>Due {e.due || "—"}</Pill>
+        <DueDot days={daysUntil(e.due)} fallback="" />
       </div>
 
-      {/* data plate */}
-      <div className="mb-3 rounded-lg bg-stone-800 p-4 text-stone-100">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">Oklahoma #</div>
-        <div className="font-mono text-2xl font-medium">{e.okla}</div>
-        <div className="mt-1 text-sm font-semibold">{e.building}</div>
-        <div className="mt-2 flex items-center gap-2">
-          <DueBadge due={e.due} />
-          <span className="text-xs text-stone-400">due {e.due || "—"}</span>
-        </div>
-      </div>
+      <Button full onClick={onStartReport} className="mt-6">
+        Start inspection
+      </Button>
 
-      <button
-        onClick={onStartReport}
-        className="mb-3 w-full rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50 active:opacity-90"
-      >
-        Start inspection report
-      </button>
+      <SectionLabel>Customer lifecycle</SectionLabel>
+      <Glass className="px-4 py-1.5">
+        {e.lifecycle.map((s) => {
+          const state = !s.value ? "tl-todo" : IN_PROGRESS.has(s.value) ? "tl-now" : "tl-done";
+          return (
+            <button key={s.key} onClick={() => setEditing(s)} className={"tl-step " + state}>
+              <span className="tl-node">{state === "tl-done" && <CheckIcon />}</span>
+              <span className={"flex-1 text-[15px] " + (s.value ? "" : "text-ink-3")}>{s.label}</span>
+              <span className="text-[13px] text-ink-2">{s.value}</span>
+            </button>
+          );
+        })}
+      </Glass>
+      <p className="mt-2 px-1 text-sm text-ink-3">Tap a step to change it — you&apos;ll confirm before it saves.</p>
 
-      {/* this elevator's on/off switch */}
-      <Card title="This elevator">
-        <div className="flex items-center justify-between">
+      <SectionLabel>This elevator</SectionLabel>
+      <List>
+        <div className="row justify-between">
           <div>
-            <div className="text-sm font-semibold text-stone-700">Automatic steps</div>
-            <div className={"text-xs font-bold uppercase tracking-wider " + (swOn ? "text-[#1F4B45]" : "text-red-600")}>
-              {swOn ? "● On — running" : "● Off — paused"}
+            <div className="text-[15px]">Automatic steps</div>
+            <div className="text-sm text-ink-3">
+              {swOn ? "Emails, invoice and payment steps run" : "Paused — nothing automatic runs"}
             </div>
           </div>
-          {swOn ? (
-            <button
-              onClick={() => setSwStep("pause1")}
-              className="rounded-lg bg-red-600 px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-white active:opacity-90"
-            >
-              Pause this elevator
-            </button>
-          ) : (
-            <button
-              onClick={() => setSwStep("resume")}
-              className="rounded-lg bg-[#1F4B45] px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-stone-50 active:opacity-90"
-            >
-              Resume
-            </button>
-          )}
+          <Toggle label="Automatic steps" on={swOn} onClick={() => setSwStep(swOn ? "pause1" : "resume")} />
         </div>
-        {swErr && !swStep && <p className="mt-3 text-sm font-semibold text-red-600">{swErr}</p>}
-        <p className="mt-2 text-xs text-stone-400">
-          Paused means no automatic emails, invoice, or payment steps run for {e.building || "this elevator"} until you turn it back on.
-        </p>
-      </Card>
+      </List>
+      {swErr && !swStep && <p className="mt-2 px-1 text-sm font-semibold text-danger">{swErr}</p>}
 
       {/* pausing takes two confirmations; resuming takes one */}
       {swStep === "pause1" && (
         <ConfirmDialog
           danger
-          title={`Pause ${e.building}? (step 1 of 2)`}
+          title={`Pause ${e.building}?`}
           confirmLabel="Continue"
           onCancel={closeSw}
           onConfirm={() => setSwStep("pause2")}
         >
-          Its automatic emails, invoice, and payment steps stop until you switch it back on. You&apos;ll confirm
-          once more.
+          Its automatic emails, invoice, and payment steps stop until you switch it back on. You&apos;ll confirm once
+          more.
         </ConfirmDialog>
       )}
       {swStep === "pause2" && (
         <ConfirmDialog
           danger
-          title="Confirm pause (step 2 of 2)"
+          title="Confirm pause"
           confirmLabel="Pause it"
           busyLabel="Pausing…"
           busy={swBusy}
@@ -1082,7 +923,7 @@ function Profile({
           onCancel={closeSw}
           onConfirm={() => setSwitch(false)}
         >
-          Pause <span className="font-semibold">{e.building}</span> now?
+          Pause <span className="font-semibold text-ink">{e.building}</span> now?
         </ConfirmDialog>
       )}
       {swStep === "resume" && (
@@ -1099,46 +940,21 @@ function Profile({
         </ConfirmDialog>
       )}
 
-      {/* lifecycle — tap any step to change it (writes to the dashboard after a confirm) */}
-      <Card title="Customer lifecycle">
-        <div className="flex flex-col gap-1.5">
-          {e.lifecycle.map((s) => (
-            <button
-              key={s.key}
-              onClick={() => setEditing(s)}
-              className="flex items-center justify-between gap-3 rounded-md bg-stone-50 px-3 py-2 text-left active:bg-stone-200"
-            >
-              <span className="text-sm text-stone-600">{s.label}</span>
-              <span className="flex items-center gap-2">
-                {s.value ? (
-                  <span className="rounded-full bg-[#DDE8E4] px-2 py-0.5 text-xs font-semibold text-[#1F4B45]">
-                    {s.value}
-                  </span>
-                ) : (
-                  <span className="text-xs text-stone-400">—</span>
-                )}
-                <span className="text-stone-300">›</span>
-              </span>
-            </button>
-          ))}
-        </div>
-        <p className="mt-3 text-xs text-stone-400">Tap a step to change it — you&apos;ll confirm before it saves.</p>
-      </Card>
-
-      {/* details */}
-      <Card title="Details">
-        <dl className="divide-y divide-stone-100">
-          {details.map(([k, v]) => (
-            <div key={k} className="flex justify-between gap-4 py-2">
-              <dt className="text-xs font-semibold uppercase tracking-wider text-stone-500">{k}</dt>
-              <dd className="text-right text-sm text-stone-700">{v || "—"}</dd>
-            </div>
-          ))}
-        </dl>
-      </Card>
-    </div>
+      <SectionLabel>Details</SectionLabel>
+      <List>
+        <InfoRow label="Account">{e.account || "—"}</InfoRow>
+        <InfoRow label="Contact">{e.contact || "—"}</InfoRow>
+        <InfoRow label="City">{[e.city, e.area].filter(Boolean).join(" · ") || "—"}</InfoRow>
+        <InfoRow label="Type">{[e.type, e.floors ? `${e.floors} floors` : ""].filter(Boolean).join(" · ") || "—"}</InfoRow>
+        <InfoRow label="Cycle">{e.cycle === "Res" ? "Residential" : `Every ${e.cycle === "1" ? "year" : `${e.cycle} years`}`}</InfoRow>
+        <InfoRow label="Price">{e.price || formatPrice(computePrice(e.type, e.floors))}</InfoRow>
+        <InfoRow label="Money path">{e.moneyPath || "—"}</InfoRow>
+      </List>
+    </Screen>
   );
 }
+
+/* ---------- report ---------- */
 
 function ViolationSheet({
   addedRaws,
@@ -1153,29 +969,18 @@ function ViolationSheet({
   const query = q.trim().toLowerCase();
   const list = VIOLATIONS.filter((v) => !query || v.toLowerCase().includes(query));
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-stone-100">
-      <div className="border-b border-stone-200 bg-white p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-bold uppercase tracking-widest">Violation list</h3>
-          <button
-            onClick={onClose}
-            className="rounded-full bg-[#1F4B45] px-4 py-2 text-xs font-bold uppercase tracking-wider text-stone-50"
-          >
+    <Sheet onClose={onClose}>
+      <div className="sheet-header">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-[21px] font-bold tracking-tight">Violation list</h3>
+          <Button variant="quiet" onClick={onClose} className="text-base">
             Done
-          </button>
+          </Button>
         </div>
-        <input
-          className={inputCls}
-          placeholder="Search the list"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          autoFocus
-        />
+        <input className="input" placeholder="Search the list" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
       </div>
-      <div className="flex-1 overflow-auto p-3">
-        <div className="mb-3 rounded-lg bg-stone-800 p-3 text-xs leading-relaxed text-stone-100">
-          {VHEAD}
-        </div>
+      <p className="my-3 rounded-control bg-fill p-3 text-sm leading-relaxed text-ink-2">{VHEAD}</p>
+      <div className="flex flex-col gap-2">
         {list.map((raw) => {
           const p = parseViolation(raw);
           const picked = addedRaws.has(raw);
@@ -1183,34 +988,23 @@ function ViolationSheet({
             <button
               key={raw}
               onClick={() => onToggle(raw)}
-              className={
-                "mb-2 block w-full rounded-lg border p-3 text-left text-sm " +
-                (picked ? "border-[#1F4B45] bg-[#DDE8E4]" : "border-stone-300 bg-white")
-              }
+              className={"tile p-3.5 text-left text-[15px] " + (picked ? "tile-on" : "")}
             >
               <div className="flex items-start justify-between gap-2">
                 <span>{p.text}</span>
-                {picked && (
-                  <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-[#1F4B45]">
-                    Added
-                  </span>
-                )}
+                {picked && <span className="shrink-0 text-xs font-semibold text-accent-ink">Added</span>}
               </div>
-              <code className="mt-1 block font-mono text-[11px] text-stone-500">{p.code}</code>
+              <code className="mt-1 block font-mono text-xs text-ink-3">{p.code}</code>
             </button>
           );
         })}
       </div>
-    </div>
+    </Sheet>
   );
 }
 
 const KIND_LABEL: Record<LineKind, string> = { V: "Violation", R: "Recommend", C: "Comment" };
-const KIND_COLOR: Record<LineKind, string> = {
-  V: "border-l-red-600",
-  R: "border-l-amber-600",
-  C: "border-l-stone-400",
-};
+const KINDS: LineKind[] = ["V", "R", "C"];
 
 function Report({
   elevator,
@@ -1262,7 +1056,7 @@ function Report({
 
   async function finalize() {
     if (!r.date) {
-      setStatus("Add the inspection date before finalizing.");
+      setStatus("Add the inspection date before finishing.");
       return;
     }
     setBusy(true);
@@ -1286,10 +1080,11 @@ function Report({
       } catch {
         /* storage may be unavailable */
       }
+      buzz();
       const dashNote =
         writeback === "ok" ? "Dashboard updated (Visit → Inspected)." : "Dashboard update: " + writeback + ".";
       const driveNote = drive === "ok" ? "Saved to Drive." : "Drive save: " + drive + ".";
-      setStatus(`Finalized ${elevator.building} (#${elevator.okla}). ${dashNote} ${driveNote}`);
+      setStatus(`Finished ${elevator.building}. ${dashNote} ${driveNote}`);
     } catch (err) {
       setStatus("Couldn't build the PDF: " + (err instanceof Error ? err.message : String(err)));
     } finally {
@@ -1300,6 +1095,7 @@ function Report({
   function saveForLater() {
     try {
       localStorage.setItem(draftKey(elevator.okla), JSON.stringify(r));
+      buzz();
       setStatus(`Saved on this phone — reopen ${elevator.building}'s report to pick up where you left off.`);
     } catch {
       setStatus("Couldn't save on this phone (storage is unavailable).");
@@ -1307,51 +1103,23 @@ function Report({
   }
 
   return (
-    <div className="mx-auto max-w-md pb-40">
-      {sheet && (
-        <ViolationSheet
-          addedRaws={addedRaws}
-          onToggle={toggleViolation}
-          onClose={() => setSheet(false)}
-        />
-      )}
+    <>
+      {sheet && <ViolationSheet addedRaws={addedRaws} onToggle={toggleViolation} onClose={() => setSheet(false)} />}
 
-      {/* top bar */}
-      <div className="sticky top-0 z-30 border-b border-stone-200 bg-stone-100/95 px-4 py-2 backdrop-blur">
-        <div className="flex items-center gap-2">
-          <div className="text-sm font-extrabold tracking-wide text-[#1F4B45]">ELITE / FIELD</div>
-          <div className="grow" />
-          <button onClick={onBack} className="text-xs font-semibold text-stone-600">
-            ‹ Profile
-          </button>
-          <button onClick={onSettings} className="text-xs font-semibold text-stone-500">
-            ⚙ Settings
-          </button>
-        </div>
-      </div>
-
-      <div className="px-4 pt-3">
-        {/* data plate */}
-        <div className="mb-3 rounded-lg bg-stone-800 p-4 text-stone-100">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">
-            Oklahoma #
-          </div>
-          <div className="font-mono text-2xl font-medium">{elevator.okla}</div>
-          <div className="mt-1 text-sm font-semibold">{elevator.building}</div>
-          <div className="mt-2 inline-block rounded-full bg-amber-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-50">
-            Due {elevator.due}
-          </div>
+      <Screen bottomSpace>
+        <TopBar back={{ label: "Profile", onClick: onBack }} right={<SettingsButton onClick={onSettings} />} />
+        <Title eyebrow={<>Inspection report · <span className="font-mono">OK #{elevator.okla}</span></>}>
+          {elevator.building}
+        </Title>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Pill>Due {elevator.due || "—"}</Pill>
+          <DueDot days={daysUntil(elevator.due)} fallback="" />
         </div>
 
-        {/* This visit */}
-        <Card title="This visit">
+        <SectionLabel>This visit</SectionLabel>
+        <Glass pad>
           <Field label="Date inspected">
-            <input
-              type="date"
-              className={inputCls}
-              value={r.date}
-              onChange={(e) => set("date", e.target.value)}
-            />
+            <input type="date" className="input" value={r.date} onChange={(e) => set("date", e.target.value)} />
           </Field>
           <Field label="Inspection type">
             <Chips options={INSPECTION_TYPES} value={r.inspType} onChange={(v) => set("inspType", v)} />
@@ -1360,151 +1128,111 @@ function Report({
             <Chips options={CYCLES} value={r.cycle} onChange={(v) => set("cycle", v)} />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="One year test">
-              <input
-                className={inputCls}
-                placeholder="MM/YYYY"
-                value={r.test1}
-                onChange={(e) => set("test1", e.target.value)}
-              />
+            <Field label="One-year test">
+              <input className="input" placeholder="MM/YYYY" value={r.test1} onChange={(e) => set("test1", e.target.value)} />
             </Field>
-            <Field label="Five year test">
-              <input
-                className={inputCls}
-                placeholder="MM/YYYY"
-                value={r.test5}
-                onChange={(e) => set("test5", e.target.value)}
-              />
+            <Field label="Five-year test">
+              <input className="input" placeholder="MM/YYYY" value={r.test5} onChange={(e) => set("test5", e.target.value)} />
             </Field>
           </div>
-          <Field label="Certificate issue">
+          <Field label="Certificate issued">
             <Chips options={CERT_ISSUE} value={r.certIssue} onChange={(v) => set("certIssue", v)} />
           </Field>
           <Field label="Condition">
             <Chips options={CONDITIONS} value={r.condition} onChange={(v) => set("condition", v)} />
           </Field>
-        </Card>
+        </Glass>
 
-        {/* Violations */}
-        <Card title="Violations, recommendations, comments">
-          <div className="mb-3 grid grid-cols-3 gap-2">
-            <Tally n={tally.V} label="Violations" color="text-red-600" />
-            <Tally n={tally.R} label="Recommend" color="text-amber-600" />
-            <Tally n={tally.C} label="Comments" color="text-stone-600" />
+        <SectionLabel>Findings</SectionLabel>
+        <Glass pad>
+          <div className="grid grid-cols-3 gap-2.5">
+            <Tally n={tally.V} label="Violations" tone="text-danger" />
+            <Tally n={tally.R} label="Recommend" tone="text-warn" />
+            <Tally n={tally.C} label="Comments" tone="text-ink-2" />
           </div>
-          {r.added.length === 0 && (
-            <p className="mb-3 text-sm text-stone-500">None added yet.</p>
-          )}
-          {r.added.map((a) => (
-            <div
-              key={a.raw}
-              className={"mb-3 overflow-hidden rounded-lg border border-l-4 border-stone-200 bg-white " + KIND_COLOR[a.kind]}
-            >
-              <p className="px-3 pt-3 text-sm leading-snug">{a.violation}</p>
-              <code className="block px-3 pb-2 pt-1 font-mono text-[11px] text-stone-500">
-                {parseViolation(a.raw).code}
-              </code>
-              <textarea
-                className="w-full resize-none border-t border-stone-200 bg-stone-50 px-3 py-2 text-sm outline-none"
-                rows={2}
-                placeholder="Comment (optional)"
-                value={a.comment}
-                onChange={(e) => setLine(a.raw, { comment: e.target.value })}
-              />
-              <div className="flex border-t border-stone-200">
-                {(["V", "R", "C"] as LineKind[]).map((k) => (
-                  <button
-                    key={k}
-                    onClick={() => setLine(a.raw, { kind: k })}
-                    className={
-                      "flex-1 border-r border-stone-200 py-2 text-xs font-bold uppercase tracking-wider last:border-r-0 " +
-                      (a.kind === k ? "bg-[#1F4B45] text-stone-50" : "text-stone-500")
-                    }
-                  >
-                    {KIND_LABEL[k]}
+          {r.added.length === 0 && <p className="mt-4 text-center text-sm text-ink-3">None added yet.</p>}
+          <div className="mt-3 flex flex-col gap-3">
+            {r.added.map((a) => (
+              <div key={a.raw} className={"finding " + (a.kind !== "V" ? "finding-" + a.kind : "")}>
+                <p className="px-3.5 pt-3 text-[15px] leading-snug">{a.violation}</p>
+                <code className="block px-3.5 pb-2 pt-1 font-mono text-xs text-ink-3">{parseViolation(a.raw).code}</code>
+                <textarea
+                  className="w-full resize-none bg-fill px-3.5 py-2.5 text-[15px] outline-none placeholder:text-ink-3"
+                  rows={2}
+                  placeholder="Comment (optional)"
+                  value={a.comment}
+                  onChange={(e) => setLine(a.raw, { comment: e.target.value })}
+                />
+                <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
+                  {KINDS.map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => setLine(a.raw, { kind: k })}
+                      className={"chip py-1.5 text-[13px] " + (a.kind === k ? "chip-on" : "")}
+                    >
+                      {KIND_LABEL[k]}
+                    </button>
+                  ))}
+                  <span className="grow" />
+                  <button onClick={() => toggleViolation(a.raw)} className="text-sm font-semibold text-danger">
+                    Remove
                   </button>
-                ))}
-                <button
-                  onClick={() => toggleViolation(a.raw)}
-                  className="border-l border-stone-200 px-3 py-2 text-xs font-bold uppercase tracking-wider text-red-600"
-                >
-                  Remove
-                </button>
+                </div>
               </div>
-            </div>
-          ))}
-          <button
-            onClick={() => setSheet(true)}
-            className="w-full rounded-lg border-2 border-dashed border-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-[#1F4B45]"
-          >
-            + Add from the list
-          </button>
-        </Card>
+            ))}
+          </div>
+          <Button variant="soft" full onClick={() => setSheet(true)} className="mt-4">
+            <PlusIcon />
+            Add from the list
+          </Button>
+        </Glass>
 
-        {/* Field notes */}
-        <Card title="Field notes">
+        <SectionLabel>Field notes</SectionLabel>
+        <Glass pad>
           <Field label="Anything to fix on the computer later">
             <textarea
-              className={inputCls + " min-h-24 resize-y"}
+              className="input min-h-24 resize-y"
               placeholder="Owner changed hands, serial on file is wrong, new gate code…"
               value={r.notes}
               onChange={(e) => set("notes", e.target.value)}
             />
           </Field>
-        </Card>
+        </Glass>
 
-        {/* Carried over (locked) */}
-        <Card title="Carried over">
-          <div className="mb-3 flex items-start gap-2 rounded-lg bg-stone-200 p-3 text-xs leading-relaxed text-stone-600">
-            <span className="font-bold uppercase tracking-wider text-amber-700">Locked</span>
-            <span>
-              These stay put in the field so nothing gets changed by accident. Note it above and edit it on the computer.
-            </span>
-          </div>
-          <dl className="divide-y divide-stone-100">
-            {elevator.carried.map((f) => (
-              <div key={f.label} className="flex justify-between gap-4 py-2">
-                <dt className="text-xs font-semibold uppercase tracking-wider text-stone-500">
-                  {f.label}
-                </dt>
-                <dd className="text-right text-sm text-stone-700">{f.value || "—"}</dd>
-              </div>
-            ))}
-          </dl>
-        </Card>
-      </div>
+        <SectionLabel>Carried over</SectionLabel>
+        <List>
+          {elevator.carried.map((f) => (
+            <InfoRow key={f.label} label={f.label}>
+              {f.value || "—"}
+            </InfoRow>
+          ))}
+        </List>
+        <p className="mt-2 px-1 text-sm text-ink-3">
+          Locked in the field so nothing changes by accident — note it above and edit it on the computer.
+        </p>
+      </Screen>
 
-      {/* action bar */}
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white">
-        {status && (
-          <div className="px-4 py-2 text-xs text-stone-600">{status}</div>
-        )}
-        <div className="mx-auto flex max-w-md gap-3 px-4 py-3">
-          <button
-            onClick={saveForLater}
-            disabled={busy}
-            className="flex-1 rounded-lg border border-stone-300 bg-stone-50 py-3 text-sm font-bold uppercase tracking-wider text-stone-700 active:bg-stone-200 disabled:opacity-50"
-          >
+      {/* floating action bar */}
+      <div className="floating-bar glass-strong">
+        {status && <p className="px-2 pb-2 pt-1 text-[13px] text-ink-2">{status}</p>}
+        <div className="flex gap-2.5">
+          <Button variant="secondary" onClick={saveForLater} disabled={busy} className="flex-1">
             Save for later
-          </button>
-          <button
-            onClick={finalize}
-            disabled={busy}
-            className="flex-1 rounded-lg bg-[#1F4B45] py-3 text-sm font-bold uppercase tracking-wider text-stone-50 active:opacity-90 disabled:opacity-60"
-          >
-            {busy ? "Working…" : "Finish & finalize"}
-          </button>
+          </Button>
+          <Button onClick={finalize} disabled={busy} className="flex-1">
+            {busy ? "Working…" : "Finish report"}
+          </Button>
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
-function Tally({ n, label, color }: { n: number; label: string; color: string }) {
+function Tally({ n, label, tone }: { n: number; label: string; tone: string }) {
   return (
-    <div className="rounded-lg border border-stone-200 bg-white py-2 text-center">
-      <div className={"font-mono text-2xl font-medium tabular-nums " + color}>{n}</div>
-      <div className="text-[10px] font-bold uppercase tracking-wider text-stone-500">{label}</div>
+    <div className="rounded-control bg-fill py-2.5 text-center">
+      <div className={"text-2xl font-bold tabular-nums tracking-tight " + tone}>{n}</div>
+      <div className="text-xs text-ink-2">{label}</div>
     </div>
   );
 }
@@ -1524,27 +1252,27 @@ export default function Home() {
 
   const logout = () => signOut({ redirectUrl: "/sign-in" });
   const openSettings = () => setSettingsOpen(true);
+  // Every screen change glides (see go() in components/ui.tsx) and starts at the top.
+  const to = (next: Stage, pick?: Elevator) =>
+    go(() => {
+      if (pick) setSelected(pick);
+      setStage(next);
+      window.scrollTo(0, 0);
+    });
 
   return (
     <>
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} onLogout={logout} />}
       {stage === "new" ? (
-        <NewElevator
-          onBack={() => setStage("list")}
-          onCreated={(e) => {
-            setSelected(e);
-            setStage("report");
-          }}
-        />
+        <NewElevator onBack={() => to("list")} onCreated={(e) => to("report", e)} />
       ) : stage === "list" || !selected ? (
         <Picker
           openOkla={openOkla}
           onPick={(e) => {
             setOpenOkla("");
-            setSelected(e);
-            setStage("profile");
+            to("profile", e);
           }}
-          onNew={() => setStage("new")}
+          onNew={() => to("new")}
           onSettings={openSettings}
         />
       ) : stage === "profile" ? (
@@ -1552,17 +1280,12 @@ export default function Home() {
           key={selected.okla}
           elevator={selected}
           onChange={setSelected}
-          onBack={() => setStage("list")}
-          onStartReport={() => setStage("report")}
+          onBack={() => to("list")}
+          onStartReport={() => to("report")}
           onSettings={openSettings}
         />
       ) : (
-        <Report
-          key={selected.okla}
-          elevator={selected}
-          onBack={() => setStage("profile")}
-          onSettings={openSettings}
-        />
+        <Report key={selected.okla} elevator={selected} onBack={() => to("profile")} onSettings={openSettings} />
       )}
     </>
   );

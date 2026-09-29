@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Button, PublicPage } from "@/components/ui";
 
 type Info = { building: string; price?: string; alreadyPaid?: boolean };
 
@@ -48,44 +49,32 @@ export default function PayForm({ token }: { token: string }) {
     }
   }
 
-  const wrap: React.CSSProperties = {
-    maxWidth: 460, margin: "0 auto", padding: "32px 20px",
-    fontFamily: "system-ui, Segoe UI, Roboto, sans-serif", color: "#1a1a1a",
-  };
-  const btn: React.CSSProperties = {
-    width: "100%", padding: "14px", fontSize: 16, fontWeight: 600, marginTop: 22,
-    background: busy ? "#7aa7c7" : "#1f6feb", color: "#fff", border: "none", borderRadius: 10,
-    cursor: busy ? "default" : "pointer",
-  };
-
   if (!token) {
-    return <main style={wrap}><p style={{ fontSize: 17 }}>This link is missing its code. Please use the link from your invoice email.</p></main>;
+    return <PublicPage title="Link incomplete">This link is missing its code. Please use the link from your invoice email.</PublicPage>;
   }
-  if (loadErr) return <main style={wrap}><p style={{ fontSize: 17 }}>{loadErr}</p></main>;
-  if (!info) return <main style={wrap}><p>Loading…</p></main>;
+  if (loadErr) return <PublicPage title="Link not found">{loadErr}</PublicPage>;
+  if (!info) return <PublicPage><p className="text-center text-sm text-ink-3">Loading…</p></PublicPage>;
 
   if (done) {
     return (
-      <main style={wrap}>
-        <h1 style={{ fontSize: 22 }}>Payment recorded — thank you.</h1>
-        <p style={{ fontSize: 17, lineHeight: 1.5 }}>
-          {info.building} is marked paid. Nothing else is needed from you.
-        </p>
-      </main>
+      <PublicPage title="Payment recorded — thank you.">
+        <p className="text-[15px] text-ink-2">{info.building} is marked paid. Nothing else is needed from you.</p>
+      </PublicPage>
     );
   }
 
   return (
-    <main style={wrap}>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>Pay your invoice</h1>
-      <p style={{ color: "#52606d", marginTop: 0 }}>For {info.building}</p>
+    <PublicPage title="Pay your invoice" subtitle={<>For {info.building}</>}>
       {info.price ? (
-        <p style={{ fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Amount due: {info.price}</p>
+        <div className="flex items-baseline justify-between rounded-control bg-accent-soft px-4 py-4">
+          <span className="text-sm font-medium text-accent-ink">Amount due</span>
+          <span className="text-3xl font-bold tracking-tight text-accent-ink">{info.price}</span>
+        </div>
       ) : null}
-      {submitErr ? <p style={{ color: "#c92a2a", marginTop: 12 }}>{submitErr}</p> : null}
-      <button type="button" style={btn} disabled={busy} onClick={pay}>
+      {submitErr ? <p className="mt-3 text-sm font-semibold text-danger">{submitErr}</p> : null}
+      <Button type="button" full className="mt-5" disabled={busy} onClick={pay}>
         {busy ? "Recording…" : "Pay now"}
-      </button>
-    </main>
+      </Button>
+    </PublicPage>
   );
 }

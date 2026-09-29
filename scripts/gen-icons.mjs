@@ -4,7 +4,7 @@
 import sharp from "sharp";
 import fs from "node:fs";
 
-const GREEN = "#1F4B45";
+const GREEN = "#16A34A"; // = --color-accent in src/app/globals.css
 
 // A simple brand monogram: green field, white "EE". `scale` controls how much
 // of the tile the text fills (smaller for maskable so it stays in the safe zone).
@@ -15,7 +15,7 @@ function svg(size, scale, rounded) {
   <rect width="${size}" height="${size}" rx="${radius}" ry="${radius}" fill="${GREEN}"/>
   <text x="50%" y="50%" dy="0.34em" text-anchor="middle"
     font-family="Arial, Helvetica, sans-serif" font-weight="800"
-    font-size="${fontSize}" letter-spacing="${Math.round(size * -0.02)}" fill="#F5F5F4">EE</text>
+    font-size="${fontSize}" letter-spacing="${Math.round(size * -0.02)}" fill="#FFFFFF">EE</text>
 </svg>`);
 }
 
