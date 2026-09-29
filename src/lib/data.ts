@@ -48,6 +48,7 @@ export type Elevator = {
   price?: string; // customer price from the dashboard (col P)
   moneyPath?: string; // col Q
   active?: boolean; // the on/off switch (col AL); false = paused
+  reportDone?: boolean; // a finished report is saved for this visit (col AO holds its Drive link; cleared each new cycle)
   row?: number; // the dashboard sheet row this came from (for write-back)
   lifecycle: LifecycleStage[]; // the customer-lifecycle status cells (cols S..AE)
   carried: Field[]; // fixed info: shown, but locked on the phone

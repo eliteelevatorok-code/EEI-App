@@ -4,6 +4,7 @@ import { readConfig, writeConfig } from "@/lib/config";
 import { cell, readRows } from "@/lib/sheet";
 import { isAmerican } from "@/lib/records";
 import { isMasterOn, isRowPaused } from "@/lib/switches";
+import { finishedReport } from "@/lib/report";
 
 // Phone alerts (web push). The signing keys and the scheduler secret live in the
 // dashboard's private Config tab, which only the app's Google robot account can
@@ -60,9 +61,10 @@ async function dropSubscription(row: number): Promise<void> {
 
 // One thing that needs a PERSON. The automation sends the emails and invoices,
 // and the PO/maintenance forms and QuickBooks handle their own steps — so only
-// three things buzz the phone:
+// four things buzz the phone:
 //   inspect — a visit is booked: go do the inspection
 //   chase   — no answer yet on the safety test (asked of American Elevator, or the customer)
+//   report  — the visit is marked done but its report was never finished (so it can't be emailed)
 //   overdue — past the due date and no visit booked or done
 // `key` identifies the item so the same thing isn't announced twice.
 export type AlertItem = { key: string; okla: string; building: string; title: string; body: string };
@@ -133,6 +135,19 @@ export async function alertItems(): Promise<AlertItem[]> {
           : "The customer hasn't told us yet whether it passed a safety test in the last 12 months. Give them a call, or enter the answer if you already have it.",
       });
     }
+    if (visit === "Inspected" && cell(r, "report") !== "Sent") {
+      // The report email (customer + state) waits for the finished report. If
+      // Drive can't be checked right now, say nothing rather than guess.
+      const done = await finishedReport(r).catch(() => true);
+      if (!done)
+        out.push({
+          key: `report:${okla}:${cell(r, "tripDay")}`,
+          okla,
+          building,
+          title: `The report for ${building} isn't finished`,
+          body: "The visit is marked done, but the report hasn't been finished — so it can't go to the customer or the state yet. Tap to finish it.",
+        });
+    }
     const due = dateNum(cell(r, "due"));
     if (due && due < today && visit !== "Booked" && visit !== "Inspected") {
       out.push({
@@ -164,6 +179,44 @@ export async function saveSent(keys: string[]): Promise<void> {
   await writeConfig(SENT, JSON.stringify({ day: todayNum(), keys }));
 }
 export { todayNum };
+
+// ---- when the automation can't finish a step for one elevator ----
+// The Make automation skips that elevator (every other one keeps going) and
+// calls /api/push/problem, which lands here. Each problem buzzes the phone once a
+// day — Make retries every hour, and it shouldn't buzz every hour.
+
+// Make's error text, said the way a person would.
+function plainReason(error: string): string {
+  const e = error.toLowerCase();
+  if (e.includes("not a valid date")) return "a date on it isn't a real date";
+  if (e.includes("email") || e.includes("recipient") || e.includes("invalid to")) return "the email address doesn't look right";
+  if (e.includes("quota") || e.includes("rate limit") || e.includes("429")) return "Google was busy — it will try again";
+  if (e.includes("timeout") || e.includes("timed out") || e.includes("econn")) return "a connection timed out — it will try again";
+  return error.length > 140 ? error.slice(0, 140) + "…" : error || "an unknown error";
+}
+
+const PROBLEMS = "problemsSent";
+export async function sendProblemAlert(okla: string, building: string, step: string, error: string): Promise<{ sent: number; repeat: boolean }> {
+  const key = `${okla}:${step}`;
+  let seen: { day?: number; keys?: string[] } = {};
+  try {
+    seen = JSON.parse((await readConfig()).get(PROBLEMS) || "{}");
+  } catch {
+    /* start fresh */
+  }
+  const today = todayNum();
+  const keys = seen.day === today ? (seen.keys ?? []) : [];
+  if (keys.includes(key)) return { sent: 0, repeat: true };
+  await writeConfig(PROBLEMS, JSON.stringify({ day: today, keys: [...keys, key] }));
+  const name = building || `OK# ${okla}`;
+  const { sent } = await sendAlert(
+    `Couldn't finish a step for ${name}`,
+    `The ${step} didn't go through: ${plainReason(error)}. Everything else kept going. Tap to check this elevator.`,
+    okla ? `/?open=${encodeURIComponent(okla)}` : "/",
+    `eei-problem-${key}`,
+  );
+  return { sent, repeat: false };
+}
 
 // Send an alert to every subscribed phone. Prunes dead subscriptions.
 // `tag`: a newer alert with the same tag replaces the older one on the phone

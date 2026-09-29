@@ -70,6 +70,7 @@ function rowToElevator(r: string[], row: number): Elevator {
     price: cell(r, "price"),
     moneyPath: cell(r, "moneyPath"),
     active: !isRowPaused(r),
+    reportDone: !!cell(r, "reportFile"),
     row, // the sheet row, so later writes land on the right line
     lifecycle: LIFECYCLE_DEFS.map((d): LifecycleStage => ({
       key: d.key,

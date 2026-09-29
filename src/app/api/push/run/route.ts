@@ -52,6 +52,9 @@ function compose(list: AlertItem[], morning: boolean) {
   const chase = list.filter((x) => kind(x) === "chase");
   if (chase.length === 1) lines.push(chase[0].title);
   else if (chase.length) lines.push(`Still waiting on the safety test for ${chase.length} buildings: ${names(chase)}.`);
+  const report = list.filter((x) => kind(x) === "report");
+  if (report.length === 1) lines.push(report[0].title);
+  else if (report.length) lines.push(`${report.length} reports aren't finished: ${names(report)}.`);
   const overdue = list.filter((x) => kind(x) === "overdue");
   if (overdue.length === 1) lines.push(overdue[0].title);
   else if (overdue.length) lines.push(`${overdue.length} buildings are past due: ${names(overdue)}.`);

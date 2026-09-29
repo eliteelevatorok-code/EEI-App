@@ -411,6 +411,8 @@ function todayLists(accounts: Account[]) {
     }
     if (stage(u, "maintConfirm") === "Waiting")
       out.push({ u, what: isAmerican(u.maintCo) ? `Waiting on the safety test from ${u.maintCo}` : "Waiting on the safety test from the customer" });
+    if (stage(u, "visit") === "Inspected" && stage(u, "report") !== "Sent" && !u.reportDone)
+      out.push({ u, what: "The report isn't finished" });
     return out;
   });
   const days = (u: Elevator) => daysUntil(u.due);
@@ -1004,6 +1006,18 @@ function nextSteps(e: Elevator, onStartReport: () => void, onEnterSafety: () => 
         ...mail(american ? "Email them" : "Email customer", email, `Safety test for ${e.building}`),
       ],
     });
+  }
+  if (visit === "Inspected" && stage(e, "report") !== "Sent") {
+    out.push(
+      e.reportDone
+        ? { title: "Report is on its way", text: "The finished report goes to the customer and the state automatically within the hour.", actions: [] }
+        : {
+            title: "The report isn't finished",
+            text: "The visit is marked done, but no report has been finished for it — so nothing can be sent to the customer or the state yet.",
+            actions: [{ label: "Finish report", onClick: onStartReport }],
+            startsReport: true,
+          },
+    );
   }
   const d = daysUntil(e.due);
   if (d !== null && d < 0 && visit !== "Booked" && visit !== "Inspected") {

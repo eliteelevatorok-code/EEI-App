@@ -6,7 +6,8 @@ import { isAllowed } from "@/lib/allowlist";
 // middleware.ts). Public routes never require sign-in: the customer/maintenance
 // pages (PO, maint, pay, report) are opened from emails and authorized by the
 // random link token in the address; the scheduler endpoints (push/run,
-// invoice/run, switches/master) are authorized by the secret in schedulerKey.ts.
+// push/problem, invoice/run, switches/master) are authorized by the secret in
+// schedulerKey.ts.
 const isPublic = createRouteMatcher([
   "/sign-in(.*)",
   "/not-authorized",
@@ -18,6 +19,7 @@ const isPublic = createRouteMatcher([
   "/pay(.*)",
   "/api/pay(.*)",
   "/api/push/run(.*)",
+  "/api/push/problem(.*)",
   "/api/invoice/run(.*)",
   "/api/switches/master(.*)",
 ]);

@@ -134,6 +134,35 @@ async function findOrCreateFolder(name: string, parentId: string): Promise<strin
   return created.data.id;
 }
 
+// A file the app saved to Drive, found from its link (".../file/d/<id>/view").
+// Name only by default; `withBytes` also downloads it. Null if the link is
+// unreadable or the file was deleted or put in the trash.
+// Read by the robot account (the Reports folder is shared with it), so reading
+// never depends on Robert's Drive sign-in — only saving does.
+export async function driveFile(
+  link: string,
+  withBytes = false,
+): Promise<{ name: string; bytes?: Uint8Array } | null> {
+  const id = link.match(/\/d\/([\w-]+)/)?.[1];
+  if (!id) return null;
+  const client = await auth().getClient();
+  try {
+    const meta = await client.request<{ name: string; trashed?: boolean }>({
+      url: `https://www.googleapis.com/drive/v3/files/${id}?fields=name,trashed`,
+    });
+    if (meta.data.trashed) return null;
+    if (!withBytes) return { name: meta.data.name };
+    const file = await client.request<ArrayBuffer>({
+      url: `https://www.googleapis.com/drive/v3/files/${id}?alt=media`,
+      responseType: "arraybuffer",
+    });
+    return { name: meta.data.name, bytes: new Uint8Array(file.data) };
+  } catch (err) {
+    if ((err as { response?: { status?: number } }).response?.status === 404) return null;
+    throw err;
+  }
+}
+
 // Upload any file into the account's own subfolder of the Reports folder.
 // Returns the file's shareable link. mimeType defaults to PDF.
 export async function uploadFile(
