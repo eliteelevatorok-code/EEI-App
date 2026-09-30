@@ -53,6 +53,7 @@ const FIELD_HELP: Partial<Record<Col, string>> = {
   safetyTest: "Has the elevator had a passing safety test in the last 12 months? (Yes | No) — from the records form or entered by hand",
   safetyTestDate: "Date of that passing safety test (M/D/YYYY)",
   reportFile: "Drive link to the latest finished report",
+  invoiceDate: "Day the invoice went out (the payment reminder waits 30 days from it)",
   active: "On/Off switch for this elevator (read-only here — use set_elevator_switch)",
 };
 // Columns the assistant may change with update_elevator. Not: the link token,

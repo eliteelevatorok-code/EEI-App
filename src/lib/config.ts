@@ -4,11 +4,11 @@ import { readRange, writeCells } from "@/lib/google";
 // value in column B. Holds the phone-alert keys, the scheduler secret, the master
 // switch, and the QuickBooks keys. Only the app's Google robot account can read it,
 // which is why secrets live here rather than in the app's code.
-const NAMES = "Config!A1:A30";
+const NAMES = "Config!A1:A60"; // the tab has 60 lines (enlarged 2026-09-29 — it was 20, nearly full)
 
 // Every setting, by name.
 export async function readConfig(): Promise<Map<string, string>> {
-  const rows = await readRange("Config!A1:B30");
+  const rows = await readRange("Config!A1:B60");
   return new Map(rows.map((r) => [(r[0] ?? "").trim(), (r[1] ?? "").trim()]));
 }
 

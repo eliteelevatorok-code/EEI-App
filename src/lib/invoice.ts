@@ -55,9 +55,11 @@ export async function invoiceRow(row: number): Promise<InvoiceResult> {
   });
   if (!IS_SANDBOX) await sendInvoice(inv.Id, email); // production: QuickBooks emails the official bill
 
-  // Save the id and the "Sent" status together (one write), so "Sent" never
-  // exists without a way back to the invoice it refers to.
-  await writeRow(row, { invoiceId: inv.Id, invoice: "Sent" });
+  // Save the id, the "Sent" status and today's date together (one write), so
+  // "Sent" never exists without a way back to the invoice it refers to. The date
+  // is what the payment reminder counts 30 days from (Make route 7).
+  const today = new Date().toLocaleDateString("en-US", { timeZone: "America/Chicago" }); // e.g. 9/29/2026
+  await writeRow(row, { invoiceId: inv.Id, invoice: "Sent", invoiceDate: today });
   return { invoiced: true, row, building, invoiceId: inv.Id, amount, sent: !IS_SANDBOX };
 }
 
