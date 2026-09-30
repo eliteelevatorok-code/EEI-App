@@ -1,6 +1,6 @@
 import { readRange } from "@/lib/google";
 import { getInvoiceBalance } from "@/lib/quickbooks";
-import { appendElevator, loadRoster, type NewElevatorInput } from "@/lib/roster";
+import { appendElevator, type NewElevatorInput } from "@/lib/roster";
 import { FIRST_ROW, cell, readRows, writeRow, type Col } from "@/lib/sheet";
 import { isMasterOn, setElevatorSwitch, setMaster } from "@/lib/switches";
 
@@ -38,7 +38,7 @@ const FIELD_HELP: Partial<Record<Col, string>> = {
   quote: "Lifecycle: quote (Review | Sent)",
   po: "Lifecycle: purchase order (Awaiting | Received | N/A)",
   scheduling: "Lifecycle: scheduling email with booking link (Sent)",
-  maintConfirm: "Lifecycle: maintenance records (Waiting | Answered | No answer)",
+  maintConfirm: "Lifecycle: safety-test question — has it passed a safety test in the last 12 months? (Waiting = asked, no answer yet | Answered | No answer)",
   accessReminder: "Lifecycle: access reminder email (Sent)",
   visit: "Lifecycle: visit (Booked | Inspected)",
   tripDay: "Lifecycle: trip day — the inspection date (M/D/YYYY)",
@@ -67,7 +67,7 @@ export const TOOLS = [
   {
     name: "list_elevators",
     description:
-      "List elevators on the dashboard (optionally filtered by a search word matched against building, account, city or OK #). Returns OK #, building, account, city, type, due date, on/off, and the current lifecycle values for each.",
+      "Every elevator on the dashboard with ALL of its details (customer, contacts, maintenance company, type, floors, cycle, price, due date, every lifecycle step, trip day, invoice date, PO, safety test, notes, on/off). Optionally filter by a search word (matched against building, account, city, OK #, contact or maintenance company). Use this for any question across elevators — counts, money, who owes what, what's coming up, anything — and work the answer out yourself.",
     input_schema: { type: "object", properties: { search: { type: "string" } } },
   },
   {
@@ -179,21 +179,13 @@ const priceNum = (p: string) => Number(p.replace(/[^0-9.]/g, "")) || 0;
 export async function runTool(name: string, input: Json): Promise<unknown> {
   switch (name) {
     case "list_elevators": {
+      // Every readable field for every elevator (blank fields left out to keep it
+      // small) — so the assistant can answer any question, not just set ones.
       const q = String(input.search ?? "").trim().toLowerCase();
-      const accounts = await loadRoster();
-      return accounts
-        .flatMap((a) => a.units)
-        .filter((u) => !q || [u.building, u.account, u.city, u.okla].some((s) => s.toLowerCase().includes(q)))
-        .map((u) => ({
-          okla: u.okla,
-          building: u.building,
-          account: u.account,
-          city: u.city,
-          type: u.type,
-          due: u.due,
-          on: u.active !== false,
-          lifecycle: Object.fromEntries(u.lifecycle.filter((s) => s.value).map((s) => [s.key, s.value])),
-        }));
+      const rows = (await readRows()).filter((r) => cell(r, "okla"));
+      return rows
+        .filter((r) => !q || (["building", "account", "city", "okla", "contact", "maintCo"] as Col[]).some((c) => cell(r, c).toLowerCase().includes(q)))
+        .map((r) => ({ ...named(r, READABLE), on: cell(r, "active").toLowerCase() !== "off" }));
     }
     case "get_elevator": {
       const hit = await findRow(String(input.okla));
@@ -214,7 +206,7 @@ export async function runTool(name: string, input: Json): Promise<unknown> {
         pausedElevators: els.filter((r) => cell(r, "active").toLowerCase() === "off").map(brief),
         needsYou: [
           ...on.filter((r) => cell(r, "visit") === "Booked").map((r) => `${brief(r)}: do the inspection (visit booked)`),
-          ...on.filter((r) => cell(r, "maintConfirm") === "Waiting").map((r) => `${brief(r)}: chase maintenance for records`),
+          ...on.filter((r) => cell(r, "maintConfirm") === "Waiting").map((r) => `${brief(r)}: safety test answer still missing`),
         ],
         overdue: on.filter((r) => (days(cell(r, "due")) ?? 1) < 0 && notDone(r)).map((r) => `${brief(r)} due ${cell(r, "due")}`),
         dueWithin30Days: on
