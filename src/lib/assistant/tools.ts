@@ -384,10 +384,9 @@ export async function describe(name: string, input: Json): Promise<ChangeCard> {
       const changes = withPrice(hit.cells, cleanChanges(input.changes));
       return {
         title: `Change ${cell(hit.cells, "building")}`,
-        lines: Object.entries(changes).map(([c, v]) => {
-          const was = cell(hit.cells, c as Col);
-          return `${label(c)}: ${was || "blank"} → ${v || "blank"}`;
-        }),
+        lines: Object.entries(changes)
+          .filter(([c, v]) => cell(hit.cells, c as Col) !== v) // "kept as is" values aren't changes
+          .map(([c, v]) => `${label(c)}: ${cell(hit.cells, c as Col) || "blank"} → ${v || "blank"}`),
         danger: false,
       };
     }
@@ -396,7 +395,9 @@ export async function describe(name: string, input: Json): Promise<ChangeCard> {
       return {
         title: `Change ${items.length} elevators`,
         lines: items.flatMap((it) =>
-          Object.entries(it.changes).map(([c, v]) => `${it.building} — ${label(c)}: ${cell(it.cells, c as Col) || "blank"} → ${v || "blank"}`),
+          Object.entries(it.changes)
+            .filter(([c, v]) => cell(it.cells, c as Col) !== v)
+            .map(([c, v]) => `${it.building} — ${label(c)}: ${cell(it.cells, c as Col) || "blank"} → ${v || "blank"}`),
         ),
         danger: items.length > 5, // a big batch gets the two-tap confirm
       };
