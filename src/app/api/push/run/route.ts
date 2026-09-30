@@ -24,9 +24,13 @@ async function handle(req: Request) {
   const dry = params.has("dry");
 
   if (params.has("test")) {
+    // ?test=1 → the day's summary; ?test=item&n=2 → just the 2nd waiting item,
+    // exactly as that single alert would look (tap opens that elevator).
     const items = await alertItems(true);
-    const a = items.length ? compose(items, true) : null;
-    const title = "Test: " + (a?.title ?? "nothing needs you right now");
+    const n = Math.max(0, Number(params.get("n") ?? 1) - 1);
+    const pick = params.get("test") === "item" && items[n] ? [items[n]] : items;
+    const a = pick.length ? compose(pick, true) : null;
+    const title = (params.get("test") === "item" ? "" : "Test: ") + (a?.title ?? "nothing needs you right now");
     const result = await sendAlert(title, "", a?.url ?? "/", `eei-test-${Date.now()}`);
     return Response.json({ ok: true, test: true, title, ...result });
   }
@@ -49,14 +53,14 @@ async function handle(req: Request) {
 // One short line per alert — Robert reads the title and taps. The screen it
 // opens has the details and the button to act, so the alert itself carries none.
 //   one thing  → its own line, e.g. "Inspection today: Guymon Senior Center"; opens that elevator
-//   several    → "Good morning — 7 things need you"; opens the Today tab (the list, each with its action)
+//   several    → "7 things need you today"; opens the Today tab (the list, each with its action)
 function compose(list: AlertItem[], morning: boolean) {
   if (list.length === 1) {
     const i = list[0];
     return { title: i.title, body: "", url: `/?open=${encodeURIComponent(i.okla)}`, tag: `eei-${i.key}` };
   }
   return {
-    title: morning ? `Good morning — ${list.length} things need you` : `${list.length} new things need you`,
+    title: morning ? `${list.length} things need you today` : `${list.length} new things need you`,
     body: "",
     url: "/?tab=today",
     tag: "eei-summary",
