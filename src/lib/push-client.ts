@@ -14,6 +14,26 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
 
 export type AlertState = "unsupported" | "off" | "on" | "blocked";
 
+// Hand this phone's subscription to the server's list (PushSubs). Safe to repeat —
+// the server ignores one it already has. true = the server has it; false = the
+// server refused it; null = couldn't reach the server (e.g. offline).
+async function sendToServer(sub: PushSubscription): Promise<boolean | null> {
+  try {
+    const res = await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscription: sub.toJSON() }),
+    });
+    return res.ok;
+  } catch {
+    return null;
+  }
+}
+
+// "On" means BOTH this phone is subscribed AND the server's list has it. The
+// phone alone isn't enough: if the server's copy is lost, the phone still says
+// "on" while nothing arrives. So this re-sends the phone's subscription every
+// time it's asked — the two can't drift apart.
 export async function alertsState(): Promise<AlertState> {
   if (typeof window === "undefined") return "off";
   if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
@@ -23,10 +43,19 @@ export async function alertsState(): Promise<AlertState> {
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
-    return sub ? "on" : "off";
+    if (!sub) return "off";
+    return (await sendToServer(sub)) === false ? "off" : "on";
   } catch {
     return "off";
   }
+}
+
+// On every app open: if this phone has alerts on, make sure the server still has it.
+export async function resyncAlerts(): Promise<void> {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || Notification.permission !== "granted") return;
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  if (sub) await sendToServer(sub);
 }
 
 // Turn alerts on for this phone. Returns the resulting state.
@@ -50,10 +79,5 @@ export async function enableAlerts(): Promise<AlertState> {
       applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
     }));
 
-  const save = await fetch("/api/push/subscribe", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ subscription: sub.toJSON() }),
-  });
-  return save.ok ? "on" : "off";
+  return (await sendToServer(sub)) ? "on" : "off";
 }

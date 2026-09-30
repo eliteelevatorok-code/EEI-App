@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { applyFontScale, currentFontScale } from "@/lib/prefs";
 import { initInstall } from "@/lib/pwa-install";
+import { resyncAlerts } from "@/lib/push-client";
 
 // Runs once on load: registers the service worker (makes the app installable +
 // offline-safe), starts listening for the install prompt so Settings can offer
@@ -15,6 +16,9 @@ export function AppBoot() {
     // the worker's "serve from the phone" rule would show stale code.
     if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
+      // If this phone has alerts on, make sure the server's list still has it.
+      // (Customer pages never have alerts on, so they skip this.)
+      if (!/^\/(po|maint|pay|privacy)/.test(location.pathname)) resyncAlerts().catch(() => {});
     }
   }, []);
   return null;
