@@ -15,11 +15,22 @@ export const runtime = "nodejs";
 //
 // ?summary=1 forces the morning summary; ?dry=1 shows what would be sent
 // without sending or remembering anything (for checking the wording).
+// ?test=1 sends today's summary right now marked "Test", even with the master
+// switch off, and remembers nothing — to prove alerts reach the phones.
 async function handle(req: Request) {
   const denied = await rejectUnlessScheduler(req);
   if (denied) return denied;
   const params = new URL(req.url).searchParams;
   const dry = params.has("dry");
+
+  if (params.has("test")) {
+    const items = await alertItems(true);
+    const a = items.length ? compose(items, true) : null;
+    const title = "Test: " + (a?.title ?? "alerts are working on this phone");
+    const body = a?.body ?? "Nothing needs you right now.";
+    const result = await sendAlert(title, body, a?.url ?? "/", "eei-test");
+    return Response.json({ ok: true, test: true, title, body, ...result });
+  }
 
   const [items, sent] = await Promise.all([alertItems(), readSent()]);
   // The first run of the day (Make starts at 7am Oklahoma time) is the summary.

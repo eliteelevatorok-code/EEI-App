@@ -92,10 +92,11 @@ function humanDate(s: string): string {
   return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) });
 }
 
-// Everything that needs a person right now. Master switch off = nothing.
+// Everything that needs a person right now. Master switch off = nothing
+// (`ignoreMaster` is only for the test alert — see /api/push/run?test=1).
 // Wording is written the way you'd say it to someone — no system terms.
-export async function alertItems(): Promise<AlertItem[]> {
-  if (!(await isMasterOn())) return [];
+export async function alertItems(ignoreMaster = false): Promise<AlertItem[]> {
+  if (!ignoreMaster && !(await isMasterOn())) return [];
   const today = todayNum();
   const out: AlertItem[] = [];
   for (const r of await readRows()) {

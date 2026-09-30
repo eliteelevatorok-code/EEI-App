@@ -50,12 +50,25 @@ export async function alertsState(): Promise<AlertState> {
   }
 }
 
-// On every app open: if this phone has alerts on, make sure the server still has it.
+// On every app open: if this phone has alerts on, make sure the server still has
+// it — then tell the server log what this phone's alert status is (see
+// /api/push/state), so a phone that isn't getting alerts can be diagnosed.
 export async function resyncAlerts(): Promise<void> {
-  if (!("serviceWorker" in navigator) || !("PushManager" in window) || Notification.permission !== "granted") return;
-  const reg = await navigator.serviceWorker.ready;
-  const sub = await reg.pushManager.getSubscription();
-  if (sub) await sendToServer(sub);
+  const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  const permission = supported ? Notification.permission : "n/a";
+  let signedUp = false;
+  let saved: boolean | null = null;
+  if (supported && permission === "granted") {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    signedUp = !!sub;
+    if (sub) saved = await sendToServer(sub);
+  }
+  await fetch("/api/push/state", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ supported, permission, signedUp, saved }),
+  }).catch(() => {});
 }
 
 // Turn alerts on for this phone. Returns the resulting state.
