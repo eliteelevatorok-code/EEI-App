@@ -248,6 +248,13 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
             <Button full onClick={install}>
               Install the app
             </Button>
+            {/* Chrome builds the real app through the phone's Play Store. When it can't, it quietly adds a
+                Chrome-badged shortcut instead — nothing the app can control, so say how to fix it. */}
+            <p className="mt-3 text-sm text-ink-3">
+              If the new icon has a small Chrome logo on its corner, your phone&apos;s Play Store couldn&apos;t build the
+              app. Open the Play Store (signed in), update Chrome and the Play Store, restart the phone, delete that
+              icon, then tap Install the app again.
+            </p>
           </Glass>
         </>
       )}
