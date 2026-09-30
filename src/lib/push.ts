@@ -29,19 +29,28 @@ export async function getPushConfig(): Promise<PushConfig> {
 
 type Sub = { endpoint: string; keys: { p256dh: string; auth: string } };
 
-// Save a phone's subscription (upsert by endpoint).
-export async function saveSubscription(sub: Sub): Promise<void> {
-  const rows = await readRange("PushSubs!A2:C");
-  const exists = rows.some((r) => (r[0] ?? "") === sub.endpoint);
-  if (exists) return;
-  await appendRow("PushSubs!A:C", [sub.endpoint, JSON.stringify(sub), new Date().toISOString()]);
+// PushSubs columns: A endpoint (the phone's address at Google's push service),
+// B the full subscription, C when it was added, D "gone …" once Google says that
+// address no longer works.
+//
+// Save a phone's subscription. Returns:
+//   "saved" — new, added to the list
+//   "known" — already on the list and working
+//   "gone"  — Google already said this address is dead, so the phone must get a
+//             FRESH sign-up (push-client.ts does that on its own, no tap needed)
+export async function saveSubscription(sub: Sub): Promise<"saved" | "known" | "gone"> {
+  const rows = await readRange("PushSubs!A2:D");
+  const hit = rows.find((r) => (r[0] ?? "") === sub.endpoint);
+  if (hit) return hit[3] ? "gone" : "known";
+  await appendRow("PushSubs!A:D", [sub.endpoint, JSON.stringify(sub), new Date().toISOString(), ""]);
+  return "saved";
 }
 
 async function getSubscriptions(): Promise<{ sub: Sub; row: number }[]> {
-  const rows = await readRange("PushSubs!A2:C");
+  const rows = await readRange("PushSubs!A2:D");
   const out: { sub: Sub; row: number }[] = [];
   rows.forEach((r, i) => {
-    if (!r[1]) return;
+    if (!r[1] || r[3]) return; // blank, or marked gone
     try {
       out.push({ sub: JSON.parse(r[1]) as Sub, row: 2 + i });
     } catch {
@@ -51,10 +60,14 @@ async function getSubscriptions(): Promise<{ sub: Sub; row: number }[]> {
   return out;
 }
 
-// Blank a dead subscription's row (the phone unsubscribed or reinstalled — the
-// push service answered 404/410).
+// Google's push service said this phone's address no longer works (404/410 —
+// e.g. Google refreshed it, or the app was reinstalled). Keep the address but
+// mark it gone, so when that phone next opens the app it's told to sign up fresh.
 async function dropSubscription(row: number): Promise<void> {
-  await writeCells(["A", "B", "C"].map((c) => [`PushSubs!${c}${row}`, ""]));
+  await writeCells([
+    [`PushSubs!B${row}`, ""],
+    [`PushSubs!D${row}`, `gone ${new Date().toISOString()}`],
+  ]);
 }
 
 // ---- what needs a human, read from the Elevators tab ----
@@ -243,6 +256,9 @@ export async function sendAlert(
       if (status === 404 || status === 410) {
         await dropSubscription(row);
         pruned++;
+      } else {
+        // Anything else is logged, never swallowed silently.
+        console.error(`[alerts] couldn't reach a phone (row ${row}): status ${status ?? "?"} ${err instanceof Error ? err.message : ""}`);
       }
     }
   }

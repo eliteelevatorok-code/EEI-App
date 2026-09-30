@@ -5,7 +5,7 @@ import Link from "next/link";
 import { getRoster, getServerRoster, patchElevator, refreshRoster, subscribeRoster } from "@/lib/roster-store";
 import { useClerk } from "@clerk/nextjs";
 import { getInstallState, subscribeInstall, triggerInstall } from "@/lib/pwa-install";
-import { alertsState, enableAlerts, type AlertState } from "@/lib/push-client";
+import { alertsState, enableAlerts, sendTestAlert, type AlertState } from "@/lib/push-client";
 import {
   CERT_ISSUE,
   CONDITIONS,
@@ -217,6 +217,20 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
     setAlerts(await enableAlerts());
     setAlertBusy(false);
   };
+  const [testBusy, setTestBusy] = useState(false);
+  const [testResult, setTestResult] = useState("");
+  const runTest = async () => {
+    setTestBusy(true);
+    const sent = await sendTestAlert();
+    setTestResult(
+      sent === null
+        ? "Couldn't send just now — check your signal and try again."
+        : sent === 0
+          ? "No phone could be reached. Close and reopen the app, then try again."
+          : `Sent to ${sent} ${sent === 1 ? "phone" : "phones"} — it should buzz in a few seconds.`,
+    );
+    setTestBusy(false);
+  };
 
   const sizeLabels = FONT_SCALES.map((s) => FONT_SCALE_LABELS[s]);
   const setSize = (label: string) => {
@@ -262,11 +276,17 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
       <SectionLabel>Alerts</SectionLabel>
       <Glass pad>
         {alerts === "on" ? (
-          <p className="text-[15px] text-ink-2">
-            <span className="font-semibold text-accent-ink">Alerts on</span> — you get one summary each morning of
-            what needs you (an inspection that&apos;s booked, records still missing, anything past due). During the day
-            it only buzzes when something new comes up. Tap an alert to go straight to it.
-          </p>
+          <>
+            <p className="mb-3 text-[15px] text-ink-2">
+              <span className="font-semibold text-accent-ink">Alerts on</span> — you get one summary each morning of
+              what needs you (an inspection that&apos;s booked, a safety test still missing, anything past due). During
+              the day it only buzzes when something new comes up. Tap an alert to go straight to it.
+            </p>
+            {testResult && <p className="mb-3 text-sm text-ink-2">{testResult}</p>}
+            <Button variant="secondary" full onClick={runTest} disabled={testBusy}>
+              {testBusy ? "Sending…" : "Send me a test alert"}
+            </Button>
+          </>
         ) : alerts === "blocked" ? (
           <p className="text-[15px] text-ink-2">
             Alerts are blocked for this site in your phone&apos;s settings. Turn notifications back on for
