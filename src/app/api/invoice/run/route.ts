@@ -1,6 +1,7 @@
 import { invoiceRow, reconcileRow } from "@/lib/invoice";
 import { rejectUnlessScheduler } from "@/lib/schedulerKey";
-import { FIRST_ROW } from "@/lib/sheet";
+import { sendProblemAlert } from "@/lib/push";
+import { FIRST_ROW, cell, readRow } from "@/lib/sheet";
 
 export const runtime = "nodejs";
 
@@ -26,11 +27,29 @@ async function handle(req: Request) {
     if (params.has("row")) {
       const row = toRow(params.get("row"));
       if (!row) return Response.json({ error: "bad row" }, { status: 400 });
-      return Response.json({ ok: true, ...(await invoiceRow(row)) });
+      const result = await invoiceRow(row);
+      // Skips a person has to fix (the report already went out, but the bill
+      // can't): tell Robert's phone instead of silently retrying every hour.
+      const needsPerson: Record<string, string> = {
+        "no usable price on the row": "there's no price on this elevator",
+        "no customer email on the row": "there's no customer email on this elevator",
+      };
+      if (!result.invoiced && needsPerson[result.skipped]) {
+        const r = await readRow(row);
+        await sendProblemAlert(cell(r, "okla"), cell(r, "building"), "invoice", needsPerson[result.skipped]).catch(() => {});
+      }
+      return Response.json({ ok: true, ...result });
     }
     return Response.json({ error: "pass row or reconcileRow" }, { status: 400 });
   } catch (err) {
-    return Response.json({ error: err instanceof Error ? err.message : "failed" }, { status: 502 });
+    // Make treats this answer as "nothing to do" and moves on (so one elevator
+    // can't stop the run) — which means nobody would hear about it. So tell
+    // Robert's phone here: which elevator, and what went wrong.
+    const message = err instanceof Error ? err.message : "failed";
+    const row = Number(params.get("row") ?? params.get("reconcileRow"));
+    const r = await readRow(row).catch(() => [] as string[]);
+    await sendProblemAlert(cell(r, "okla"), cell(r, "building"), params.has("row") ? "invoice" : "payment check", message).catch(() => {});
+    return Response.json({ error: message }, { status: 502 });
   }
 }
 

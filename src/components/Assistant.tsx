@@ -118,13 +118,17 @@ function AssistantPanel({ context, onClose }: { context: AskContext; onClose: ()
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [connected, setConnected] = useState<boolean | null>(null);
+  const [notConnectedWhy, setNotConnectedWhy] = useState("");
   const [armed, setArmed] = useState(false); // danger changes need a second tap
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch("/api/assistant")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { connected?: boolean } | null) => setConnected(Boolean(d?.connected)))
+      .then((d: { connected?: boolean; reason?: string } | null) => {
+        setConnected(d ? Boolean(d.connected) : null);
+        setNotConnectedWhy(d?.reason ?? "");
+      })
       .catch(() => setConnected(null));
   }, []);
 
@@ -292,10 +296,9 @@ function AssistantPanel({ context, onClose }: { context: AskContext; onClose: ()
             <div className="chat-scroll">
               {connected === false && (
                 <Glass pad className="mt-4">
-                  <p className="font-semibold">The assistant isn&apos;t connected yet</p>
+                  <p className="font-semibold">The assistant isn&apos;t working right now</p>
                   <p className="mt-1 text-sm text-ink-2">
-                    It runs on your own Anthropic account. Once your Anthropic key is added to the app&apos;s settings
-                    on Vercel, it&apos;s ready.
+                    {notConnectedWhy || "It runs on your own Anthropic account, using the key in the app's Vercel settings."}
                   </p>
                 </Glass>
               )}

@@ -162,6 +162,8 @@ export { todayNum };
 // Make's error text, said the way a person would.
 function plainReason(error: string): string {
   const e = error.toLowerCase();
+  if (e.startsWith("there's ")) return error; // already said plainly by the app
+  if (e.includes("invalid_grant")) return "the QuickBooks connection needs signing in again";
   if (e.includes("not a valid date")) return "a date on it isn't a real date";
   if (e.includes("email") || e.includes("recipient") || e.includes("invalid to")) return "the email address doesn't look right";
   if (e.includes("quota") || e.includes("rate limit") || e.includes("429")) return "Google was busy — it will try again";

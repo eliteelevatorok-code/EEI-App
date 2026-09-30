@@ -1,4 +1,4 @@
-import { AssistantError, callClaude, getKey, type Block, type Msg } from "@/lib/assistant/claude";
+import { AssistantError, callClaude, keyStatus, type Block, type Msg } from "@/lib/assistant/claude";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { describe, isChange, runTool, type ChangeCard } from "@/lib/assistant/tools";
 import { getPushConfig } from "@/lib/push";
@@ -37,10 +37,10 @@ function sameSig(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-// GET → { connected }: whether the Anthropic key has been added to the server's
-// settings. Yes/no only — the key itself is never sent anywhere but Anthropic.
+// GET → { connected, reason }: whether the assistant really works right now —
+// checked with Anthropic (see keyStatus). The key itself never leaves the server.
 export async function GET() {
-  return Response.json({ connected: Boolean(await getKey()) });
+  return Response.json(await keyStatus());
 }
 
 export async function POST(req: Request) {

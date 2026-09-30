@@ -23,6 +23,26 @@ export async function getKey(): Promise<string> {
   return process.env.ANTHROPIC_API_KEY ?? "";
 }
 
+// Is the assistant REALLY connected? Having a key isn't enough — it could be
+// cancelled. Asks Anthropic (its free model list call, no charge) and remembers
+// the answer for 10 minutes. { connected, reason } — reason says why not, in
+// plain words. If Anthropic can't be reached right now, it doesn't cry wolf.
+let checked: { at: number; connected: boolean; reason: string } | null = null;
+export async function keyStatus(): Promise<{ connected: boolean; reason: string }> {
+  const key = await getKey();
+  if (!key) return { connected: false, reason: "The Anthropic key hasn't been added to the app's Vercel settings." };
+  if (DEV && process.env.ASSISTANT_TEST_BASE) return { connected: true, reason: "" };
+  if (checked && Date.now() - checked.at < 10 * 60 * 1000) return checked;
+  try {
+    const res = await fetch(`${API_BASE}/v1/models?limit=1`, { headers: { "x-api-key": key, "anthropic-version": "2023-06-01" } });
+    const bad = res.status === 401 || res.status === 403;
+    checked = { at: Date.now(), connected: !bad, reason: bad ? "Anthropic didn't accept the saved key — it may have been cancelled. Put a working key in the app's Vercel settings." : "" };
+    return checked;
+  } catch {
+    return { connected: true, reason: "" };
+  }
+}
+
 // A friendly message for the person when the call fails.
 export class AssistantError extends Error {}
 
@@ -59,6 +79,7 @@ export async function callClaude(messages: Msg[], looking?: string): Promise<{ c
     }
     const detail = ((await res.json().catch(() => ({}))) as { error?: { message?: string } }).error?.message ?? "";
     if (res.status === 401) throw new AssistantError("Anthropic didn't accept the saved key — check the key in the app's Vercel settings.");
+    if (/credit balance/i.test(detail)) throw new AssistantError("Your Anthropic account is out of credit. Add credit at console.anthropic.com (Billing), then try again.");
     if (res.status === 429) throw new AssistantError("Anthropic says we're over the rate or spending limit. Try again in a minute, or check your Anthropic plan.");
     throw new AssistantError(`The assistant couldn't answer (Anthropic ${res.status}${detail ? `: ${detail}` : ""}).`);
   }
