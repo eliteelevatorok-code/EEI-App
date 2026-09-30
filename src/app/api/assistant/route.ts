@@ -103,7 +103,7 @@ export async function POST(req: Request) {
       messages = [...messages, { role: "user", content: results }];
     }
 
-    messages = trim(messages);
+    messages = trim(closeUnanswered(messages));
     for (let round = 0; round < MAX_ROUNDS; round++) {
       const reply = await callClaude(messages, looking);
       messages = [...messages, { role: "assistant", content: reply.content }];
@@ -161,9 +161,45 @@ const skipped = (id: string): Block => ({
 
 // Keep the conversation from growing without end: drop the oldest turns, but
 // always start on a plain question from the person (never mid-lookup).
+// A Confirm card nobody answered: Robert typed something else (the box invites
+// it) or closed the app instead of tapping Confirm / Cancel. Anthropic refuses a
+// chat where a proposed step has no answer — so every later message in that
+// chat failed. Record each unanswered step as "not done", folded into the next
+// message from Robert, and carry on normally.
+function closeUnanswered(messages: Msg[]): Msg[] {
+  const out: Msg[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    out.push(m);
+    if (m.role !== "assistant" || !Array.isArray(m.content)) continue;
+    const ids = m.content.filter((b) => b.type === "tool_use").map((b) => (b as { id: string }).id);
+    if (!ids.length) continue;
+    const next = messages[i + 1];
+    const nextBlocks: Block[] = !next ? [] : typeof next.content === "string" ? [{ type: "text", text: next.content }] : next.content;
+    const answered = new Set(nextBlocks.filter((b) => b.type === "tool_result").map((b) => (b as { tool_use_id: string }).tool_use_id));
+    const missing = ids.filter((id) => !answered.has(id));
+    if (!missing.length) continue;
+    const notDone: Block[] = missing.map((id) => ({
+      type: "tool_result",
+      tool_use_id: id,
+      content: "Not done — the person moved on without confirming, so nothing was changed.",
+    }));
+    // Answers must come first in the next message from the person.
+    const results = nextBlocks.filter((b) => b.type === "tool_result");
+    const rest = nextBlocks.filter((b) => b.type !== "tool_result");
+    out.push({ role: "user", content: [...results, ...notDone, ...rest] });
+    if (next) i++; // that message has been folded in
+  }
+  return out;
+}
+
 function trim(messages: Msg[]): Msg[] {
   if (messages.length <= MAX_HISTORY) return messages;
+  // Start at a message from the person that doesn't answer an earlier step
+  // (an answer with its step cut off would be refused).
+  const startsClean = (m: Msg) =>
+    m.role === "user" && (typeof m.content === "string" || !m.content.some((b) => b.type === "tool_result"));
   let cut = messages.length - MAX_HISTORY;
-  while (cut < messages.length && !(messages[cut].role === "user" && typeof messages[cut].content === "string")) cut++;
-  return messages.slice(cut);
+  while (cut < messages.length && !startsClean(messages[cut])) cut++;
+  return cut < messages.length ? messages.slice(cut) : messages; // no clean start → keep it all rather than send nothing
 }
