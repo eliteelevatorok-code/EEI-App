@@ -5,7 +5,7 @@
 //   - Pages are network-first so you always get the latest version; the saved
 //     copy is used only when offline.
 //   - API calls and sign-in are never touched.
-const CACHE = "eei-shell-v8";
+const CACHE = "eei-shell-v9";
 const SHELL = ["/", "/sign-in", "/manifest.webmanifest", "/icon-192.png?v=3", "/icon-512.png?v=3", "/badge-96.png?v=3"];
 
 self.addEventListener("install", (e) => {
@@ -26,15 +26,22 @@ self.addEventListener("push", (e) => {
   } catch {
     /* keep defaults */
   }
+  // After showing it, tell the server it arrived (or why it couldn't be shown),
+  // so "did the alert reach the phone?" is never a guess — see /api/push/ack.
+  const ack = (result) =>
+    fetch(`/api/push/ack?tag=${encodeURIComponent(data.tag || "")}&result=${encodeURIComponent(result)}`, { method: "POST" }).catch(() => {});
   e.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: "/icon-192.png?v=3", // the app logo beside the alert
-      badge: "/badge-96.png?v=3", // the tiny status-bar icon: white on see-through, or Android shows a white square
-      data: { url: data.url || "/" },
-      tag: data.tag || "eei-summary", // same tag = the newer alert replaces the older one
-      renotify: true,
-    }),
+    self.registration
+      .showNotification(data.title, {
+        body: data.body,
+        icon: "/icon-192.png?v=3", // the app logo beside the alert
+        badge: "/badge-96.png?v=3", // the tiny status-bar icon: white on see-through, or Android shows a white square
+        data: { url: data.url || "/" },
+        tag: data.tag || "eei-summary", // same tag = the newer alert replaces the older one
+        renotify: true,
+      })
+      .then(() => ack("shown"))
+      .catch((err) => ack("not shown: " + (err && err.message ? err.message : String(err)))),
   );
 });
 

@@ -27,7 +27,7 @@ async function handle(req: Request) {
     const items = await alertItems(true);
     const a = items.length ? compose(items, true) : null;
     const title = "Test: " + (a?.title ?? "nothing needs you right now");
-    const result = await sendAlert(title, "", a?.url ?? "/", "eei-test");
+    const result = await sendAlert(title, "", a?.url ?? "/", `eei-test-${Date.now()}`);
     return Response.json({ ok: true, test: true, title, ...result });
   }
 

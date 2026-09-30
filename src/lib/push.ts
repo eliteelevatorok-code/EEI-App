@@ -209,7 +209,9 @@ export async function sendAlert(
   let sent = 0, pruned = 0;
   for (const { sub, row } of subs) {
     try {
-      await webpush.sendNotification(sub, payload);
+      // urgency "high": deliver now even if the phone is idle (Android holds
+      // normal-priority messages until the phone wakes). TTL: give up after 12 hours.
+      await webpush.sendNotification(sub, payload, { urgency: "high", TTL: 12 * 60 * 60 });
       sent++;
     } catch (err) {
       const status = (err as { statusCode?: number }).statusCode;

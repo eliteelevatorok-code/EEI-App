@@ -7,7 +7,8 @@ import { isAllowed } from "@/lib/allowlist";
 // pages (PO, maint, pay, report) are opened from emails and authorized by the
 // random link token in the address; the scheduler endpoints (push/run,
 // push/problem, invoice/run, switches/master) are authorized by the secret in
-// schedulerKey.ts.
+// schedulerKey.ts. /privacy is public for Google; /api/push/ack only writes a
+// log line when an alert reaches a phone (the app may be closed then).
 const isPublic = createRouteMatcher([
   "/sign-in(.*)",
   "/not-authorized",
@@ -21,6 +22,7 @@ const isPublic = createRouteMatcher([
   "/api/pay(.*)",
   "/api/push/run(.*)",
   "/api/push/problem(.*)",
+  "/api/push/ack(.*)",
   "/api/invoice/run(.*)",
   "/api/switches/master(.*)",
 ]);
