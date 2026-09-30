@@ -1475,17 +1475,28 @@ function Report({
       const drive = res.headers.get("X-Drive") || "";
       const url = URL.createObjectURL(await res.blob());
       window.open(url, "_blank");
+      const allSaved = writeback === "ok" && drive === "ok";
       try {
-        localStorage.removeItem(draftKey(elevator.okla)); // finished — the saved draft is no longer needed
+        // Keep the answers on this phone unless EVERYTHING saved — so tapping
+        // Finish again (after fixing the cause) doesn't mean typing it all again.
+        if (allSaved) localStorage.removeItem(draftKey(elevator.okla));
+        else localStorage.setItem(draftKey(elevator.okla), JSON.stringify(r));
       } catch {
         /* storage may be unavailable */
       }
       buzz();
       void refreshRoster(); // Visit → Inspected now shows on every tab
-      const dashNote =
-        writeback === "ok" ? "Dashboard updated (Visit → Inspected)." : "Dashboard update: " + writeback + ".";
-      const driveNote = drive === "ok" ? "Saved to Drive." : "Drive save: " + drive + ".";
-      setStatus(`Finished ${elevator.building}. ${dashNote} ${driveNote}`);
+      setStatus(
+        allSaved
+          ? `Finished ${elevator.building}. The report goes to the customer and the state automatically.`
+          : drive !== "ok"
+            ? `Couldn't save the report to Google Drive, so it can't be emailed yet. Your answers are kept on this phone. ${
+                /invalid_grant|unauthorized|401/i.test(drive)
+                  ? "Open Settings → Connect Google Drive, then tap Finish again."
+                  : "Tap Finish again in a minute."
+              }`
+            : `The report was saved, but the dashboard couldn't be updated. Your answers are kept on this phone — tap Finish again in a minute.`,
+      );
     } catch (err) {
       setStatus("Couldn't build the PDF: " + (err instanceof Error ? err.message : String(err)));
     } finally {

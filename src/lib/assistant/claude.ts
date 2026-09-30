@@ -32,12 +32,12 @@ export async function keyStatus(): Promise<{ connected: boolean; reason: string 
   const key = await getKey();
   if (!key) return { connected: false, reason: "The Anthropic key hasn't been added to the app's Vercel settings." };
   if (DEV && process.env.ASSISTANT_TEST_BASE) return { connected: true, reason: "" };
-  if (checked && Date.now() - checked.at < 10 * 60 * 1000) return checked;
+  if (checked && Date.now() - checked.at < 10 * 60 * 1000) return { connected: checked.connected, reason: checked.reason };
   try {
     const res = await fetch(`${API_BASE}/v1/models?limit=1`, { headers: { "x-api-key": key, "anthropic-version": "2023-06-01" } });
     const bad = res.status === 401 || res.status === 403;
     checked = { at: Date.now(), connected: !bad, reason: bad ? "Anthropic didn't accept the saved key — it may have been cancelled. Put a working key in the app's Vercel settings." : "" };
-    return checked;
+    return { connected: checked.connected, reason: checked.reason };
   } catch {
     return { connected: true, reason: "" };
   }
