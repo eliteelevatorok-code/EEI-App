@@ -43,20 +43,9 @@ export function initInstall(): void {
     installed = detectStandalone();
     emit();
   });
-
-  // Chrome (Android): if the PWA is already installed but being viewed in a
-  // browser tab, no beforeinstallprompt fires. Ask the browser directly.
-  const nav = window.navigator as unknown as {
-    getInstalledRelatedApps?: () => Promise<Array<{ platform?: string }>>;
-  };
-  nav.getInstalledRelatedApps?.()
-    .then((apps) => {
-      if (apps.some((a) => a.platform === "webapp")) {
-        installed = true;
-        emit();
-      }
-    })
-    .catch(() => {});
+  // (If the app is already installed but opened in a Chrome tab, Chrome doesn't
+  // offer to install it again — no beforeinstallprompt — so Settings shows no
+  // install card there either.)
 }
 
 export function subscribeInstall(cb: () => void): () => void {

@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   title: "EEI Field Reports",
   description: "Elite Elevator Inspections — field report and dashboard control.",
   manifest: "/manifest.webmanifest",
-  icons: { icon: "/favicon-32.png?v=3" },
+  icons: { icon: "/favicon-32-eei.png" },
 };
 
 export const viewport: Viewport = {

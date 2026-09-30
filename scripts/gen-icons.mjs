@@ -31,10 +31,10 @@ function badgeSvg(size) {
 }
 
 const jobs = [
-  { file: "public/icon-192.png", size: 192, scale: 0.4, rounded: true },
-  { file: "public/icon-512.png", size: 512, scale: 0.4, rounded: true },
-  { file: "public/icon-maskable-512.png", size: 512, scale: 0.3, rounded: false },
-  { file: "public/favicon-32.png", size: 32, scale: 0.42, rounded: true },
+  { file: "public/icon-192-eei.png", size: 192, scale: 0.4, rounded: true },
+  { file: "public/icon-512-eei.png", size: 512, scale: 0.4, rounded: true },
+  { file: "public/icon-maskable-512-eei.png", size: 512, scale: 0.3, rounded: false },
+  { file: "public/favicon-32-eei.png", size: 32, scale: 0.42, rounded: true },
 ];
 
 for (const j of jobs) {
