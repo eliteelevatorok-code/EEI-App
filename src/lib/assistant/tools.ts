@@ -57,9 +57,14 @@ const FIELD_HELP: Partial<Record<Col, string>> = {
   active: "On/Off switch for this elevator (read-only here — use set_elevator_switch)",
 };
 // Columns the assistant may change with update_elevator. Not: the link token,
-// the sheet's own "Next action" formula, the QuickBooks invoice id, or the
-// on/off switch (which has its own tool and wording).
-const EDITABLE: Col[] = (Object.keys(FIELD_HELP) as Col[]).filter((c) => c !== "active" && c !== "okla");
+// the sheet's own "Next action" formula, the QuickBooks invoice id, the on/off
+// switch (which has its own tool and wording) — and NOTHING about the inspection
+// report (Robert: the report is never edited through the chat). The report is
+// made only in the app's report screen, which also marks the visit Inspected.
+const REPORT_ONLY: Col[] = ["report", "reportFile"];
+const EDITABLE: Col[] = (Object.keys(FIELD_HELP) as Col[]).filter(
+  (c) => c !== "active" && c !== "okla" && !REPORT_ONLY.includes(c),
+);
 const READABLE = Object.keys(FIELD_HELP) as Col[];
 
 // Public tool list sent to Claude.
@@ -275,8 +280,12 @@ export async function runTool(name: string, input: Json): Promise<unknown> {
 function cleanChanges(raw: unknown): Partial<Record<Col, string>> {
   const out: Partial<Record<Col, string>> = {};
   for (const [k, v] of Object.entries((raw ?? {}) as Record<string, unknown>)) {
+    if (REPORT_ONLY.includes(k as Col)) throw new Error("The inspection report can't be changed from the chat — it's done in the app's report screen.");
     if (!EDITABLE.includes(k as Col)) throw new Error(`"${k}" can't be changed here`);
-    out[k as Col] = String(v ?? "").slice(0, 500);
+    const value = String(v ?? "").slice(0, 500);
+    // "Inspected" is set by finishing the report in the app, never by hand here.
+    if (k === "visit" && /inspected/i.test(value)) throw new Error("A visit is marked Inspected only by finishing the report in the app.");
+    out[k as Col] = value;
   }
   if (!Object.keys(out).length) throw new Error("No changes given");
   return out;
