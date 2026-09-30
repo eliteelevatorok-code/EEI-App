@@ -285,8 +285,20 @@ function cleanChanges(raw: unknown): Partial<Record<Col, string>> {
 // The Confirm card for a CHANGE tool: a title, one line per change (before →
 // after), and whether it's the dangerous kind (red, two taps).
 export type ChangeCard = { title: string; lines: string[]; danger: boolean };
+// Short names for the Confirm card ("Trip day: 9/29/2026 → 10/6/2026").
+const CARD_LABEL: Partial<Record<Col, string>> = {
+  okla: "OK #", building: "Building", area: "Area", city: "City", account: "Account", contact: "Contact",
+  email: "Customer email", phone: "Customer phone", maintCo: "Maintenance company", maintContact: "Maintenance contact",
+  maintEmail: "Maintenance email", maintPhone: "Maintenance phone", type: "Type", floors: "Floors", cycle: "Cycle",
+  price: "Price", moneyPath: "Billing", due: "Due date", twoMoEmail: "2-month heads-up", quote: "Quote", po: "PO",
+  scheduling: "Scheduling email", maintConfirm: "Safety test question", accessReminder: "Access reminder",
+  visit: "Visit", tripDay: "Trip day", report: "Report", invoice: "Invoice", followUps: "Payment reminders",
+  paid: "Paid", newTimer: "Next cycle", notes: "Notes", poNumber: "PO #", poFile: "PO file",
+  safetyTest: "Safety test passed", safetyTestDate: "Safety test date", reportFile: "Report file", invoiceDate: "Invoice date",
+};
+
 export async function describe(name: string, input: Json): Promise<ChangeCard> {
-  const label = (c: string) => (FIELD_HELP[c as Col] ?? c).replace(/^Lifecycle: /, "").split(" (")[0];
+  const label = (c: string) => CARD_LABEL[c as Col] ?? c;
   switch (name) {
     case "update_elevator": {
       const hit = await findRow(String(input.okla));
