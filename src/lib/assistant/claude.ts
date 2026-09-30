@@ -81,6 +81,10 @@ export async function callClaude(messages: Msg[], looking?: string): Promise<{ c
     if (res.status === 401) throw new AssistantError("Anthropic didn't accept the saved key — check the key in the app's Vercel settings.");
     if (/credit balance/i.test(detail)) throw new AssistantError("Your Anthropic account is out of credit. Add credit at console.anthropic.com (Billing), then try again.");
     if (res.status === 429) throw new AssistantError("Anthropic says we're over the rate or spending limit. Try again in a minute, or check your Anthropic plan.");
-    throw new AssistantError(`The assistant couldn't answer (Anthropic ${res.status}${detail ? `: ${detail}` : ""}).`);
+    // Plain words on screen; Anthropic's own technical text goes to the server log only.
+    console.error(`[assistant] Anthropic ${res.status}: ${detail}`);
+    throw new AssistantError(
+      res.status >= 500 ? "Anthropic is having trouble right now — try again in a minute." : "The assistant couldn't answer that — try asking it a different way, or start a new chat.",
+    );
   }
 }

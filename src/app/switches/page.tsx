@@ -129,7 +129,7 @@ export default function SwitchesPage() {
       {/* Resume — single confirm */}
       {step === "resume" && (
         <ConfirmDialog
-          title="Resume everything?"
+          title="Turn the whole system on?"
           confirmLabel="Resume"
           busyLabel="Resuming…"
           busy={busy}
@@ -137,7 +137,10 @@ export default function SwitchesPage() {
           onCancel={close}
           onConfirm={() => setMaster(true)}
         >
-          Automatic steps start again for every elevator that is switched on.
+          Within the hour, customers start getting the automatic emails again — quotes, safety-test questions,
+          scheduling links, reports, invoices and reminders — for the{" "}
+          <span className="font-semibold text-ink">{state.elevators.filter((e) => e.on).length} elevators</span> that are switched
+          on. Look over the Today tab first if you haven&apos;t in a while.
         </ConfirmDialog>
       )}
     </Screen>

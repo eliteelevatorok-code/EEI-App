@@ -4,6 +4,7 @@ import { readConfig, writeConfig } from "@/lib/config";
 import { cell, readRows } from "@/lib/sheet";
 import { isMasterOn, isRowPaused } from "@/lib/switches";
 import { finishedReport } from "@/lib/report";
+import { safetyAnswer } from "@/lib/records";
 
 // Phone alerts (web push). The signing keys and the scheduler secret live in the
 // dashboard's private Config tab, which only the app's Google robot account can
@@ -73,11 +74,13 @@ async function dropSubscription(row: number): Promise<void> {
 
 // One thing that needs a PERSON. The automation sends the emails and invoices,
 // and the PO/maintenance forms and QuickBooks handle their own steps — so only
-// four things buzz the phone:
+// these things buzz the phone:
 //   inspect — a visit is booked: go do the inspection
 //   chase   — no answer yet on the safety test (asked of American Elevator, or the customer)
 //   report  — the visit is marked done but its report was never finished (so it can't be emailed)
 //   overdue — past the due date and no visit booked or done
+//   nopass  — the safety-test answer was No (no passing test in 12 months)
+//   noprice — no price on it, inside the 60-day window (the quote can't go out)
 // Each alert is ONE short line — what and which building. Tapping it opens the
 // elevator, whose "Next step" card explains and has the button to act.
 // `key` identifies the item so the same thing isn't announced twice.
@@ -95,6 +98,11 @@ function dateNum(s: string): number {
   if (m) return +m[3] * 10000 + +m[1] * 100 + +m[2];
   m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   return m ? +m[1] * 10000 + +m[2] * 100 + +m[3] : 0;
+}
+// yyyymmdd + n days → yyyymmdd.
+function addDaysNum(n: number, days: number): number {
+  const d = new Date(Date.UTC(Math.floor(n / 10000), (Math.floor(n / 100) % 100) - 1, (n % 100) + days));
+  return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
 }
 
 // "10/3/2026" → "Sat, Oct 3" (short, for a one-line alert).
@@ -124,6 +132,11 @@ export async function alertItems(ignoreMaster = false): Promise<AlertItem[]> {
       );
     }
     if (cell(r, "maintConfirm") === "Waiting") add(`chase:${okla}`, `Safety test missing: ${building}`);
+    // The answer was No (no passing test in 12 months) — a person has to decide what happens.
+    if (safetyAnswer(cell(r, "safetyTest")) === "No" && visit !== "Inspected") add(`nopass:${okla}`, `No passing safety test: ${building}`);
+    // No price → the quote (and later the bill) can't go out. Flag it once it's inside the 60-day window.
+    const dueIn = dateNum(cell(r, "due"));
+    if (!/[1-9]/.test(cell(r, "price")) && cell(r, "quote") !== "Sent" && dueIn && dueIn <= addDaysNum(today, 60)) add(`noprice:${okla}`, `Price missing: ${building}`);
     if (visit === "Inspected" && cell(r, "report") !== "Sent") {
       // The report email (customer + state) waits for the finished report. If
       // Drive can't be checked right now, say nothing rather than guess.

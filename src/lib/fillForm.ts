@@ -12,6 +12,7 @@ import {
 } from "pdf-lib";
 import type { Elevator, AddedViolation } from "@/lib/data";
 import { DEVICE_TYPE_CODE, ENTITY_TYPE_CODE, MACHINE_TYPE_CODE } from "@/lib/formCodes";
+import { TECH } from "@/lib/tech";
 
 // Fills Oklahoma DOL's official third-party inspection form
 // (templates/inspection-form.pdf) from one finished report. Field names below are
@@ -49,23 +50,6 @@ function makeResolver(form: PDFForm) {
   return (logical: string) => byExact.get(logical) || byNorm.get(norm(logical)) || null;
 }
 
-// carried "label" (from the dashboard/app) -> master-form field name
-const CARRIED_TO_FIELD: Record<string, string> = {
-  "Serial number": "SERIAL NUMBER",
-  "Permit #": "PERMIT #",
-  Manufacturer: "MANUFACTURER",
-  "Capacity (lbs)": "CAPACITY",
-  "Speed (FPM)": "SPEED",
-  Rise: "RISE",
-  Openings: "OPENINGS",
-  "# of landings": "LANDINGS",
-  "Installed year": "INSTALLED YEAR",
-  "Code year": "CODE YEAR",
-  Owner: "OWNER",
-  "Owner address": "OWNER ADDRESS",
-  "Location address": "LOC PHYSICAL ADDRESS",
-  // Device / Machine / Entity type are radio buttons, filled separately below.
-};
 
 // Inspection type → the checkbox that marks it on the form.
 const INSP_TYPE_CB: Record<string, string> = {
@@ -123,24 +107,37 @@ export async function fillReport(templateBytes: Uint8Array, p: FinalizePayload):
     }
   };
 
-  // identity / location from the elevator
+  // A pick list (city, county): choose the form's own entry that matches the
+  // name, ignoring capitals and a trailing "County". No match → leave blank.
+  const pickByName = (logical: string, name?: string) => {
+    const f = resolve(logical);
+    const want = norm(String(name ?? "").replace(/\s+county$/i, ""));
+    if (!want || !(f instanceof PDFDropdown)) return;
+    const hit = f.getOptions().find((o) => norm(o) === want);
+    if (hit) f.select(hit);
+  };
+
+  // identity / location / contact from the elevator
   text("OKLA #", e.okla);
   text("LOC BLDG", e.building);
   text("EMAIL ADDRESS", e.email);
-  // carried fixed fields
-  const carriedValue = (label: string) => e.carried.find((c) => c.label === label)?.value ?? "";
-  for (const c of e.carried) {
-    const field = CARRIED_TO_FIELD[c.label];
-    if (field) text(field, c.value);
-  }
+  text("CONTACT PERSON", e.contact);
+  text("CONTACT PHONE NUMBER", e.phone);
+  pickByName("CITY_NAME", e.city);
 
-  // numeric-coded radios (device / machine / entity type)
-  const deviceCode = DEVICE_TYPE_CODE[carriedValue("Device type")];
-  if (deviceCode) pick("Device Type", deviceCode);
-  const machineCode = MACHINE_TYPE_CODE[carriedValue("Machine type")];
-  if (machineCode) pick("Machine Type", machineCode);
-  const entityCode = ENTITY_TYPE_CODE[carriedValue("Entity type")];
-  if (entityCode) pick("Entity Type", entityCode);
+  // the saved state-form details (serial, permit, owner, … — see src/lib/tech.ts)
+  const carriedValue = (label: string) => e.carried.find((c) => c.label === label)?.value ?? "";
+  for (const t of TECH) {
+    const v = carriedValue(t.label);
+    if (!v) continue; // blank → the form's own default stays
+    if (t.kind === "text") text(t.pdf, v);
+    else if (t.kind === "county") pickByName(t.pdf, v);
+    else {
+      // numeric-coded radio buttons (device / machine / entity type)
+      const code = (t.kind === "device" ? DEVICE_TYPE_CODE : t.kind === "machine" ? MACHINE_TYPE_CODE : ENTITY_TYPE_CODE)[v];
+      if (code) pick(t.pdf, code);
+    }
+  }
 
   // fixed inspector details (same every report)
   text("INSPECTORS NAMES", INSPECTOR.name);

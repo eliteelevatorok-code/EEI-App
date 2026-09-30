@@ -21,7 +21,8 @@ import { VHEAD, VIOLATIONS, parseViolation } from "@/lib/violations";
 import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from "@/lib/prefs";
 import { computeCycle, computePrice, formatPrice } from "@/lib/pricing";
 import { DEVICE_TYPE_CODE, ENTITY_TYPE_CODE, MACHINE_TYPE_CODE } from "@/lib/formCodes";
-import { APRIL, WHERE_TO_FIND, isAmerican, toIsoDate } from "@/lib/records";
+import { TECH, TECH_KEYS, type TechKey, type TechKind } from "@/lib/tech";
+import { APRIL, WHERE_TO_FIND, isAmerican, isoToday, toIsoDate } from "@/lib/records";
 import { AssistantButton } from "@/components/Assistant";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
@@ -82,6 +83,8 @@ function priceOf(e: Elevator): number {
   const n = Number((e.price ?? "").replace(/[^0-9.]/g, ""));
   return n > 0 ? n : (computePrice(e.type, e.floors) ?? 0);
 }
+// The price actually on the dashboard (what the quote email and invoice use) — no rate-card fallback.
+const hasSheetPrice = (e: Elevator) => Number((e.price ?? "").replace(/[^0-9.]/g, "")) > 0;
 const money = (n: number) => "$" + n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 // Shown by a tab while the list hasn't arrived yet, or if it can't be reached.
@@ -333,7 +336,7 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
 
 function UnitRow({ u, onPick, showAccount }: { u: Elevator; onPick: (e: Elevator) => void; showAccount?: boolean }) {
   return (
-    <button onClick={() => onPick(u)} className="row">
+    <button onClick={() => onPick(u)} className="row" aria-label={[u.building, u.city, u.type].filter(Boolean).join(", ")}>
       <div className="min-w-0 flex-1">
         <div className="truncate font-semibold">{u.building}</div>
         <div className="mt-0.5 truncate text-sm text-ink-2">
@@ -379,7 +382,7 @@ function TodayTab({ accounts, error, onPick }: { accounts: Account[] | null; err
           <SectionLabel>Needs you · {needs.length}</SectionLabel>
           <List>
             {needs.map(({ u, what }) => (
-              <button key={u.okla + what} onClick={() => onPick(u)} className="row">
+              <button key={u.okla + what} onClick={() => onPick(u)} className="row" aria-label={`${u.building}: ${what}`}>
                 <span className="dot text-accent" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-semibold">{u.building}</div>
@@ -431,6 +434,9 @@ function todayLists(accounts: Account[]) {
       out.push({ u, what: isAmerican(u.maintCo) ? `Waiting on the safety test from ${u.maintCo}` : "Waiting on the safety test from the customer" });
     if (stage(u, "visit") === "Inspected" && stage(u, "report") !== "Sent" && !u.reportDone)
       out.push({ u, what: "The report isn't finished" });
+    if (u.safetyTest === "No" && stage(u, "visit") !== "Inspected") out.push({ u, what: "No passing safety test in the last 12 months" });
+    const d = daysUntil(u.due);
+    if (!hasSheetPrice(u) && stage(u, "quote") !== "Sent" && d !== null && d <= 60) out.push({ u, what: "Price missing — the quote can't go out" });
     return out;
   });
   const days = (u: Elevator) => daysUntil(u.due);
@@ -561,7 +567,7 @@ function ElevatorsTab({
 // One row on the Money tab: building, what stage the bill is at, and the amount.
 function MoneyRow({ u, note, onPick }: { u: Elevator; note: string; onPick: (e: Elevator) => void }) {
   return (
-    <button onClick={() => onPick(u)} className="row">
+    <button onClick={() => onPick(u)} className="row" aria-label={`${u.building}: ${note}`}>
       <div className="min-w-0 flex-1">
         <div className="truncate font-semibold">{u.building}</div>
         <div className="mt-0.5 truncate text-sm text-ink-2">{note}</div>
@@ -573,7 +579,21 @@ function MoneyRow({ u, note, onPick }: { u: Elevator; note: string; onPick: (e: 
 
 // Money: bills that are out and not paid yet, reports about to be billed, and
 // what's been collected this cycle. Read from the same list as the other tabs.
+// Is the whole system running? (null while checking.) Screens that describe what
+// "is going out" must say so honestly when it's paused.
+function useMasterOn(): boolean | null {
+  const [on, setOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    fetch("/api/switches?only=master")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { master?: boolean } | null) => setOn(d && typeof d.master === "boolean" ? d.master : null))
+      .catch(() => setOn(null));
+  }, []);
+  return on;
+}
+
 function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; error: string; onPick: (e: Elevator) => void }) {
+  const master = useMasterOn();
   if (!accounts) {
     return (
       <Screen bottomSpace>
@@ -588,10 +608,20 @@ function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; err
   const toBill = all.filter((u) => stage(u, "report") === "Sent" && stage(u, "invoice") !== "Sent" && !paid(u));
   const collected = all.filter(paid);
   const sum = (list: Elevator[]) => list.reduce((n, u) => n + priceOf(u), 0);
+  // Nothing is billed or reset while the whole system, or that elevator, is paused.
+  const held = (u: Elevator) => master === false || u.active === false;
 
   return (
     <Screen bottomSpace>
       <Title eyebrow="This cycle">Money</Title>
+      {master === false && (
+        <Glass pad className="mt-4">
+          <p className="text-[15px] text-ink-2">
+            <span className="font-semibold text-danger">The whole system is paused</span> — no invoices, reminders or
+            emails go out until it&apos;s turned back on (Settings → System).
+          </p>
+        </Glass>
+      )}
 
       <div className="mt-6 grid grid-cols-2 gap-3">
         <Glass pad>
@@ -629,7 +659,7 @@ function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; err
           <SectionLabel>Being billed now · {toBill.length}</SectionLabel>
           <List>
             {toBill.map((u) => (
-              <MoneyRow key={u.okla} u={u} onPick={onPick} note="Report filed — invoice going out" />
+              <MoneyRow key={u.okla} u={u} onPick={onPick} note={held(u) ? "Report filed — billing paused" : "Report filed — invoice going out"} />
             ))}
           </List>
         </>
@@ -639,7 +669,7 @@ function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; err
       {collected.length > 0 ? (
         <List>
           {collected.map((u) => (
-            <MoneyRow key={u.okla} u={u} onPick={onPick} note="Paid — next year's cycle is being set" />
+            <MoneyRow key={u.okla} u={u} onPick={onPick} note={held(u) ? "Paid" : "Paid — next year's cycle is being set"} />
           ))}
         </List>
       ) : (
@@ -670,31 +700,17 @@ type NewForm = {
   city: string; area: string; contact: string; email: string; phone: string;
   maintCo: string; maintContact: string; maintEmail: string; maintPhone: string;
   price: string; moneyPath: string;
-  // technical details for the PDF (no prior report to carry from)
-  serial: string; permit: string; mfr: string; capacity: string; speed: string; rise: string;
-  openings: string; landings: string; installed: string; codeYear: string;
-  deviceType: string; machineType: string; entityType: string;
-  owner: string; ownerAddr: string; locAddr: string;
-};
+} & Record<TechKey, string>; // + the state-form details (saved on the dashboard, AQ–BK)
 const BLANK_FORM: NewForm = {
   okla: "", building: "", account: "", type: "", floors: "", cycle: "", due: "",
   city: "", area: "", contact: "", email: "", phone: "",
   maintCo: "", maintContact: "", maintEmail: "", maintPhone: "", price: "", moneyPath: "",
-  serial: "", permit: "", mfr: "", capacity: "", speed: "", rise: "",
-  openings: "", landings: "", installed: "", codeYear: "",
-  deviceType: "", machineType: "", entityType: "", owner: "", ownerAddr: "", locAddr: "",
+  ...(Object.fromEntries(TECH_KEYS.map((k) => [k, ""])) as Record<TechKey, string>),
 };
 
-// Build the carried (technical) field list the PDF filler expects.
-function carriedFromForm(f: NewForm): { label: string; value: string }[] {
-  return [
-    ["Serial number", f.serial], ["Permit #", f.permit], ["Manufacturer", f.mfr],
-    ["Capacity (lbs)", f.capacity], ["Speed (FPM)", f.speed], ["Rise", f.rise],
-    ["Openings", f.openings], ["# of landings", f.landings], ["Device type", f.deviceType],
-    ["Installed year", f.installed], ["Code year", f.codeYear], ["Machine type", f.machineType],
-    ["Entity type", f.entityType], ["Owner", f.owner], ["Owner address", f.ownerAddr],
-    ["Location address", f.locAddr],
-  ].map(([label, value]) => ({ label, value }));
+// The details list the report screen shows (and the PDF filler reads).
+function carriedFromForm(f: Record<TechKey, string>): { label: string; value: string }[] {
+  return TECH.map((t) => ({ label: t.label, value: f[t.key] ?? "" }));
 }
 
 // Module-level so it isn't recreated each render (which would drop input focus).
@@ -713,6 +729,25 @@ function TextRow({
     <Field label={label}>
       <input className="input" type={type} value={value} onChange={(e) => onChange(e.target.value)} />
     </Field>
+  );
+}
+
+// The state-form details (serial, permit, owner, …) as input boxes / choices —
+// the same set on "New elevator" and on the profile's "For the state form" editor.
+function TechFields({ values, onChange }: { values: Record<TechKey, string>; onChange: (k: TechKey, v: string) => void }) {
+  const choices: Partial<Record<TechKind, string[]>> = { device: DEVICE_TYPES, machine: MACHINE_TYPES, entity: ENTITY_TYPES };
+  return (
+    <>
+      {TECH.map((t) =>
+        choices[t.kind] ? (
+          <Field key={t.key} label={t.label}>
+            <Chips options={choices[t.kind]!} value={values[t.key]} onChange={(v) => onChange(t.key, v)} />
+          </Field>
+        ) : (
+          <TextRow key={t.key} label={t.label} value={values[t.key]} onChange={(v) => onChange(t.key, v)} />
+        ),
+      )}
+    </>
   );
 }
 
@@ -804,38 +839,13 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
         <TextRow label="Next due date" value={f.due} onChange={(v) => set("due", v)} type="date" />
       </Glass>
 
-      <SectionLabel>Technical details (for the state form)</SectionLabel>
+      <SectionLabel>For the state form</SectionLabel>
       <Glass pad>
-        <div className="grid grid-cols-2 gap-3">
-          <TextRow label="Serial number" value={f.serial} onChange={(v) => set("serial", v)} />
-          <TextRow label="Permit #" value={f.permit} onChange={(v) => set("permit", v)} />
-        </div>
-        <TextRow label="Manufacturer" value={f.mfr} onChange={(v) => set("mfr", v)} />
-        <div className="grid grid-cols-2 gap-3">
-          <TextRow label="Capacity (lbs)" value={f.capacity} onChange={(v) => set("capacity", v)} />
-          <TextRow label="Speed (FPM)" value={f.speed} onChange={(v) => set("speed", v)} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <TextRow label="Rise" value={f.rise} onChange={(v) => set("rise", v)} />
-          <TextRow label="Openings" value={f.openings} onChange={(v) => set("openings", v)} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <TextRow label="# of landings" value={f.landings} onChange={(v) => set("landings", v)} />
-          <TextRow label="Installed year" value={f.installed} onChange={(v) => set("installed", v)} />
-        </div>
-        <TextRow label="Code year" value={f.codeYear} onChange={(v) => set("codeYear", v)} />
-        <Field label="Device type">
-          <Chips options={DEVICE_TYPES} value={f.deviceType} onChange={(v) => set("deviceType", v)} />
-        </Field>
-        <Field label="Machine type">
-          <Chips options={MACHINE_TYPES} value={f.machineType} onChange={(v) => set("machineType", v)} />
-        </Field>
-        <Field label="Entity type">
-          <Chips options={ENTITY_TYPES} value={f.entityType} onChange={(v) => set("entityType", v)} />
-        </Field>
-        <TextRow label="Owner" value={f.owner} onChange={(v) => set("owner", v)} />
-        <TextRow label="Owner address" value={f.ownerAddr} onChange={(v) => set("ownerAddr", v)} />
-        <TextRow label="Location address" value={f.locAddr} onChange={(v) => set("locAddr", v)} />
+        <p className="mb-3 text-sm text-ink-3">
+          Saved on the dashboard, so every report has them. Fill in what you know — you can add the rest later on the
+          elevator&apos;s profile.
+        </p>
+        <TechFields values={f} onChange={(k, v) => set(k, v)} />
       </Glass>
 
       <SectionLabel>Location & contact</SectionLabel>
@@ -961,7 +971,18 @@ function LifecycleEditor({
         <>
           <h3 className="text-[21px] font-bold tracking-tight">{stage.label}</h3>
           <p className="mb-4 mt-1 text-sm text-ink-3">Now: {show(stage.value)}</p>
-          {stage.options.length > 0 ? (
+          {stage.date ? (
+            // A real date picker (saved the dashboard's way, M/D/YYYY) — typed text like "next tuesday" can't get in.
+            <input
+              type="date"
+              className="input"
+              value={toIsoDate(choice)}
+              onChange={(ev) => {
+                const v = ev.target.value;
+                setChoice(v ? `${+v.slice(5, 7)}/${+v.slice(8, 10)}/${v.slice(0, 4)}` : "");
+              }}
+            />
+          ) : stage.options.length > 0 ? (
             <Chips options={stage.options} value={choice} onChange={setChoice} />
           ) : (
             <input className="input" placeholder="Type a value" value={choice} onChange={(e) => setChoice(e.target.value)} />
@@ -1037,6 +1058,24 @@ function nextSteps(e: Elevator, onStartReport: () => void, onEnterSafety: () => 
           },
     );
   }
+  if (e.safetyTest === "No" && visit !== "Inspected") {
+    const american = isAmerican(e.maintCo);
+    out.push({
+      title: "No passing safety test",
+      text: "The answer was No — it hasn't passed a safety test in the last 12 months. Decide with the customer or maintenance company what happens before the inspection.",
+      actions: [
+        ...call("Call customer", e.phone),
+        ...call(american ? "Call American" : "Call maintenance", e.maintPhone),
+      ],
+    });
+  }
+  if (!hasSheetPrice(e) && stage(e, "quote") !== "Sent" && (daysUntil(e.due) ?? 999) <= 60) {
+    out.push({
+      title: "Price missing",
+      text: "There's no price on this elevator, so the quote can't go out. Ask the assistant to set it (it prices by type and floors), or fill it in on the dashboard.",
+      actions: [],
+    });
+  }
   const d = daysUntil(e.due);
   if (d !== null && d < 0 && visit !== "Booked" && visit !== "Inspected") {
     out.push({
@@ -1079,14 +1118,18 @@ function SafetyEditor({ elevator, onClose, onSaved }: { elevator: Elevator; onCl
       const d = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(d.error || "Save failed");
       buzz();
-      // Show the answer everywhere right away (and move the records step on).
+      // Show the answer everywhere right away (and move the records step on) —
+      // including the report's "one-year test" box, which is filled from it.
       const [y, m, day] = date.split("-");
+      const yes = answer === "Yes" && !!y;
       onSaved({
         ...elevator,
         safetyTest: answer as "Yes" | "No",
-        safetyTestDate: answer === "Yes" && y ? `${+m}/${+day}/${y}` : "",
+        safetyTestDate: yes ? `${+m}/${+day}/${y}` : "",
+        lastYear: { ...elevator.lastYear, date: yes ? date : "", test1: yes ? `${m}/${y}` : "", certIssue: answer === "No" ? "No" : "Yes" },
         lifecycle: elevator.lifecycle.map((s) => (s.key === "maintConfirm" ? { ...s, value: "Answered" } : s)),
       });
+      void refreshRoster();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Save failed");
       setBusy(false);
@@ -1103,7 +1146,7 @@ function SafetyEditor({ elevator, onClose, onSaved }: { elevator: Elevator; onCl
         </Field>
         {answer !== "No" && (
           <Field label="What date was that safety test?">
-            <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+            <input type="date" className="input" value={date} max={isoToday()} onChange={(e) => setDate(e.target.value)} />
           </Field>
         )}
       </div>
@@ -1112,6 +1155,57 @@ function SafetyEditor({ elevator, onClose, onSaved }: { elevator: Elevator; onCl
       <div className="mt-5 flex flex-col gap-2.5">
         <Button full onClick={save} disabled={busy}>
           {busy ? "Saving…" : "Save answer"}
+        </Button>
+        <Button variant="secondary" full onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+    </Sheet>
+  );
+}
+
+// Edit the state-form details (profile → "For the state form"). Saved to the
+// dashboard, so every report — this year and every year after — has them.
+function TechEditor({ elevator, onClose, onSaved }: { elevator: Elevator; onClose: () => void; onSaved: (e: Elevator) => void }) {
+  const start = Object.fromEntries(TECH.map((t) => [t.key, elevator.carried.find((c) => c.label === t.label)?.value ?? ""])) as Record<TechKey, string>;
+  const [v, setV] = useState(start);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function save() {
+    if (elevator.row == null) return setErr("This elevator has no saved row yet.");
+    const changed = Object.fromEntries(TECH_KEYS.filter((k) => v[k] !== start[k]).map((k) => [k, v[k]]));
+    if (!Object.keys(changed).length) return onClose();
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await fetch("/api/details", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ row: elevator.row, okla: elevator.okla, values: changed }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(d.error || "Save failed");
+      buzz();
+      onSaved({ ...elevator, carried: carriedFromForm(v) });
+      void refreshRoster();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Save failed");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet onClose={busy ? () => {} : onClose}>
+      <h3 className="text-[21px] font-bold tracking-tight">For the state form</h3>
+      <p className="mt-1 text-sm text-ink-3">{elevator.building} · printed on every report</p>
+      <div className="mt-5">
+        <TechFields values={v} onChange={(k, val) => setV((p) => ({ ...p, [k]: val }))} />
+      </div>
+      {err && <p className="mt-3 text-sm font-semibold text-danger">{err}</p>}
+      <div className="mt-5 flex flex-col gap-2.5">
+        <Button full onClick={save} disabled={busy}>
+          {busy ? "Saving…" : "Save"}
         </Button>
         <Button variant="secondary" full onClick={onClose} disabled={busy}>
           Cancel
@@ -1141,6 +1235,7 @@ function Profile({
   // then a final yes); resuming takes one.
   const swOn = e.active !== false;
   const [enteringSafety, setEnteringSafety] = useState(false);
+  const [editingTech, setEditingTech] = useState(false);
   const steps = nextSteps(e, onStartReport, () => setEnteringSafety(true));
   const [swStep, setSwStep] = useState<null | "pause1" | "pause2" | "resume">(null);
   const [swBusy, setSwBusy] = useState(false);
@@ -1231,7 +1326,13 @@ function Profile({
         {e.lifecycle.map((s) => {
           const state = !s.value ? "tl-todo" : IN_PROGRESS.has(s.value) ? "tl-now" : "tl-done";
           return (
-            <button key={s.key} onClick={() => setEditing(s)} className={"tl-step " + state}>
+            <button
+              key={s.key}
+              onClick={() => !s.locked && setEditing(s)}
+              disabled={s.locked}
+              aria-label={`${s.label}: ${s.value || "not yet"}${s.locked ? " (set automatically)" : " — tap to change"}`}
+              className={"tl-step " + state}
+            >
               <span className="tl-node">{state === "tl-done" && <CheckIcon />}</span>
               <span className={"flex-1 text-[15px] " + (s.value ? "" : "text-ink-3")}>{s.label}</span>
               <span className="text-[13px] text-ink-2">{s.value}</span>
@@ -1239,7 +1340,10 @@ function Profile({
           );
         })}
       </Glass>
-      <p className="mt-2 px-1 text-sm text-ink-3">Tap a step to change it — you&apos;ll confirm before it saves.</p>
+      <p className="mt-2 px-1 text-sm text-ink-3">
+        Tap a step to change it — you&apos;ll confirm before it saves. Report is set automatically once the finished
+        report has been emailed.
+      </p>
 
       <SectionLabel>Safety test</SectionLabel>
       <List>
@@ -1352,6 +1456,39 @@ function Profile({
         <InfoRow label="Price">{e.price || formatPrice(computePrice(e.type, e.floors))}</InfoRow>
         <InfoRow label="Money path">{e.moneyPath || "—"}</InfoRow>
       </List>
+
+      <SectionLabel>For the state form</SectionLabel>
+      <List>
+        {(() => {
+          const filled = e.carried.filter((c) => c.value);
+          const missing = e.carried.length - filled.length;
+          return (
+            <div className="row justify-between">
+              <div className="min-w-0">
+                <div className="text-[15px]">
+                  {filled.length ? filled.slice(0, 2).map((c) => `${c.label} ${c.value}`).join(" · ") : "Nothing filled in yet"}
+                </div>
+                <div className="text-sm text-ink-3">
+                  {missing ? `${missing} of ${e.carried.length} details still blank on the report` : "All details filled in"}
+                </div>
+              </div>
+              <Button variant="soft" className="shrink-0 px-4 py-2.5 text-sm" onClick={() => setEditingTech(true)}>
+                Edit
+              </Button>
+            </div>
+          );
+        })()}
+      </List>
+      {editingTech && (
+        <TechEditor
+          elevator={e}
+          onClose={() => setEditingTech(false)}
+          onSaved={(next) => {
+            onChange(next);
+            setEditingTech(false);
+          }}
+        />
+      )}
     </Screen>
   );
 }
@@ -1621,7 +1758,8 @@ function Report({
           ))}
         </List>
         <p className="mt-2 px-1 text-sm text-ink-3">
-          Locked in the field so nothing changes by accident — note it above and edit it on the computer.
+          Locked on the report so nothing changes by accident. To fix one, go back to the elevator&apos;s profile → For
+          the state form → Edit.
         </p>
       </Screen>
 
@@ -1753,7 +1891,9 @@ function App() {
       />
     );
   } else if (stage === "report" && selected) {
-    screen = <Report key={selected.okla} elevator={selected} onBack={() => to("profile")} />;
+    // The latest copy (live), not the one captured when the elevator was opened —
+    // so an answer entered a moment ago (e.g. the safety test) is on the report.
+    screen = <Report key={selected.okla} elevator={live ?? selected} onBack={() => to("profile")} />;
   } else if (tab === "today") {
     screen = <TodayTab accounts={roster.accounts} error={roster.error} onPick={pick} />;
   } else if (tab === "elevators") {

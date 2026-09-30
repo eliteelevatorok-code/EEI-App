@@ -1,4 +1,5 @@
 import { appendElevator, findRowByOkla, type NewElevatorInput } from "@/lib/roster";
+import { TECH_KEYS } from "@/lib/tech";
 
 export const runtime = "nodejs";
 
@@ -6,6 +7,7 @@ const FIELDS: (keyof NewElevatorInput)[] = [
   "okla", "building", "area", "city", "account", "contact", "email", "phone",
   "maintCo", "maintContact", "maintEmail", "maintPhone", "type", "floors", "cycle",
   "price", "moneyPath", "due",
+  ...TECH_KEYS, // the state-form details (serial, permit, owner, …) — saved so every report has them
 ];
 
 // POST a new elevator → append it as a row on the dashboard.

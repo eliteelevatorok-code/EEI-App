@@ -44,6 +44,8 @@ export async function POST(req: Request) {
       if (!Number.isInteger(row) || (row as number) < FIRST_ROW || (row as number) > 100000) {
         return Response.json({ error: "Bad row" }, { status: 400 });
       }
+      // The OK # is required so a moved row can never switch the wrong elevator.
+      if (!String(body.okla ?? "").trim()) return Response.json({ error: "Missing elevator" }, { status: 400 });
       const at = await requireElevatorRow(row as number, body.okla); // the right elevator, even if rows moved
       await setElevatorSwitch(at, body.on);
       return Response.json({ ok: true, row: at, on: body.on });

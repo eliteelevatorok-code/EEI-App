@@ -15,7 +15,7 @@ async function handle(req: Request) {
 
   const params = new URL(req.url).searchParams;
   const toRow = (v: string | null) => {
-    const n = parseInt(v ?? "", 10);
+    const n = Number(v ?? ""); // whole numbers only — "2.5" or "2abc" is refused, not read as 2
     return Number.isInteger(n) && n >= FIRST_ROW ? n : null; // row 1 is the header
   };
   try {

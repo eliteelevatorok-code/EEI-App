@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button, Field, Notice, PublicPage } from "@/components/ui";
-import { APRIL, WHERE_TO_FIND, safetyAnswer, toIsoDate } from "@/lib/records";
+import { APRIL, WHERE_TO_FIND, isoToday, safetyAnswer, toIsoDate } from "@/lib/records";
 
 type Info = { building: string; okla: string; maintCo?: string; alreadyResult?: string; alreadyDate?: string };
 
@@ -106,7 +106,7 @@ export default function MaintForm({ token }: { token: string }) {
         </Field>
         {result !== "No" && (
           <Field label="What date was that safety test?">
-            <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+            <input type="date" className="input" value={date} max={isoToday()} onChange={(e) => setDate(e.target.value)} />
           </Field>
         )}
         {submitErr ? <p className="mt-3 text-sm font-semibold text-danger">{submitErr}</p> : null}

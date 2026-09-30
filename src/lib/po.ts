@@ -3,7 +3,8 @@ import { cell, findByToken, writeRow } from "@/lib/sheet";
 // Customer PO capture. The quote email's "Submit your PO number" link opens
 // /po?t=<token>; the token is the only thing that identifies the elevator.
 
-export type POElevator = { row: number; okla: string; building: string; account: string; alreadyPO: string };
+// invoiced: the invoice has gone out (it carries the PO) — after that the PO can't be changed from the link.
+export type POElevator = { row: number; okla: string; building: string; account: string; alreadyPO: string; invoiced: boolean };
 
 export async function findForPO(token: string): Promise<POElevator | null> {
   const hit = await findByToken(token);
@@ -15,6 +16,7 @@ export async function findForPO(token: string): Promise<POElevator | null> {
     building: cell(r, "building"),
     account: cell(r, "account") || "Unassigned",
     alreadyPO: cell(r, "poNumber"),
+    invoiced: cell(r, "invoice") === "Sent",
   };
 }
 

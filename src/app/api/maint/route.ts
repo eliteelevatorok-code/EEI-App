@@ -1,4 +1,5 @@
 import { findForMaint, recordMaint } from "@/lib/maint";
+import { checkSafetyDate } from "@/lib/records";
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,8 @@ export async function POST(req: Request) {
   if (result === "Yes" && !date) {
     return Response.json({ error: "Please enter the date of the safety test." }, { status: 400 });
   }
+  const bad = result === "Yes" ? checkSafetyDate(date) : "";
+  if (bad) return Response.json({ error: bad }, { status: 400 });
   const el = await findForMaint(String(body.token ?? ""));
   if (!el) return Response.json({ error: "This link isn't recognized." }, { status: 404 });
   try {

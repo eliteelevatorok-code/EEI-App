@@ -11,7 +11,9 @@ export type LifecycleStage = {
   label: string;
   col: string;
   value: string;
-  options: string[];
+  options: string[]; // choices that can be picked by hand
+  date?: boolean; // picked with a date picker (Trip day)
+  locked?: boolean; // shown but never changed by hand (Report)
 };
 
 // One line the inspector added to a report. `raw` is the exact text from the

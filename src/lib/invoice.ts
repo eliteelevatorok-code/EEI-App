@@ -20,11 +20,14 @@ function parsePrice(raw: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-// Read one row, but only if the switches allow acting on it. Null = leave it alone.
-async function activeRow(row: number): Promise<string[] | null> {
+// Read one row, but only if the switches allow acting on it. Otherwise say why
+// (the real reason — master switch, this elevator paused, or no elevator there).
+async function activeRow(row: number): Promise<{ r: string[] } | { skip: string }> {
   const [masterOn, r] = await Promise.all([isMasterOn(), readRow(row)]);
-  if (!masterOn || !cell(r, "okla") || isRowPaused(r)) return null;
-  return r;
+  if (!masterOn) return { skip: "master switch is off" };
+  if (!cell(r, "okla")) return { skip: "no elevator on that row" };
+  if (isRowPaused(r)) return { skip: "this elevator is paused" };
+  return { r };
 }
 
 export type InvoiceResult =
@@ -34,8 +37,9 @@ export type InvoiceResult =
 // Bill one row. Checks the row itself (report filed, not already billed) so a
 // repeated call can never create a second QuickBooks invoice.
 export async function invoiceRow(row: number): Promise<InvoiceResult> {
-  const r = await activeRow(row);
-  if (!r) return { invoiced: false, skipped: "paused or empty row" };
+  const a = await activeRow(row);
+  if ("skip" in a) return { invoiced: false, skipped: a.skip };
+  const { r } = a;
   if (cell(r, "report") !== "Sent") return { invoiced: false, skipped: "report not filed yet" };
   // Check the status box, not the stored invoice id: the yearly reset clears the
   // status, and last year's invoice id may still be sitting in its column.
@@ -65,8 +69,9 @@ export async function invoiceRow(row: number): Promise<InvoiceResult> {
 
 // Mark one row Paid if its QuickBooks invoice balance has reached 0.
 export async function reconcileRow(row: number): Promise<{ paid: boolean; skipped?: string }> {
-  const r = await activeRow(row);
-  if (!r) return { paid: false, skipped: "paused or empty row" };
+  const a = await activeRow(row);
+  if ("skip" in a) return { paid: false, skipped: a.skip };
+  const { r } = a;
   const id = cell(r, "invoiceId");
   if (!id) return { paid: false, skipped: "no invoice id" };
   if (cell(r, "paid") === "Paid") return { paid: false, skipped: "already paid" };

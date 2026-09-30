@@ -1,4 +1,5 @@
 import { recordMaint } from "@/lib/maint";
+import { checkSafetyDate } from "@/lib/records";
 import { FIRST_ROW, NoSuchRow, requireElevatorRow } from "@/lib/sheet";
 
 export const runtime = "nodejs";
@@ -20,6 +21,9 @@ export async function POST(req: Request) {
   if (!Number.isInteger(row) || row < FIRST_ROW || row > 100000) return Response.json({ error: "Bad row" }, { status: 400 });
   if (result !== "Yes" && result !== "No") return Response.json({ error: "Choose Yes or No." }, { status: 400 });
   if (result === "Yes" && !date) return Response.json({ error: "Enter the date of the safety test." }, { status: 400 });
+  const bad = result === "Yes" ? checkSafetyDate(date) : "";
+  if (bad) return Response.json({ error: bad }, { status: 400 });
+  if (!String(body.okla ?? "").trim()) return Response.json({ error: "Missing elevator" }, { status: 400 });
   try {
     const at = await requireElevatorRow(row, body.okla); // the right elevator, even if rows moved
     await recordMaint(at, result, result === "Yes" ? date : "");

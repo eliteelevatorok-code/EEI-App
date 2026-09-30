@@ -21,7 +21,7 @@ export const COL = {
   visit: 24, tripDay: 25, report: 26, invoice: 27, followUps: 28, paid: 29, newTimer: 30,
   // notes (AF) and the sheet's own "Next action" formula (AG) — the app doesn't write these
   notes: 31, nextAction: 32,
-  // app/automation bookkeeping (AH–AP)
+  // app/automation bookkeeping (AH–AP), then the state-form details (AQ–BK)
   token: 33, // random code in every emailed link (/po, /maint, /pay) — the only "login" those pages use
   poNumber: 34, poFile: 35, // from the customer's PO form
   invoiceId: 36, // QuickBooks invoice id
@@ -29,6 +29,11 @@ export const COL = {
   safetyTest: 38, safetyTestDate: 39, // passing safety test in the last 12 months? Yes/No + its date (see records.ts)
   reportFile: 40, // Drive link to the latest finished report
   invoiceDate: 41, // day the invoice went out (AP) — the payment reminder waits 30 days from it
+  // details for the state form (AQ–BK) — see src/lib/tech.ts
+  serial: 42, permit: 43, manufacturer: 44, capacity: 45, speed: 46, rise: 47, openings: 48, landings: 49,
+  deviceType: 50, machineType: 51, installedYear: 52, codeYear: 53, entityType: 54,
+  owner: 55, ownerAddress: 56, ownerCity: 57, ownerState: 58, ownerZip: 59,
+  locationAddress: 60, locationZip: 61, county: 62,
 } as const;
 export type Col = keyof typeof COL;
 
@@ -38,15 +43,15 @@ export function letter(i: number): string {
   for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
   return s;
 }
-const LAST = letter(COL.invoiceDate); // read this far to get every column the app uses
+const LAST = letter(COL.county); // read this far to get every column the app uses
 
 // One trimmed cell from a row that was read from the sheet.
 export const cell = (row: string[], c: Col) => (row[COL[c]] ?? "").trim();
 
-// Every elevator row (A..AP). Array index i is sheet row FIRST_ROW + i.
+// Every elevator row (A..BK). Array index i is sheet row FIRST_ROW + i.
 export const readRows = () => readRange(`${TAB}!A${FIRST_ROW}:${LAST}`);
 
-// One elevator row (A..AP), or [] if it's blank or past the end of the sheet.
+// One elevator row (A..BK), or [] if it's blank or past the end of the sheet.
 export async function readRow(row: number): Promise<string[]> {
   if (!Number.isInteger(row) || row < FIRST_ROW) return [];
   try {

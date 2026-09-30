@@ -56,6 +56,10 @@ export async function POST(req: Request) {
   }
   let messages = Array.isArray(body.messages) ? body.messages : [];
   if (!messages.length) return Response.json({ error: "Nothing to answer" }, { status: 400 });
+  // Only the two roles a real chat has — anything else is a hand-made request.
+  if (messages.some((m) => m?.role !== "user" && m?.role !== "assistant")) {
+    return Response.json({ error: "That chat couldn't be read — start a new chat and try again." }, { status: 400 });
+  }
   // Keep each question a sensible size (a pasted wall of text would just run up the Anthropic bill).
   const last = messages[messages.length - 1];
   if (typeof last?.content === "string" && last.content.length > 4000) {

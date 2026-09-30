@@ -3,23 +3,28 @@ import type { Account, Elevator, Field, LifecycleStage } from "@/lib/data";
 import { appendRow } from "@/lib/google";
 import { COL, FIRST_ROW, TAB, cell, letter, readRows, writeRow, type Col } from "@/lib/sheet";
 import { safetyAnswer } from "@/lib/records";
+import { TECH, type TechKey } from "@/lib/tech";
 import { isRowPaused } from "@/lib/switches";
 
 // Reading elevators off the dashboard for the phone app, and the few writes the
 // app makes when an elevator is added or a report is finished.
 
 // The customer lifecycle, left to right (dashboard columns S–AE). `options` are
-// the cell's dropdown choices ([] = free text, e.g. the trip date).
-const STAGES: { key: Col; label: string; options: string[] }[] = [
+// the choices Robert can pick by hand on the profile. `date`: picked with a date
+// picker (saved M/D/YYYY). `locked`: shown, never changed by hand — the Report step
+// is set only when the automation has emailed the finished report (Robert: the
+// report is never edited directly), and Visit = Inspected only by finishing the
+// report in the app, so it isn't a hand choice either.
+const STAGES: { key: Col; label: string; options: string[]; date?: boolean; locked?: boolean }[] = [
   { key: "twoMoEmail", label: "2-month email", options: ["Sent"] },
   { key: "quote", label: "Quote", options: ["Review", "Sent"] },
   { key: "po", label: "PO", options: ["Awaiting", "Received", "N/A"] },
   { key: "scheduling", label: "Scheduling email", options: ["Sent"] },
-  { key: "maintConfirm", label: "Maint. confirm", options: ["Waiting", "Answered", "No answer"] },
+  { key: "maintConfirm", label: "Safety test question", options: ["Waiting", "Answered", "No answer"] },
   { key: "accessReminder", label: "Access reminder", options: ["Sent"] },
-  { key: "visit", label: "Visit", options: ["Booked", "Inspected"] },
-  { key: "tripDay", label: "Trip day", options: [] },
-  { key: "report", label: "Report", options: ["Sent"] },
+  { key: "visit", label: "Visit", options: ["Booked"] },
+  { key: "tripDay", label: "Trip day", options: [], date: true },
+  { key: "report", label: "Report", options: [], locked: true },
   { key: "invoice", label: "Invoice", options: ["Sent"] },
   { key: "followUps", label: "Follow-ups", options: ["#1 sent", "#2 sent", "#3 sent"] },
   { key: "paid", label: "Paid", options: ["Paid"] },
@@ -28,15 +33,9 @@ const STAGES: { key: Col; label: string; options: string[] }[] = [
 // Same list with each stage's column letter, for writing a stage back (see /api/lifecycle).
 export const LIFECYCLE_DEFS = STAGES.map((s) => ({ ...s, col: letter(COL[s.key]) }));
 
-// The fixed technical details printed on the report (serial, permit, …). The
-// dashboard doesn't store these yet, so they start blank for existing elevators;
-// a brand-new elevator gets them from the "New elevator" form for its first report.
-const CARRIED_LABELS = [
-  "Serial number", "Permit #", "Manufacturer", "Capacity (lbs)", "Speed (FPM)",
-  "Rise", "Openings", "# of landings", "Device type", "Installed year",
-  "Code year", "Machine type", "Owner", "Owner address", "Location address",
-];
-const blankCarried = (): Field[] => CARRIED_LABELS.map((label) => ({ label, value: "" }));
+// The fixed details printed on the state form (serial, permit, owner, …), read
+// from their own dashboard columns (AQ–BK, see src/lib/tech.ts).
+const carriedFrom = (r: string[]): Field[] => TECH.map((t) => ({ label: t.label, value: cell(r, t.key) }));
 
 // "9/12/2026" or "2026-09-12" → "09/2026" (the state form's test-date format).
 function monthYear(s: string): string {
@@ -78,8 +77,10 @@ function rowToElevator(r: string[], row: number): Elevator {
       col: d.col,
       value: cell(r, d.key),
       options: d.options,
+      date: d.date,
+      locked: d.locked,
     })),
-    carried: blankCarried(),
+    carried: carriedFrom(r),
     safetyTest: safetyAnswer(cell(r, "safetyTest")),
     safetyTestDate: cell(r, "safetyTestDate"),
     lastYear: {
@@ -120,11 +121,12 @@ export type NewElevatorInput = {
   contact: string; email: string; phone: string; maintCo: string; maintContact: string;
   maintEmail: string; maintPhone: string; type: string; floors: string; cycle: string;
   price: string; moneyPath: string; due: string;
-};
+} & Partial<Record<TechKey, string>>; // + the state-form details, if known
 
 // Add a new elevator as a new row (A–R). Lifecycle cells start blank — the
 // automation fills them over time. Also stamps a random link token so the
-// customer's emailed links (PO form, pay page) work right away.
+// customer's emailed links (PO form, pay page) work right away, and saves any
+// state-form details given (so they're there for every future report).
 export async function appendElevator(f: NewElevatorInput): Promise<number | null> {
   const row = await appendRow(`${TAB}!A:R`, [
     f.okla, f.building, f.area, f.city, f.account, f.contact, f.email, f.phone,
@@ -132,14 +134,21 @@ export async function appendElevator(f: NewElevatorInput): Promise<number | null
     f.price, f.moneyPath, f.due,
   ]);
   if (row) {
+    const extra: Partial<Record<Col, string>> = { token: randomBytes(16).toString("hex") };
+    for (const t of TECH) if (f[t.key]) extra[t.key] = f[t.key];
     try {
-      await writeRow(row, { token: randomBytes(16).toString("hex") });
+      await writeRow(row, extra);
     } catch {
-      // A missing token only means the emailed links need one added later —
-      // never fail the whole add-elevator over it.
+      // The row itself is saved; a failed extra write only means the link token /
+      // details need adding afterwards — never fail the whole add-elevator over it.
     }
   }
   return row;
+}
+
+// Save the state-form details for one elevator (profile → "For the state form").
+export async function setTechDetails(row: number, values: Partial<Record<TechKey, string>>): Promise<void> {
+  await writeRow(row, values);
 }
 
 // A report was finished: Visit → Inspected, Trip day → the inspection date.

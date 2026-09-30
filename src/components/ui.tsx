@@ -40,7 +40,9 @@ export function buzz() {
 // One screen's column: centered, phone-width, content rises in on open.
 export function Screen({ children, bottomSpace = false }: { children: React.ReactNode; bottomSpace?: boolean }) {
   return (
-    <div className={cx("rise mx-auto max-w-md px-5 pt-5", bottomSpace ? "pb-36" : "pb-16")}>{children}</div>
+    // bottomSpace: room below the last row for the tab bar AND the round assistant
+    // button, so scrolling to the end never leaves a row hidden behind them.
+    <div className={cx("rise mx-auto max-w-md px-5 pt-5", bottomSpace ? "pb-44" : "pb-16")}>{children}</div>
   );
 }
 

@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   const token = new URL(req.url).searchParams.get("t") ?? "";
   const el = await findForPO(token);
   if (!el) return Response.json({ error: "not-found" }, { status: 404 });
-  return Response.json({ building: el.building, okla: el.okla, alreadyPO: el.alreadyPO });
+  return Response.json({ building: el.building, okla: el.okla, alreadyPO: el.alreadyPO, invoiced: el.invoiced });
 }
 
 // POST (multipart form): token, po, optional file → writes the PO into the row
@@ -31,9 +31,14 @@ export async function POST(req: Request) {
 
   if (!po) return Response.json({ error: "Please enter your PO number." }, { status: 400 });
   if (po.length > 120) return Response.json({ error: "That PO number looks too long." }, { status: 400 });
+  if (/[<>]/.test(po)) return Response.json({ error: "Please leave out the < and > characters." }, { status: 400 });
 
   const el = await findForPO(token);
   if (!el) return Response.json({ error: "This link isn't recognized." }, { status: 404 });
+  // Once the invoice has gone out with a PO on it, the link can't change it.
+  if (el.invoiced && el.alreadyPO && el.alreadyPO !== po) {
+    return Response.json({ error: "Your invoice has already gone out with PO " + el.alreadyPO + ". To change it, please reply to our email or call (405) 213-9779." }, { status: 409 });
+  }
 
   let fileLink = "";
   if (file && typeof file !== "string" && file.size > 0) {

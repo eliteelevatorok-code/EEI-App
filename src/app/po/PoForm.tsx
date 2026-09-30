@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Field, Notice, PublicPage } from "@/components/ui";
 
-type Info = { building: string; okla: string; alreadyPO?: string };
+type Info = { building: string; okla: string; alreadyPO?: string; invoiced?: boolean };
 
 // The "Send us your PO" screen. The customer sees only their building name, a PO
 // box, and an optional attach button. Submitting drops the PO into the dashboard row.
@@ -31,6 +31,11 @@ export default function PoForm({ token }: { token: string }) {
     e.preventDefault();
     if (!po.trim()) {
       setSubmitErr("Please enter your PO number.");
+      return;
+    }
+    // (Our host's firewall drops messages containing these, which would look like a network error.)
+    if (/[<>]/.test(po)) {
+      setSubmitErr("Please leave out the < and > characters.");
       return;
     }
     const f = fileRef.current?.files?.[0];
@@ -78,7 +83,10 @@ export default function PoForm({ token }: { token: string }) {
     <PublicPage title="Send us your PO" subtitle={<>For {info.building} (Elevator #{info.okla})</>}>
       {info.alreadyPO ? (
         <Notice tone="warn">
-          We already have PO <span className="font-semibold">{info.alreadyPO}</span> on file. Submitting again will replace it.
+          We already have PO <span className="font-semibold">{info.alreadyPO}</span> on file.{" "}
+          {info.invoiced
+            ? "Your invoice has already gone out with it — to change it, please reply to our email or call (405) 213-9779."
+            : "Submitting again will replace it."}
         </Notice>
       ) : null}
       <form onSubmit={submit}>

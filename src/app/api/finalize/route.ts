@@ -27,6 +27,13 @@ export async function POST(req: Request) {
   if (!payload?.elevator || !payload?.report) {
     return Response.json({ error: "Missing elevator or report" }, { status: 400 });
   }
+  // A clear message instead of a crash when something's missing (e.g. an old draft).
+  const e = payload.elevator, r = payload.report;
+  if (!String(e.okla ?? "").trim()) return Response.json({ error: "This report isn't tied to an elevator." }, { status: 400 });
+  if (!String(r.date ?? "").trim()) return Response.json({ error: "Add the inspection date before finishing." }, { status: 400 });
+  e.carried = Array.isArray(e.carried) ? e.carried : [];
+  r.added = Array.isArray(r.added) ? r.added : [];
+  for (const k of ["inspType", "cycle", "test1", "test5", "certIssue", "condition", "notes"] as const) r[k] = String(r[k] ?? "");
 
   const templatePath = path.join(process.cwd(), "templates", "inspection-form.pdf");
   const templateBytes = new Uint8Array(await readFile(templatePath));

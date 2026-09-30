@@ -1,8 +1,10 @@
 import { readRange } from "@/lib/google";
 import { getInvoiceBalance } from "@/lib/quickbooks";
-import { appendElevator, type NewElevatorInput } from "@/lib/roster";
+import { LIFECYCLE_DEFS, appendElevator, type NewElevatorInput } from "@/lib/roster";
 import { FIRST_ROW, cell, readRows, writeRow, type Col } from "@/lib/sheet";
 import { isMasterOn, setElevatorSwitch, setMaster } from "@/lib/switches";
+import { computePrice } from "@/lib/pricing";
+import { TECH } from "@/lib/tech";
 
 // What the in-app assistant can do. Each tool is described to Claude (name,
 // description, input shape) and has a function here that actually does it.
@@ -56,6 +58,8 @@ const FIELD_HELP: Partial<Record<Col, string>> = {
   invoiceDate: "Day the invoice went out (the payment reminder waits 30 days from it)",
   active: "On/Off switch for this elevator (read-only here — use set_elevator_switch)",
 };
+// The details printed on the state form (serial, permit, owner, …).
+for (const t of TECH) FIELD_HELP[t.key] = `State form: ${t.label}`;
 // Columns the assistant may change with update_elevator. Not: the link token,
 // the sheet's own "Next action" formula, the QuickBooks invoice id, the on/off
 // switch (which has its own tool and wording) — and NOTHING about the inspection
@@ -112,6 +116,25 @@ export const TOOLS = [
     },
   },
   {
+    name: "update_many",
+    description:
+      "CHANGE: the same kind of change on SEVERAL elevators at once (up to 25) — shown to the person on ONE Confirm card. Use this instead of many update_elevator calls. Same field names and rules as update_elevator.",
+    input_schema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { okla: { type: "string" }, changes: { type: "object", additionalProperties: { type: "string" } } },
+            required: ["okla", "changes"],
+          },
+        },
+      },
+      required: ["items"],
+    },
+  },
+  {
     name: "add_elevator",
     description:
       "CHANGE: add a new elevator to the dashboard. okla, building and account are required; any of these may be given: area, city, contact, email, phone, maintCo, maintContact, maintEmail, maintPhone, type, floors, cycle, price, moneyPath, due. Needs confirmation.",
@@ -140,7 +163,7 @@ export const TOOLS = [
 
 export type ToolName = (typeof TOOLS)[number]["name"];
 export const isChange = (name: string) =>
-  ["update_elevator", "add_elevator", "set_elevator_switch", "set_master_switch"].includes(name);
+  ["update_elevator", "update_many", "add_elevator", "set_elevator_switch", "set_master_switch"].includes(name);
 
 /* ---- helpers ------------------------------------------------------------------ */
 
@@ -172,13 +195,12 @@ function named(cells: string[], cols: Col[]): Json {
   return out;
 }
 
+// Days from today (Oklahoma time — the server runs on UTC) until a M/D/YYYY date.
 const days = (due: string) => {
   const m = due.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/) ?? null;
   if (!m) return null;
-  const d = new Date(+m[3], +m[1] - 1, +m[2]);
-  const t = new Date();
-  t.setHours(0, 0, 0, 0);
-  return Math.round((d.getTime() - t.getTime()) / 86400000);
+  const [ty, tm, td] = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" }).split("-").map(Number);
+  return Math.round((Date.UTC(+m[3], +m[1] - 1, +m[2]) - Date.UTC(ty, tm - 1, td)) / 86400000);
 };
 const priceNum = (p: string) => Number(p.replace(/[^0-9.]/g, "")) || 0;
 
@@ -246,9 +268,14 @@ export async function runTool(name: string, input: Json): Promise<unknown> {
     case "update_elevator": {
       const hit = await findRow(String(input.okla));
       if (!hit) throw new Error(`No elevator with OK # ${input.okla}`);
-      const changes = cleanChanges(input.changes);
+      const changes = withPrice(hit.cells, cleanChanges(input.changes));
       await writeRow(hit.row, changes);
       return { ok: true, row: hit.row, changed: changes };
+    }
+    case "update_many": {
+      const items = await manyItems(input);
+      for (const it of items) await writeRow(it.row, it.changes);
+      return { ok: true, changed: items.map((it) => ({ okla: it.okla, changed: it.changes })) };
     }
     case "add_elevator": {
       const f = (input.fields ?? {}) as Record<string, unknown>;
@@ -276,15 +303,56 @@ export async function runTool(name: string, input: Json): Promise<unknown> {
   }
 }
 
+// Price follows the rate card: when floors or type change (and no price was
+// given), the price is recalculated and shown on the Confirm card too.
+function withPrice(cells: string[], changes: Partial<Record<Col, string>>): Partial<Record<Col, string>> {
+  if (!("floors" in changes || "type" in changes) || "price" in changes) return changes;
+  const type = changes.type ?? cell(cells, "type");
+  const floors = parseInt(changes.floors ?? cell(cells, "floors"), 10) || 0;
+  const p = computePrice(type, floors);
+  return p != null && `$${p}` !== cell(cells, "price") ? { ...changes, price: `$${p}` } : changes;
+}
+
+// update_many: the same checks as update_elevator, for up to 25 elevators, shown
+// on ONE Confirm card.
+async function manyItems(input: Json) {
+  const list = Array.isArray(input.items) ? (input.items as Json[]) : [];
+  if (!list.length) throw new Error("No elevators given");
+  if (list.length > 25) throw new Error("At most 25 elevators at once");
+  const rows = await readRows();
+  return list.map((it) => {
+    const okla = String(it.okla ?? "").trim();
+    const i = rows.findIndex((r) => cell(r, "okla").toLowerCase() === okla.toLowerCase());
+    if (!okla || i === -1) throw new Error(`No elevator with OK # ${okla || "(blank)"}`);
+    return { okla, building: cell(rows[i], "building"), cells: rows[i], row: FIRST_ROW + i, changes: withPrice(rows[i], cleanChanges(it.changes)) };
+  });
+}
+
+// "10/6/2026" is a real calendar date (not "13/45/2026").
+function realDate(s: string): boolean {
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return false;
+  const d = new Date(Date.UTC(+m[3], +m[1] - 1, +m[2]));
+  return d.getUTCMonth() === +m[1] - 1 && d.getUTCDate() === +m[2];
+}
+
 // Only known, editable fields; values as short strings.
 function cleanChanges(raw: unknown): Partial<Record<Col, string>> {
   const out: Partial<Record<Col, string>> = {};
   for (const [k, v] of Object.entries((raw ?? {}) as Record<string, unknown>)) {
     if (REPORT_ONLY.includes(k as Col)) throw new Error("The inspection report can't be changed from the chat — it's done in the app's report screen.");
     if (!EDITABLE.includes(k as Col)) throw new Error(`"${k}" can't be changed here`);
-    const value = String(v ?? "").slice(0, 500);
+    const value = String(v ?? "").trim().slice(0, 500);
     // "Inspected" is set by finishing the report in the app, never by hand here.
     if (k === "visit" && /inspected/i.test(value)) throw new Error("A visit is marked Inspected only by finishing the report in the app.");
+    // Same rules as the app's step editor: a step takes only its own choices, and dates must be real.
+    const step = LIFECYCLE_DEFS.find((d) => d.key === k);
+    if (value && step && !step.date && step.options.length && !step.options.includes(value)) {
+      throw new Error(`${step.label} can only be ${step.options.join(" or ")} (or blank)`);
+    }
+    if (value && (["tripDay", "due", "safetyTestDate", "invoiceDate"] as string[]).includes(k) && !realDate(value)) {
+      throw new Error(`"${value}" isn't a real date — use M/D/YYYY`);
+    }
     out[k as Col] = value;
   }
   if (!Object.keys(out).length) throw new Error("No changes given");
@@ -305,6 +373,7 @@ const CARD_LABEL: Partial<Record<Col, string>> = {
   paid: "Paid", newTimer: "Next cycle", notes: "Notes", poNumber: "PO #", poFile: "PO file",
   safetyTest: "Safety test passed", safetyTestDate: "Safety test date", reportFile: "Report file", invoiceDate: "Invoice date",
 };
+for (const t of TECH) CARD_LABEL[t.key] = t.label;
 
 export async function describe(name: string, input: Json): Promise<ChangeCard> {
   const label = (c: string) => CARD_LABEL[c as Col] ?? c;
@@ -312,7 +381,7 @@ export async function describe(name: string, input: Json): Promise<ChangeCard> {
     case "update_elevator": {
       const hit = await findRow(String(input.okla));
       if (!hit) return { title: `Change OK # ${input.okla}`, lines: ["(not found on the dashboard)"], danger: false };
-      const changes = cleanChanges(input.changes);
+      const changes = withPrice(hit.cells, cleanChanges(input.changes));
       return {
         title: `Change ${cell(hit.cells, "building")}`,
         lines: Object.entries(changes).map(([c, v]) => {
@@ -320,6 +389,16 @@ export async function describe(name: string, input: Json): Promise<ChangeCard> {
           return `${label(c)}: ${was || "blank"} → ${v || "blank"}`;
         }),
         danger: false,
+      };
+    }
+    case "update_many": {
+      const items = await manyItems(input);
+      return {
+        title: `Change ${items.length} elevators`,
+        lines: items.flatMap((it) =>
+          Object.entries(it.changes).map(([c, v]) => `${it.building} — ${label(c)}: ${cell(it.cells, c as Col) || "blank"} → ${v || "blank"}`),
+        ),
+        danger: items.length > 5, // a big batch gets the two-tap confirm
       };
     }
     case "add_elevator": {
@@ -341,7 +420,12 @@ export async function describe(name: string, input: Json): Promise<ChangeCard> {
     }
     case "set_master_switch":
       return input.on
-        ? { title: "Resume the whole system", lines: ["Automatic steps start again for every elevator that's switched on."], danger: false }
+        ? {
+            // Turning ON is as serious as turning off: within the hour, real customers start getting emails.
+            title: "Turn the WHOLE system on",
+            lines: ["Within the hour, customers start getting the automatic emails again — quotes, reminders, reports and invoices — for every elevator that's switched on."],
+            danger: true,
+          }
         : { title: "Pause the WHOLE system", lines: ["Every automatic email, invoice and payment step stops for all elevators."], danger: true };
     default:
       return { title: name, lines: [], danger: false };
