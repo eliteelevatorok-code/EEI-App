@@ -5,7 +5,7 @@ import Link from "next/link";
 import { getRoster, getServerRoster, patchElevator, refreshRoster, subscribeRoster } from "@/lib/roster-store";
 import { useClerk } from "@clerk/nextjs";
 import { getInstallState, subscribeInstall, triggerInstall } from "@/lib/pwa-install";
-import { alertsState, enableAlerts, sendTestAlert, type AlertState } from "@/lib/push-client";
+import { alertsState, enableAlerts, type AlertState } from "@/lib/push-client";
 import {
   CERT_ISSUE,
   CONDITIONS,
@@ -194,8 +194,11 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
       .catch(() => setMaster(null));
   }, []);
 
+  // Rule for this screen: a card appears only when it needs something from you.
+  // Already installed / alerts already on / Drive already connected → nothing shown.
+
   // Can the app still save finished reports to Google Drive? (?drive=… is the
-  // result of coming back from Google's sign-in page.)
+  // result of coming back from Google's sign-in page.) null = still checking.
   const [drive, setDrive] = useState<boolean | null>(null);
   const [driveResult] = useState(() =>
     typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("drive") || "",
@@ -207,7 +210,8 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
       .catch(() => setDrive(null));
   }, []);
 
-  const [alerts, setAlerts] = useState<AlertState>("off");
+  // null = still checking (so nothing flashes up and disappears).
+  const [alerts, setAlerts] = useState<AlertState | null>(null);
   const [alertBusy, setAlertBusy] = useState(false);
   useEffect(() => {
     alertsState().then(setAlerts);
@@ -216,20 +220,6 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
     setAlertBusy(true);
     setAlerts(await enableAlerts());
     setAlertBusy(false);
-  };
-  const [testBusy, setTestBusy] = useState(false);
-  const [testResult, setTestResult] = useState("");
-  const runTest = async () => {
-    setTestBusy(true);
-    const sent = await sendTestAlert();
-    setTestResult(
-      sent === null
-        ? "Couldn't send just now — check your signal and try again."
-        : sent === 0
-          ? "No phone could be reached. Close and reopen the app, then try again."
-          : `Sent to ${sent} ${sent === 1 ? "phone" : "phones"} — it should buzz in a few seconds.`,
-    );
-    setTestBusy(false);
   };
 
   const sizeLabels = FONT_SCALES.map((s) => FONT_SCALE_LABELS[s]);
@@ -246,67 +236,62 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
     <Screen bottomSpace>
       <Title eyebrow="This phone and the system">Settings</Title>
 
-      <SectionLabel>This device</SectionLabel>
-      <Glass pad>
-        {installed ? (
-          <p className="text-[15px]">
-            <span className="font-semibold text-accent-ink">Installed</span> — you&apos;re running the app from your
-            home screen.
-          </p>
-        ) : canInstall ? (
-          <>
+      {/* Only when Chrome has checked and says the app isn't on this phone yet. */}
+      {canInstall && !installed && (
+        <>
+          <SectionLabel>This device</SectionLabel>
+          <Glass pad>
             <p className="mb-3 text-[15px] text-ink-2">Add EEI Field Reports to this phone as an app.</p>
             <Button full onClick={install}>
               Install the app
             </Button>
-          </>
-        ) : (
-          <div className="text-[15px] text-ink-2">
-            <p className="mb-2 text-ink">To add EEI Field Reports as an app on this phone:</p>
-            <p>1. Tap the ⋮ menu at the top-right of Chrome.</p>
-            <p>2. Tap Install app (or Add to Home screen).</p>
-            <p className="mt-2 text-sm text-ink-3">
-              If neither shows, reload once and reopen Settings — the one-tap button appears here as soon as the
-              phone is ready.
-            </p>
-          </div>
-        )}
-      </Glass>
+          </Glass>
+        </>
+      )}
 
-      <SectionLabel>Alerts</SectionLabel>
-      <Glass pad>
-        {alerts === "on" ? (
-          <>
+      {alerts && alerts !== "on" && (
+        <>
+          <SectionLabel>Alerts</SectionLabel>
+          <Glass pad>
+            {alerts === "blocked" ? (
+              <p className="text-[15px] text-ink-2">
+                Alerts are blocked for this site in your phone&apos;s settings. Turn notifications back on for
+                eeireports.sbs, then come back here.
+              </p>
+            ) : alerts === "unsupported" ? (
+              <p className="text-[15px] text-ink-2">
+                This browser can&apos;t do phone alerts. Open the app in Chrome on your phone, then turn alerts on.
+              </p>
+            ) : (
+              <>
+                <p className="mb-3 text-[15px] text-ink-2">
+                  Get a buzz on this phone when something needs you — even when the app is closed.
+                </p>
+                <Button full onClick={turnOnAlerts} disabled={alertBusy}>
+                  {alertBusy ? "Turning on…" : "Turn on alerts"}
+                </Button>
+              </>
+            )}
+          </Glass>
+        </>
+      )}
+
+      {(drive === false || driveResult === "failed") && (
+        <>
+          <SectionLabel>Google Drive</SectionLabel>
+          <Glass pad>
             <p className="mb-3 text-[15px] text-ink-2">
-              <span className="font-semibold text-accent-ink">Alerts on</span> — you get one summary each morning of
-              what needs you (an inspection that&apos;s booked, a safety test still missing, anything past due). During
-              the day it only buzzes when something new comes up. Tap an alert to go straight to it.
+              {driveResult === "failed"
+                ? "That didn't go through. Try again, and choose Allow on Google's page."
+                : "Finished reports can't be saved to Drive or emailed until you sign in to Google again."}
             </p>
-            {testResult && <p className="mb-3 text-sm text-ink-2">{testResult}</p>}
-            <Button variant="secondary" full onClick={runTest} disabled={testBusy}>
-              {testBusy ? "Sending…" : "Send me a test alert"}
-            </Button>
-          </>
-        ) : alerts === "blocked" ? (
-          <p className="text-[15px] text-ink-2">
-            Alerts are blocked for this site in your phone&apos;s settings. Turn notifications back on for
-            eeireports.sbs, then come back here.
-          </p>
-        ) : alerts === "unsupported" ? (
-          <p className="text-[15px] text-ink-2">
-            This browser can&apos;t do phone alerts. Open the app in Chrome on your phone, then turn alerts on.
-          </p>
-        ) : (
-          <>
-            <p className="mb-3 text-[15px] text-ink-2">
-              Get a buzz on this phone when something needs you — even when the app is closed.
-            </p>
-            <Button full onClick={turnOnAlerts} disabled={alertBusy}>
-              {alertBusy ? "Turning on…" : "Turn on alerts"}
-            </Button>
-          </>
-        )}
-      </Glass>
+            {/* A full page visit (not a fetch): Google's sign-in page takes over, then comes back here. */}
+            <a href="/api/google/connect" className="btn btn-primary w-full">
+              Connect Google Drive
+            </a>
+          </Glass>
+        </>
+      )}
 
       <SectionLabel>Text size</SectionLabel>
       <Glass pad>
@@ -329,32 +314,6 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
           {master === false ? "Resume the system" : "Master switch"}
         </Link>
         <p className="mt-3 text-sm text-ink-3">Each elevator has its own switch on its profile.</p>
-      </Glass>
-
-      <SectionLabel>Google Drive</SectionLabel>
-      <Glass pad>
-        <div className="mb-3 flex items-center justify-between">
-          <span className="text-[15px]">Saving reports</span>
-          {drive === null ? (
-            <span className="text-sm text-ink-3">Checking…</span>
-          ) : (
-            <Pill tone={drive ? "green" : "red"} dot>
-              {drive ? "Connected" : "Not connected"}
-            </Pill>
-          )}
-        </div>
-        {driveResult === "failed" && (
-          <p className="mb-3 text-sm text-danger">That didn&apos;t go through. Try again, and choose Allow on Google&apos;s page.</p>
-        )}
-        {drive === false && (
-          <p className="mb-3 text-[15px] text-ink-2">
-            Finished reports can&apos;t be saved to Drive or emailed until you sign in to Google again.
-          </p>
-        )}
-        {/* A full page visit (not a fetch): Google's sign-in page takes over, then comes back here. */}
-        <a href="/api/google/connect" className={"btn w-full " + (drive === false ? "btn-primary" : "btn-secondary")}>
-          {drive === false ? "Connect Google Drive" : "Reconnect Google Drive"}
-        </a>
       </Glass>
 
       <SectionLabel>Account</SectionLabel>

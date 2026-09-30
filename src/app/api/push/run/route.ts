@@ -26,10 +26,9 @@ async function handle(req: Request) {
   if (params.has("test")) {
     const items = await alertItems(true);
     const a = items.length ? compose(items, true) : null;
-    const title = "Test: " + (a?.title ?? "alerts are working on this phone");
-    const body = a?.body ?? "Nothing needs you right now.";
-    const result = await sendAlert(title, body, a?.url ?? "/", "eei-test");
-    return Response.json({ ok: true, test: true, title, body, ...result });
+    const title = "Test: " + (a?.title ?? "nothing needs you right now");
+    const result = await sendAlert(title, "", a?.url ?? "/", "eei-test");
+    return Response.json({ ok: true, test: true, title, ...result });
   }
 
   const [items, sent] = await Promise.all([alertItems(), readSent()]);
@@ -47,31 +46,18 @@ async function handle(req: Request) {
   return Response.json({ ok: true, morning, waiting: items.length, alert, dry, ...result, ...(dry ? { items } : {}) });
 }
 
-// Turn the items into one phone alert, in plain words.
+// One short line per alert — Robert reads the title and taps. The screen it
+// opens has the details and the button to act, so the alert itself carries none.
+//   one thing  → its own line, e.g. "Inspection today: Guymon Senior Center"; opens that elevator
+//   several    → "Good morning — 7 things need you"; opens the Today tab (the list, each with its action)
 function compose(list: AlertItem[], morning: boolean) {
   if (list.length === 1) {
     const i = list[0];
-    return { title: i.title, body: i.body, url: `/?open=${encodeURIComponent(i.okla)}`, tag: `eei-${i.key}` };
+    return { title: i.title, body: "", url: `/?open=${encodeURIComponent(i.okla)}`, tag: `eei-${i.key}` };
   }
-  // Group the same kind of thing into one sentence, the way you'd say it:
-  // "Still waiting on the safety test for 5 buildings: Lawton Civic Center, Lawton Bank Tower and 3 more."
-  const kind = (i: AlertItem) => i.key.split(":")[0];
-  const names = (g: AlertItem[]) =>
-    g.length <= 2 ? g.map((i) => i.building).join(" and ") : `${g[0].building}, ${g[1].building} and ${g.length - 2} more`;
-  const lines: string[] = [];
-  for (const i of list.filter((x) => kind(x) === "inspect")) lines.push(i.title);
-  const chase = list.filter((x) => kind(x) === "chase");
-  if (chase.length === 1) lines.push(chase[0].title);
-  else if (chase.length) lines.push(`Still waiting on the safety test for ${chase.length} buildings: ${names(chase)}.`);
-  const report = list.filter((x) => kind(x) === "report");
-  if (report.length === 1) lines.push(report[0].title);
-  else if (report.length) lines.push(`${report.length} reports aren't finished: ${names(report)}.`);
-  const overdue = list.filter((x) => kind(x) === "overdue");
-  if (overdue.length === 1) lines.push(overdue[0].title);
-  else if (overdue.length) lines.push(`${overdue.length} buildings are past due: ${names(overdue)}.`);
   return {
     title: morning ? `Good morning — ${list.length} things need you` : `${list.length} new things need you`,
-    body: lines.join("\n"),
+    body: "",
     url: "/?tab=today",
     tag: "eei-summary",
   };

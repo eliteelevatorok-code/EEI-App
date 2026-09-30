@@ -128,14 +128,3 @@ export async function enableAlerts(): Promise<AlertState> {
     return "off";
   }
 }
-
-// Settings → "Send me a test alert": buzz every signed-up phone right now.
-export async function sendTestAlert(): Promise<number | null> {
-  try {
-    const res = await fetch("/api/push/test", { method: "POST" });
-    if (!res.ok) return null;
-    return ((await res.json()) as { sent?: number }).sent ?? 0;
-  } catch {
-    return null;
-  }
-}

@@ -14,7 +14,7 @@ export default function NotAuthorized() {
       <Glass pad className="w-full">
         <h2 className="text-lg font-bold">Not authorized</h2>
         <p className="mt-2 text-[15px] text-ink-2">
-          This account isn&apos;t on the approved list for Elite Elevator&apos;s field app. If you think that&apos;s a
+          This account isn&apos;t on the approved list for the Elite Elevator Inspections (EEI) field app. If you think that&apos;s a
           mistake, contact Robert.
         </p>
         <Button full className="mt-5" onClick={() => signOut({ redirectUrl: "/sign-in" })}>

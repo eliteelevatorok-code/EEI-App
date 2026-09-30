@@ -2,7 +2,6 @@ import webpush from "web-push";
 import { appendRow, readRange, writeCells } from "@/lib/google";
 import { readConfig, writeConfig } from "@/lib/config";
 import { cell, readRows } from "@/lib/sheet";
-import { isAmerican } from "@/lib/records";
 import { isMasterOn, isRowPaused } from "@/lib/switches";
 import { finishedReport } from "@/lib/report";
 
@@ -79,8 +78,10 @@ async function dropSubscription(row: number): Promise<void> {
 //   chase   — no answer yet on the safety test (asked of American Elevator, or the customer)
 //   report  — the visit is marked done but its report was never finished (so it can't be emailed)
 //   overdue — past the due date and no visit booked or done
+// Each alert is ONE short line — what and which building. Tapping it opens the
+// elevator, whose "Next step" card explains and has the button to act.
 // `key` identifies the item so the same thing isn't announced twice.
-export type AlertItem = { key: string; okla: string; building: string; title: string; body: string };
+export type AlertItem = { key: string; okla: string; building: string; title: string };
 
 // Today's date in Oklahoma, as a comparable yyyymmdd number.
 function todayNum(): number {
@@ -96,18 +97,14 @@ function dateNum(s: string): number {
   return m ? +m[1] * 10000 + +m[2] * 100 + +m[3] : 0;
 }
 
-// "10/3/2026" → "Saturday, October 3" (adds the year if it isn't this year).
-function humanDate(s: string): string {
-  const n = dateNum(s);
-  if (!n) return s;
+// "10/3/2026" → "Sat, Oct 3" (short, for a one-line alert).
+function shortDate(n: number): string {
   const d = new Date(Math.floor(n / 10000), Math.floor(n / 100) % 100 - 1, n % 100);
-  const sameYear = Math.floor(n / 10000) === Math.floor(todayNum() / 10000);
-  return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) });
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
 // Everything that needs a person right now. Master switch off = nothing
 // (`ignoreMaster` is only for the test alert — see /api/push/run?test=1).
-// Wording is written the way you'd say it to someone — no system terms.
 export async function alertItems(ignoreMaster = false): Promise<AlertItem[]> {
   if (!ignoreMaster && !(await isMasterOn())) return [];
   const today = todayNum();
@@ -117,61 +114,24 @@ export async function alertItems(ignoreMaster = false): Promise<AlertItem[]> {
     if (!okla || isRowPaused(r)) continue; // blank row, or a paused elevator
     const building = cell(r, "building");
     const visit = cell(r, "visit");
+    const add = (key: string, title: string) => out.push({ key, okla, building, title });
     if (visit === "Booked") {
       const trip = cell(r, "tripDay");
       const when = dateNum(trip);
-      out.push({
-        key: `inspect:${okla}:${trip}`,
-        okla,
-        building,
-        title:
-          when === today
-            ? `You're inspecting ${building} today`
-            : when
-              ? `${building} is booked for ${humanDate(trip)}`
-              : `${building} has a visit booked`,
-        body:
-          when === today
-            ? "Tap when you get there to start the report."
-            : "Tap to see the details before you go.",
-      });
+      add(
+        `inspect:${okla}:${trip}`,
+        when === today ? `Inspection today: ${building}` : when ? `Booked ${shortDate(when)}: ${building}` : `Visit booked: ${building}`,
+      );
     }
-    if (cell(r, "maintConfirm") === "Waiting") {
-      // American Elevator is asked directly; for anyone else we asked the customer.
-      const co = cell(r, "maintCo");
-      out.push({
-        key: `chase:${okla}`,
-        okla,
-        building,
-        title: `Still waiting on the safety test for ${building}`,
-        body: isAmerican(co)
-          ? `${co} hasn't told us yet whether it passed a safety test in the last 12 months. Give them a call or send a quick email.`
-          : "The customer hasn't told us yet whether it passed a safety test in the last 12 months. Give them a call, or enter the answer if you already have it.",
-      });
-    }
+    if (cell(r, "maintConfirm") === "Waiting") add(`chase:${okla}`, `Safety test missing: ${building}`);
     if (visit === "Inspected" && cell(r, "report") !== "Sent") {
       // The report email (customer + state) waits for the finished report. If
       // Drive can't be checked right now, say nothing rather than guess.
       const done = await finishedReport(r).catch(() => true);
-      if (!done)
-        out.push({
-          key: `report:${okla}:${cell(r, "tripDay")}`,
-          okla,
-          building,
-          title: `The report for ${building} isn't finished`,
-          body: "The visit is marked done, but the report hasn't been finished — so it can't go to the customer or the state yet. Tap to finish it.",
-        });
+      if (!done) add(`report:${okla}:${cell(r, "tripDay")}`, `Report not finished: ${building}`);
     }
     const due = dateNum(cell(r, "due"));
-    if (due && due < today && visit !== "Booked" && visit !== "Inspected") {
-      out.push({
-        key: `overdue:${okla}:${cell(r, "due")}`,
-        okla,
-        building,
-        title: `${building} is past due`,
-        body: `It was due ${humanDate(cell(r, "due"))} and no visit is booked. Call the customer to set one up.`,
-      });
-    }
+    if (due && due < today && visit !== "Booked" && visit !== "Inspected") add(`overdue:${okla}:${cell(r, "due")}`, `Past due: ${building}`);
   }
   return out;
 }
@@ -224,8 +184,8 @@ export async function sendProblemAlert(okla: string, building: string, step: str
   await writeConfig(PROBLEMS, JSON.stringify({ day: today, keys: [...keys, key] }));
   const name = building || `OK# ${okla}`;
   const { sent } = await sendAlert(
-    `Couldn't finish a step for ${name}`,
-    `The ${step} didn't go through: ${plainReason(error)}. Everything else kept going. Tap to check this elevator.`,
+    `Problem: ${name}`,
+    `${step[0].toUpperCase()}${step.slice(1)} didn't go through — ${plainReason(error)}.`,
     okla ? `/?open=${encodeURIComponent(okla)}` : "/",
     `eei-problem-${key}`,
   );

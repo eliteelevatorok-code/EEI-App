@@ -5,8 +5,8 @@
 //   - Pages are network-first so you always get the latest version; the saved
 //     copy is used only when offline.
 //   - API calls and sign-in are never touched.
-const CACHE = "eei-shell-v7";
-const SHELL = ["/", "/sign-in", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
+const CACHE = "eei-shell-v8";
+const SHELL = ["/", "/sign-in", "/manifest.webmanifest", "/icon-192.png?v=3", "/icon-512.png?v=3", "/badge-96.png?v=3"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -29,8 +29,8 @@ self.addEventListener("push", (e) => {
   e.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
-      icon: "/icon-192.png",
-      badge: "/icon-192.png",
+      icon: "/icon-192.png?v=3", // the app logo beside the alert
+      badge: "/badge-96.png?v=3", // the tiny status-bar icon: white on see-through, or Android shows a white square
       data: { url: data.url || "/" },
       tag: data.tag || "eei-summary", // same tag = the newer alert replaces the older one
       renotify: true,
@@ -65,7 +65,8 @@ self.addEventListener("notificationclick", (e) => {
 });
 
 // Files whose name changes whenever their content does — safe to serve from the phone.
-// (The icons keep their names: bump CACHE above whenever they're regenerated.)
+// (Icons keep their names: when they are regenerated, bump ?v= in this file, the
+// manifest and layout.tsx, and bump CACHE above.)
 const isForever = (url) =>
   url.pathname.startsWith("/_next/static/") || /\.(png|ico|woff2?|webmanifest)$/.test(url.pathname);
 
