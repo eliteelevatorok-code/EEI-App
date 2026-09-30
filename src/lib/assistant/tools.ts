@@ -153,6 +153,11 @@ async function findRow(okla: string): Promise<{ row: number; cells: string[] } |
   return i === -1 ? null : { row: FIRST_ROW + i, cells: rows[i] };
 }
 
+// A real elevator row: has an OK # and isn't the DEMO walkthrough row (OK #
+// starting "DEMO"), which would otherwise creep into totals and lists and make
+// two answers disagree. (get_elevator can still open it by its OK #.)
+const isReal = (r: string[]) => !!cell(r, "okla") && !/^demo/i.test(cell(r, "okla"));
+
 function named(cells: string[], cols: Col[]): Json {
   const out: Json = {};
   for (const c of cols) {
@@ -182,7 +187,7 @@ export async function runTool(name: string, input: Json): Promise<unknown> {
       // Every readable field for every elevator (blank fields left out to keep it
       // small) — so the assistant can answer any question, not just set ones.
       const q = String(input.search ?? "").trim().toLowerCase();
-      const rows = (await readRows()).filter((r) => cell(r, "okla"));
+      const rows = (await readRows()).filter(isReal);
       return rows
         .filter((r) => !q || (["building", "account", "city", "okla", "contact", "maintCo"] as Col[]).some((c) => cell(r, c).toLowerCase().includes(q)))
         .map((r) => ({ ...named(r, READABLE), on: cell(r, "active").toLowerCase() !== "off" }));
@@ -194,7 +199,7 @@ export async function runTool(name: string, input: Json): Promise<unknown> {
     }
     case "get_overview": {
       const [master, rows] = await Promise.all([isMasterOn(), readRows()]);
-      const els = rows.filter((r) => cell(r, "okla"));
+      const els = rows.filter(isReal);
       const brief = (r: string[]) => `${cell(r, "building")} (OK# ${cell(r, "okla")})`;
       const on = els.filter((r) => cell(r, "active").toLowerCase() !== "off");
       const notDone = (r: string[]) => cell(r, "visit") !== "Inspected";
