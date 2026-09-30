@@ -110,10 +110,13 @@ export async function resyncAlerts(): Promise<void> {
       result = "error: " + (err instanceof Error ? err.message : String(err));
     }
   }
+  // Running as the installed app (its alerts show as "EEI Field") or in a Chrome
+  // tab (alerts show as "Chrome")?
+  const installedApp = window.matchMedia?.("(display-mode: standalone)").matches ?? false;
   await fetch("/api/push/state", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ supported: ok, permission, signedUp: result, saved: result === "on" }),
+    body: JSON.stringify({ supported: ok, permission, signedUp: result, saved: result === "on", installedApp }),
   }).catch(() => {});
 }
 

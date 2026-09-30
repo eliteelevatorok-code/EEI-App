@@ -5,8 +5,8 @@
 //   - Pages are network-first so you always get the latest version; the saved
 //     copy is used only when offline.
 //   - API calls and sign-in are never touched.
-const CACHE = "eei-shell-v9";
-const SHELL = ["/", "/sign-in", "/manifest.webmanifest", "/icon-192.png?v=3", "/icon-512.png?v=3", "/badge-96.png?v=3"];
+const CACHE = "eei-shell-v10";
+const SHELL = ["/", "/sign-in", "/icon-192.png?v=3", "/icon-512.png?v=3", "/badge-96.png?v=3"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -75,7 +75,7 @@ self.addEventListener("notificationclick", (e) => {
 // (Icons keep their names: when they are regenerated, bump ?v= in this file, the
 // manifest and layout.tsx, and bump CACHE above.)
 const isForever = (url) =>
-  url.pathname.startsWith("/_next/static/") || /\.(png|ico|woff2?|webmanifest)$/.test(url.pathname);
+  url.pathname.startsWith("/_next/static/") || /\.(png|ico|woff2?)$/.test(url.pathname);
 
 self.addEventListener("fetch", (e) => {
   const req = e.request;
@@ -83,6 +83,9 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api")) return;
+  // The app's setup file (name, icons) is always fetched fresh — installing
+  // from an old saved copy is how a phone can end up with the wrong app.
+  if (url.pathname === "/manifest.webmanifest") return;
 
   if (isForever(url)) {
     // Phone first; fetch (and keep) only if it isn't saved yet.

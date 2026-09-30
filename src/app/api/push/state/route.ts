@@ -12,6 +12,6 @@ export async function POST(req: Request) {
     /* log what we can */
   }
   const ua = (req.headers.get("user-agent") ?? "").slice(0, 120);
-  console.log(`[alerts-state] permission=${String(s.permission)} signedUp=${String(s.signedUp)} saved=${String(s.saved)} supported=${String(s.supported)} ua=${ua}`);
+  console.log(`[alerts-state] permission=${String(s.permission)} signedUp=${String(s.signedUp)} saved=${String(s.saved)} installedApp=${String(s.installedApp)} supported=${String(s.supported)} ua=${ua}`);
   return Response.json({ ok: true });
 }
