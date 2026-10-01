@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { readRange, writeCells } from "@/lib/google";
 
 // The dashboard's Elevators tab — the ONE place that knows which column holds
@@ -94,4 +95,20 @@ export async function findByToken(token: string): Promise<{ row: number; cells: 
   const rows = await readRows();
   const i = rows.findIndex((r) => cell(r, "token") === t);
   return i === -1 ? null : { row: FIRST_ROW + i, cells: rows[i] };
+}
+
+// Every elevator needs a link token (the code inside every emailed link). The
+// app's New elevator form makes one, but a row typed straight into the sheet has
+// none — so any missing ones are filled here. Called at the start of every
+// automation run (/api/switches/master); the automation's emails that carry a
+// link also wait for the token, so a hand-typed elevator never gets a dead link.
+// One caller only, so two runs can't hand the same row different tokens.
+export async function fillMissingTokens(): Promise<number> {
+  const rows = await readRows();
+  const cells: [string, string][] = [];
+  rows.forEach((r, i) => {
+    if (cell(r, "okla") && !cell(r, "token")) cells.push([`${TAB}!${letter(COL.token)}${FIRST_ROW + i}`, randomBytes(16).toString("hex")]);
+  });
+  await writeCells(cells);
+  return cells.length;
 }
