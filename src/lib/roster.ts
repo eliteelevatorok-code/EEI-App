@@ -28,7 +28,7 @@ const STAGES: { key: Col; label: string; options: string[]; date?: boolean; lock
   { key: "invoice", label: "Invoice", options: ["Sent"] },
   { key: "followUps", label: "Follow-ups", options: ["#1 sent", "#2 sent", "#3 sent"] },
   { key: "paid", label: "Paid", options: ["Paid"] },
-  { key: "newTimer", label: "New timer set", options: ["Set"] },
+  { key: "newTimer", label: "Next year set up", options: ["Set"] },
 ];
 // Same list with each stage's column letter, for writing a stage back (see /api/lifecycle).
 export const LIFECYCLE_DEFS = STAGES.map((s) => ({ ...s, col: letter(COL[s.key]) }));
