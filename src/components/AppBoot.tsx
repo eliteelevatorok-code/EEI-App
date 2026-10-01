@@ -18,7 +18,7 @@ export function AppBoot() {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
       // If this phone has alerts on, make sure the server's list still has it.
       // (Customer pages never have alerts on, so they skip this.)
-      if (!/^\/(po|maint|pay|privacy)/.test(location.pathname)) resyncAlerts().catch(() => {});
+      if (!/^\/(po|maint|pay|privacy|terms)/.test(location.pathname)) resyncAlerts().catch(() => {});
     }
   }, []);
   return null;
