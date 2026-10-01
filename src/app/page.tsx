@@ -22,6 +22,7 @@ import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from 
 import { computeCycle, computePrice, formatPrice } from "@/lib/pricing";
 import { DEVICE_TYPE_CODE, ENTITY_TYPE_CODE, MACHINE_TYPE_CODE } from "@/lib/formCodes";
 import { TECH, TECH_KEYS, type TechKey, type TechKind } from "@/lib/tech";
+import { DASHBOARD_URL } from "@/lib/dashboard";
 import { APRIL, WHERE_TO_FIND, isAmerican, isoToday, toIsoDate } from "@/lib/records";
 import { AssistantButton } from "@/components/Assistant";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -316,6 +317,10 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
         <Link href="/switches" className={"btn w-full " + (master === false ? "btn-primary" : "btn-secondary")}>
           {master === false ? "Resume the system" : "Master switch"}
         </Link>
+        {/* The Google Sheet itself, opened outside the app (browser or Sheets app). */}
+        <a href={DASHBOARD_URL} target="_blank" rel="noopener noreferrer" className="btn btn-secondary mt-2.5 w-full">
+          Open the dashboard
+        </a>
         <p className="mt-3 text-sm text-ink-3">Each elevator has its own switch on its profile.</p>
       </Glass>
 

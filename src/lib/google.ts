@@ -1,3 +1,4 @@
+import { DASHBOARD_ID } from "@/lib/dashboard";
 import { GoogleAuth, OAuth2Client } from "google-auth-library";
 import { readFileSync } from "node:fs";
 import { readConfig } from "@/lib/config"; // (config.ts imports this file too — fine, both only call each other inside functions)
@@ -19,7 +20,6 @@ function auth(): GoogleAuth {
   return authInstance;
 }
 
-const DASHBOARD_ID = "1HlV3pkQc0sdwghuzlcMRgC0WAkR-pSBOLDM8xjVP4Ss";
 const REPORTS_FOLDER_ID = "17-QkyhTDbDCkfRVU0QfYAiPjUS0cXO8w";
 
 // Drive uploads run as Robert's own account (a service account has no storage

@@ -5,6 +5,7 @@ import { cell, readRows } from "@/lib/sheet";
 import { isMasterOn, isRowPaused } from "@/lib/switches";
 import { finishedReport } from "@/lib/report";
 import { safetyAnswer } from "@/lib/records";
+import { dueReminders, readReminders } from "@/lib/reminders";
 
 // Phone alerts (web push). The signing keys and the scheduler secret live in the
 // dashboard's private Config tab, which only the app's Google robot account can
@@ -81,6 +82,7 @@ async function dropSubscription(row: number): Promise<void> {
 //   overdue — past the due date and no visit booked or done
 //   nopass  — the safety-test answer was No (no passing test in 12 months)
 //   noprice — no price on it, inside the 60-day window (the quote can't go out)
+//   remind  — a reminder Robert set through the assistant (see reminders.ts)
 // Each alert is ONE short line — what and which building. Tapping it opens the
 // elevator, whose "Next step" card explains and has the button to act.
 // `key` identifies the item so the same thing isn't announced twice.
@@ -146,6 +148,8 @@ export async function alertItems(ignoreMaster = false): Promise<AlertItem[]> {
     const due = dateNum(cell(r, "due"));
     if (due && due < today && visit !== "Booked" && visit !== "Inspected") add(`overdue:${okla}:${cell(r, "due")}`, `Past due: ${building}`);
   }
+  // Robert's own reminders whose time has come (set through the assistant).
+  for (const r of dueReminders(await readReminders())) out.push({ key: `remind:${r.id}`, okla: r.okla ?? "", building: "", title: `Reminder: ${r.text}` });
   return out;
 }
 

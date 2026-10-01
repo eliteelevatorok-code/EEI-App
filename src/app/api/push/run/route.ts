@@ -1,5 +1,6 @@
 import { alertItems, readSent, saveSent, sendAlert, todayNum, type AlertItem } from "@/lib/push";
 import { rejectUnlessScheduler } from "@/lib/schedulerKey";
+import { dropReminders } from "@/lib/reminders";
 
 export const runtime = "nodejs";
 
@@ -44,6 +45,8 @@ async function handle(req: Request) {
   let result = { sent: 0, pruned: 0 };
   if (!dry) {
     if (alert) result = await sendAlert(alert.title, alert.body, alert.url, alert.tag);
+    // A reminder that reached a phone is done — it mustn't come back tomorrow.
+    if (result.sent) await dropReminders(toSend.filter((i) => i.key.startsWith("remind:")).map((i) => i.key.slice(7)));
     // Remember today + what's currently waiting (things that went away drop off).
     await saveSent(items.map((i) => i.key));
   }
@@ -57,7 +60,7 @@ async function handle(req: Request) {
 function compose(list: AlertItem[], morning: boolean) {
   if (list.length === 1) {
     const i = list[0];
-    return { title: i.title, body: "", url: `/?open=${encodeURIComponent(i.okla)}`, tag: `eei-${i.key}` };
+    return { title: i.title, body: "", url: i.okla ? `/?open=${encodeURIComponent(i.okla)}` : "/?tab=today", tag: `eei-${i.key}` };
   }
   return {
     title: morning ? `${list.length} things need you today` : `${list.length} new things need you`,

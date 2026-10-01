@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { refreshRoster } from "@/lib/roster-store";
+import { contactHref } from "@/lib/assistant/contact";
 import { AskIcon, Button, Chevron, Glass, SendIcon, buzz } from "@/components/ui";
 
 // The assistant: a round button in the bottom-right of every app screen that
@@ -48,6 +49,9 @@ const LOOKED: Record<string, (i: Record<string, unknown>) => string> = {
   get_overview: () => "Checked today's overview",
   get_invoice_balance: (i) => `Checked QuickBooks for OK # ${i.okla}`,
   read_email_wording: () => "Read the email wording",
+  set_reminder: (i) => `Reminder: ${String(i.text ?? "")} — ${String(i.date ?? "")}`,
+  list_reminders: () => "Checked your reminders",
+  cancel_reminder: () => "Cancelled a reminder",
 };
 
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -334,6 +338,8 @@ function AssistantPanel({ context, onClose }: { context: AskContext; onClose: ()
                           <div key={j} className="bubble bubble-ai glass">
                             <Formatted text={b.text} />
                           </div>
+                        ) : b.type === "tool_use" && b.name === "contact_button" ? (
+                          <ContactButton key={j} input={b.input} result={results.get(b.id)} />
                         ) : b.type === "tool_use" ? (
                           <div key={j} className="activity px-1">
                             <span className="dot" />
@@ -444,4 +450,23 @@ function Formatted({ text }: { text: string }) {
   }
   flush();
   return <>{out}</>;
+}
+
+// A one-tap Call / Text / Email button the assistant put in the chat. Opens the
+// phone's own dialer, messages or email app with everything filled in — Robert
+// sends it himself. Not drawn if the server refused it (bad number/address).
+function ContactButton({ input, result }: { input: Record<string, unknown>; result?: { is_error?: boolean } }) {
+  if (result?.is_error) return null;
+  let href = "";
+  try {
+    href = contactHref(input);
+  } catch {
+    return null;
+  }
+  const verb = input.how === "call" ? "Call" : input.how === "text" ? "Text" : "Email";
+  return (
+    <a href={href} className="btn btn-primary w-full">
+      {verb} {String(input.name ?? "").slice(0, 60)}
+    </a>
+  );
 }

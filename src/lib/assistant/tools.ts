@@ -5,6 +5,8 @@ import { FIRST_ROW, cell, readRows, writeRow, type Col } from "@/lib/sheet";
 import { isMasterOn, setElevatorSwitch, setMaster } from "@/lib/switches";
 import { computePrice } from "@/lib/pricing";
 import { TECH } from "@/lib/tech";
+import { addReminder, cancelReminder, readReminders, whenText } from "@/lib/reminders";
+import { contactHref } from "@/lib/assistant/contact";
 
 // What the in-app assistant can do. Each tool is described to Claude (name,
 // description, input shape) and has a function here that actually does it.
@@ -99,6 +101,47 @@ export const TOOLS = [
     name: "read_email_wording",
     description: "The Emails tab of the dashboard: the wording notes for each automatic email.",
     input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "contact_button",
+    description:
+      "Put a one-tap button in the chat that opens Robert's phone to CALL, TEXT or EMAIL someone — his phone's own dialer, messages or email app, with the number/address and (for text and email) the message you wrote already filled in. He reviews and sends it himself. Use it whenever he wants to call, text or email anyone (customer, maintenance company, April…). One button per call; several calls for several buttons.",
+    input_schema: {
+      type: "object",
+      properties: {
+        how: { type: "string", enum: ["call", "text", "email"] },
+        name: { type: "string", description: "Who, as shown on the button, e.g. Pat Gomez" },
+        to: { type: "string", description: "Phone number (call/text) or email address (email)" },
+        subject: { type: "string", description: "Email only" },
+        message: { type: "string", description: "Text or email body, written ready to send, signed Robert" },
+      },
+      required: ["how", "name", "to"],
+    },
+  },
+  {
+    name: "set_reminder",
+    description:
+      "Set a reminder for Robert: his phone buzzes with it on that day (at the hour, if given — alerts go out between 7am and 6pm). Runs right away, no Confirm card. Like all phone alerts, it waits while the whole system is switched off.",
+    input_schema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "M/D/YYYY" },
+        hour: { type: "integer", description: "0–23, Oklahoma time (optional)" },
+        text: { type: "string", description: "Short, e.g. Call Edmond Office Park about access" },
+        okla: { type: "string", description: "OK # of the elevator it's about, if any (tapping the alert opens it)" },
+      },
+      required: ["date", "text"],
+    },
+  },
+  {
+    name: "list_reminders",
+    description: "The reminders still waiting to go off (id, when, text).",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "cancel_reminder",
+    description: "Cancel a waiting reminder by its id (from list_reminders). Runs right away.",
+    input_schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
   },
   {
     name: "update_elevator",
@@ -265,6 +308,33 @@ export async function runTool(name: string, input: Json): Promise<unknown> {
     }
     case "read_email_wording":
       return await readRange("Emails!A1:H60");
+    case "contact_button":
+      // The app draws the button from this call (see Assistant.tsx); here we only
+      // check it would work, so a bad number never becomes a dead button.
+      contactHref(input);
+      return { shown: true, note: "The button is on his screen. Don't repeat the number or message in your reply." };
+    case "set_reminder": {
+      const r = await addReminder({
+        date: String(input.date ?? ""),
+        hour: input.hour === undefined ? undefined : Number(input.hour),
+        text: String(input.text ?? ""),
+        okla: input.okla ? String(input.okla) : undefined,
+      });
+      return {
+        ok: true,
+        id: r.id,
+        when: whenText(r),
+        text: r.text,
+        ...((await isMasterOn()) ? {} : { note: "The whole system is switched off, so phone alerts (this one too) won't go out until it's back on." }),
+      };
+    }
+    case "list_reminders":
+      return (await readReminders()).map((r) => ({ id: r.id, when: whenText(r), text: r.text, ...(r.okla ? { okla: r.okla } : {}) }));
+    case "cancel_reminder": {
+      const r = await cancelReminder(String(input.id ?? ""));
+      if (!r) throw new Error("No waiting reminder with that id — check list_reminders.");
+      return { ok: true, cancelled: r.text };
+    }
     case "update_elevator": {
       const hit = await findRow(String(input.okla));
       if (!hit) throw new Error(`No elevator with OK # ${input.okla}`);
