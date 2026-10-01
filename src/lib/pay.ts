@@ -5,7 +5,7 @@ import { cell, findByToken, writeRow } from "@/lib/sheet";
 // on. In production, QuickBooks' balance check (src/lib/invoice.ts) sets the same
 // box the same way, so this button is a faithful stand-in for a real payment.
 
-export type PayElevator = { row: number; building: string; price: string; alreadyPaid: boolean };
+export type PayElevator = { row: number; building: string; price: string; alreadyPaid: boolean; invoiceId: string };
 
 export async function findForPay(token: string): Promise<PayElevator | null> {
   const hit = await findByToken(token);
@@ -16,6 +16,7 @@ export async function findForPay(token: string): Promise<PayElevator | null> {
     building: cell(r, "building"),
     price: cell(r, "price"),
     alreadyPaid: cell(r, "paid").toLowerCase() === "paid",
+    invoiceId: cell(r, "invoiceId"),
   };
 }
 

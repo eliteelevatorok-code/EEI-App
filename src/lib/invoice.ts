@@ -1,6 +1,7 @@
 import { cell, readRow, writeRow } from "@/lib/sheet";
-import { IS_SANDBOX, createInvoice, sendInvoice, getInvoiceBalance } from "@/lib/quickbooks";
+import { createInvoice, getInvoiceBalance, isSandbox, sendInvoice } from "@/lib/quickbooks";
 import { isMasterOn, isRowPaused } from "@/lib/switches";
+import { sendProblemAlert } from "@/lib/push";
 
 // The billing steps the Make automation triggers (via /api/invoice/run):
 //
@@ -57,14 +58,29 @@ export async function invoiceRow(row: number): Promise<InvoiceResult> {
     amount,
     memo: po ? `${building} — PO ${po}` : building,
   });
-  if (!IS_SANDBOX) await sendInvoice(inv.Id, email); // production: QuickBooks emails the official bill
-
   // Save the id, the "Sent" status and today's date together (one write), so
   // "Sent" never exists without a way back to the invoice it refers to. The date
-  // is what the payment reminder counts 30 days from (Make route 7).
+  // is what the payment reminder counts 30 days from (Make route 7). Saved BEFORE
+  // QuickBooks emails it: if that email fails, the next run must not create a
+  // second real invoice.
   const today = new Date().toLocaleDateString("en-US", { timeZone: "America/Chicago" }); // e.g. 9/29/2026
   await writeRow(row, { invoiceId: inv.Id, invoice: "Sent", invoiceDate: today });
-  return { invoiced: true, row, building, invoiceId: inv.Id, amount, sent: !IS_SANDBOX };
+
+  // Real company: QuickBooks emails the official bill. `sent` tells the
+  // automation to skip its own invoice email (Make route 9, #103), so the
+  // customer gets one bill, not two. If QuickBooks' email fails, ours goes
+  // instead and Robert's phone is told.
+  let sent = false;
+  if (!(await isSandbox())) {
+    try {
+      await sendInvoice(inv.Id, email);
+      sent = true;
+    } catch (e) {
+      const why = e instanceof Error ? e.message : "failed";
+      await sendProblemAlert(cell(r, "okla"), building, "QuickBooks invoice email", why).catch(() => {});
+    }
+  }
+  return { invoiced: true, row, building, invoiceId: inv.Id, amount, sent };
 }
 
 // Mark one row Paid if its QuickBooks invoice balance has reached 0.

@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import { Button, PublicPage } from "@/components/ui";
 
-type Info = { building: string; price?: string; alreadyPaid?: boolean };
+type Info = { building: string; price?: string; alreadyPaid?: boolean; real?: boolean; payUrl?: string };
 
-// The "Pay now" screen. Shows the building and amount and one button that marks
-// the invoice paid so the lifecycle can continue. In the live system the paid
-// state comes from QuickBooks; this button stands in for it during testing (the
-// server refuses it once QuickBooks is on the real company — see /api/pay).
+// The "Pay your invoice" screen (linked from the invoice and reminder emails).
+// Real company: one button to QuickBooks' own pay-online page; QuickBooks'
+// balance then marks it paid on the dashboard. Test company: a "Pay now" button
+// that marks it paid directly (the server refuses that button on the real company).
 export default function PayForm({ token }: { token: string }) {
   const [info, setInfo] = useState<Info | null>(null);
   const [loadErr, setLoadErr] = useState("");
@@ -71,10 +71,24 @@ export default function PayForm({ token }: { token: string }) {
           <span className="text-3xl font-bold tracking-tight text-accent-ink">{info.price}</span>
         </div>
       ) : null}
-      {submitErr ? <p className="mt-3 text-sm font-semibold text-danger">{submitErr}</p> : null}
-      <Button type="button" full className="mt-5" disabled={busy} onClick={pay}>
-        {busy ? "Recording…" : "Pay now"}
-      </Button>
+      {info.real ? (
+        info.payUrl ? (
+          <a href={info.payUrl} className="btn btn-primary mt-5 w-full">
+            Pay online
+          </a>
+        ) : (
+          <p className="mt-5 text-[15px] text-ink-2">
+            Please pay with the Pay button in the invoice email from QuickBooks, or reply to it to pay by check.
+          </p>
+        )
+      ) : (
+        <>
+          {submitErr ? <p className="mt-3 text-sm font-semibold text-danger">{submitErr}</p> : null}
+          <Button type="button" full className="mt-5" disabled={busy} onClick={pay}>
+            {busy ? "Recording…" : "Pay now"}
+          </Button>
+        </>
+      )}
     </PublicPage>
   );
 }

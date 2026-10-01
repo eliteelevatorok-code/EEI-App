@@ -1,15 +1,19 @@
 import { findForPay, markPaid } from "@/lib/pay";
-import { IS_SANDBOX } from "@/lib/quickbooks";
+import { getInvoicePayLink, isSandbox } from "@/lib/quickbooks";
 
 export const runtime = "nodejs";
 
-// GET /api/pay?t=<token> → { building, price, alreadyPaid } so the page can show
-// which building and amount. Reveals nothing without a valid token.
+// GET /api/pay?t=<token> → { building, price, alreadyPaid, real, payUrl } so the
+// page can show which building and amount. Reveals nothing without a valid token.
+// Real company: payUrl is QuickBooks' own pay-online page for the invoice (empty
+// if QuickBooks has none — then the page points to QuickBooks' invoice email).
 export async function GET(req: Request) {
   const token = new URL(req.url).searchParams.get("t") ?? "";
   const el = await findForPay(token);
   if (!el) return Response.json({ error: "not-found" }, { status: 404 });
-  return Response.json({ building: el.building, price: el.price, alreadyPaid: el.alreadyPaid });
+  const real = !(await isSandbox());
+  const payUrl = real && el.invoiceId && !el.alreadyPaid ? await getInvoicePayLink(el.invoiceId).catch(() => "") : "";
+  return Response.json({ building: el.building, price: el.price, alreadyPaid: el.alreadyPaid, real, payUrl });
 }
 
 // POST { token } → flips the row's Paid box to "Paid". A deliberate button press,
@@ -18,7 +22,7 @@ export async function GET(req: Request) {
 // QuickBooks balance, so this button is refused — otherwise anyone holding the
 // link could mark a bill paid without paying.
 export async function POST(req: Request) {
-  if (!IS_SANDBOX) {
+  if (!(await isSandbox())) {
     return Response.json({ error: "Please pay using the link in your QuickBooks invoice." }, { status: 403 });
   }
   let body: { token?: string };
