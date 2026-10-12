@@ -1372,6 +1372,12 @@ function Profile({
           Start inspection
         </Button>
       )}
+      {/* The newest finished report, in Google Drive (only once there is one). */}
+      {e.lastReport && (
+        <a href={e.lastReport} target="_blank" rel="noopener noreferrer" className="btn btn-secondary mt-2.5 w-full">
+          Last report
+        </a>
+      )}
 
       <SectionLabel>Customer lifecycle</SectionLabel>
       <Glass className="px-4 py-1.5">
@@ -1600,9 +1606,11 @@ const KINDS: LineKind[] = ["V", "R", "C"];
 function Report({
   elevator,
   onBack,
+  onDone,
 }: {
   elevator: Elevator;
   onBack: () => void;
+  onDone: () => void; // after finishing: back to the main screen
 }) {
   // Start from a draft saved earlier on this phone, if there is one.
   const [saved] = useState(() => loadDraft(elevator.okla));
@@ -1610,6 +1618,9 @@ function Report({
   const [sheet, setSheet] = useState(false);
   const [status, setStatus] = useState(saved ? "Picked up the draft you saved on this phone." : "");
   const [busy, setBusy] = useState(false);
+  // Once Finish has worked: where to view the report (its Drive page; the PDF
+  // itself only if Drive failed). Finish can't be tapped again after this.
+  const [finished, setFinished] = useState<{ view: string } | null>(null);
 
   const set = <K extends keyof ReportDraft,>(k: K, v: ReportDraft[K]) => setR((p) => ({ ...p, [k]: v }));
 
@@ -1662,9 +1673,12 @@ function Report({
       }
       const writeback = res.headers.get("X-Writeback") || "";
       const drive = res.headers.get("X-Drive") || "";
-      const url = URL.createObjectURL(await res.blob());
-      window.open(url, "_blank");
+      const driveLink = res.headers.get("X-Drive-Link") || "";
+      // View it in Drive (it shows every filled-in box; a phone's raw PDF viewer
+      // can show the boxes blank). The PDF itself only if Drive didn't save it.
+      const blob = await res.blob();
       const allSaved = writeback === "ok" && drive === "ok";
+      if (allSaved) setFinished({ view: driveLink || URL.createObjectURL(blob) });
       try {
         // Keep the answers on this phone unless EVERYTHING saved — so tapping
         // Finish again (after fixing the cause) doesn't mean typing it all again.
@@ -1818,14 +1832,25 @@ function Report({
       {/* floating action bar */}
       <div className="floating-bar glass-strong">
         {status && <p className="px-2 pb-2 pt-1 text-[13px] text-ink-2">{status}</p>}
-        <div className="flex gap-2.5">
-          <Button variant="secondary" onClick={saveForLater} disabled={busy} className="flex-1">
-            Save for later
-          </Button>
-          <Button onClick={finalize} disabled={busy} className="flex-1">
-            {busy ? "Working…" : "Finish report"}
-          </Button>
-        </div>
+        {finished ? (
+          <div className="flex gap-2.5">
+            <a href={finished.view} target="_blank" rel="noopener noreferrer" className="btn btn-secondary flex-1">
+              View report
+            </a>
+            <Button onClick={onDone} className="flex-1">
+              Done
+            </Button>
+          </div>
+        ) : (
+          <div className="flex gap-2.5">
+            <Button variant="secondary" onClick={saveForLater} disabled={busy} className="flex-1">
+              Save for later
+            </Button>
+            <Button onClick={finalize} disabled={busy} className="flex-1">
+              {busy ? "Working…" : "Finish report"}
+            </Button>
+          </div>
+        )}
       </div>
     </>
   );
@@ -1945,7 +1970,7 @@ function App() {
   } else if (stage === "report" && selected) {
     // The latest copy (live), not the one captured when the elevator was opened —
     // so an answer entered a moment ago (e.g. the safety test) is on the report.
-    screen = <Report key={selected.okla} elevator={live ?? selected} onBack={() => to("profile")} />;
+    screen = <Report key={selected.okla} elevator={live ?? selected} onBack={() => to("profile")} onDone={() => to("tabs")} />;
   } else if (tab === "today") {
     screen = <TodayTab accounts={roster.accounts} error={roster.error} onPick={pick} />;
   } else if (tab === "elevators") {

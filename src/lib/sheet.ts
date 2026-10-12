@@ -35,6 +35,9 @@ export const COL = {
   deviceType: 50, machineType: 51, installedYear: 52, codeYear: 53, entityType: 54,
   owner: 55, ownerAddress: 56, ownerCity: 57, ownerState: 58, ownerZip: 59,
   locationAddress: 60, locationZip: 61, county: 62,
+  // BL: Drive link to the most recent finished report, for the profile's "Last
+  // report" button. Unlike reportFile (AO), the yearly reset never clears it.
+  lastReport: 63,
 } as const;
 export type Col = keyof typeof COL;
 
@@ -44,7 +47,7 @@ export function letter(i: number): string {
   for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
   return s;
 }
-const LAST = letter(COL.county); // read this far to get every column the app uses
+const LAST = letter(COL.lastReport); // read this far to get every column the app uses
 
 // One trimmed cell from a row that was read from the sheet.
 export const cell = (row: string[], c: Col) => (row[COL[c]] ?? "").trim();

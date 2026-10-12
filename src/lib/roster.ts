@@ -70,6 +70,7 @@ function rowToElevator(r: string[], row: number): Elevator {
     moneyPath: cell(r, "moneyPath"),
     active: !isRowPaused(r),
     reportDone: !!cell(r, "reportFile"),
+    lastReport: cell(r, "lastReport") || cell(r, "reportFile"),
     row, // the sheet row, so later writes land on the right line
     lifecycle: LIFECYCLE_DEFS.map((d): LifecycleStage => ({
       key: d.key,
@@ -161,5 +162,7 @@ export async function markInspected(row: number, dateText: string): Promise<void
 
 // Keep the finished report's Drive link on the row.
 export async function setReportFile(row: number, link: string): Promise<void> {
-  await writeRow(row, { reportFile: link });
+  // reportFile = this visit's report (the automation emails it; reset each cycle);
+  // lastReport = the newest report ever, kept for the profile's "Last report" button.
+  await writeRow(row, { reportFile: link, lastReport: link });
 }
