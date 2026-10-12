@@ -216,14 +216,19 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
 
   // Is billing on the real QuickBooks company yet? (?qb=… is the result of coming
   // back from Intuit's sign-in page.) null = still checking.
-  const [qb, setQb] = useState<{ real: boolean; haveKeys: boolean } | null>(null);
+  // `reconnect`: QuickBooks stopped accepting the sign-in (expired, or
+  // disconnected from the QuickBooks side) — "real" or "test" company.
+  type QbState = { real: boolean; haveKeys: boolean; reconnect: "" | "real" | "test" };
+  const [qb, setQb] = useState<QbState | null>(null);
   const [qbResult] = useState(() =>
     typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("qb") || "",
   );
   useEffect(() => {
     fetch("/api/quickbooks/status")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { real?: boolean; haveKeys?: boolean } | null) => setQb(d ? { real: Boolean(d.real), haveKeys: Boolean(d.haveKeys) } : null))
+      .then((d: Partial<QbState> | null) =>
+        setQb(d ? { real: Boolean(d.real), haveKeys: Boolean(d.haveKeys), reconnect: d.reconnect === "real" || d.reconnect === "test" ? d.reconnect : "" } : null),
+      )
       .catch(() => setQb(null));
   }, []);
 
@@ -310,22 +315,30 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
         </>
       )}
 
-      {qb && !qb.real && (
+      {qb && (qb.reconnect || !qb.real) && (
         <>
           <SectionLabel>QuickBooks</SectionLabel>
           <Glass pad>
             <p className="mb-3 text-[15px] text-ink-2">
               {qbResult === "failed"
                 ? "That didn't go through. Try again, and choose Connect on the QuickBooks page."
-                : qb.haveKeys
-                  ? "Bills still go to the QuickBooks test company. Connect your real QuickBooks to bill customers."
-                  : "Bills still go to the QuickBooks test company. Your QuickBooks production keys need to be added to the dashboard's Config tab first."}
+                : qb.reconnect
+                  ? `QuickBooks stopped accepting the app's sign-in${qb.reconnect === "test" ? " for the test company" : ""}. Bills can't go out until you sign in again.`
+                  : qb.haveKeys
+                    ? "Bills still go to the QuickBooks test company. Connect your real QuickBooks to bill customers."
+                    : "Bills still go to the QuickBooks test company. Your QuickBooks production keys need to be added to the dashboard's Config tab first."}
             </p>
             {/* A full page visit (not a fetch): Intuit's sign-in page takes over, then comes back here. */}
-            {qb.haveKeys && (
-              <a href="/api/quickbooks/connect" className="btn btn-primary w-full">
-                Connect QuickBooks
+            {qb.reconnect ? (
+              <a href={qb.reconnect === "test" ? "/api/quickbooks/connect?company=test" : "/api/quickbooks/connect"} className="btn btn-primary w-full">
+                Reconnect QuickBooks
               </a>
+            ) : (
+              qb.haveKeys && (
+                <a href="/api/quickbooks/connect" className="btn btn-primary w-full">
+                  Connect QuickBooks
+                </a>
+              )
             )}
           </Glass>
         </>

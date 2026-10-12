@@ -17,9 +17,41 @@ import { readConfig, writeConfig } from "@/lib/config";
 
 const SANDBOX_BASE = "https://sandbox-quickbooks.api.intuit.com";
 const REAL_BASE = "https://quickbooks.api.intuit.com";
-const TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
-export const AUTHORIZE_URL = "https://appcenter.intuit.com/connect/oauth2";
 export const QB_SCOPE = "com.intuit.quickbooks.accounting";
+// A connection QuickBooks no longer accepts (expired, or disconnected from the
+// QuickBooks side): this Config row says which company needs signing in again,
+// so Settings shows a Reconnect button. Cleared by a successful Connect.
+const NEEDS_RECONNECT = "qbNeedsReconnect";
+
+// Intuit's sign-in addresses, from Intuit's own discovery document (as Intuit
+// asks), kept for a day. If it can't be read, the long-standing addresses are used.
+type Endpoints = { authorize: string; token: string };
+const FALLBACK: Endpoints = {
+  authorize: "https://appcenter.intuit.com/connect/oauth2",
+  token: "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+};
+const DISCOVERY = {
+  real: "https://developer.api.intuit.com/.well-known/openid_configuration",
+  test: "https://developer.api.intuit.com/.well-known/openid_sandbox_configuration",
+};
+const endpointCache: Partial<Record<"real" | "test", { e: Endpoints; until: number }>> = {};
+export async function endpoints(real: boolean): Promise<Endpoints> {
+  const k = real ? "real" : "test";
+  const hit = endpointCache[k];
+  if (hit && hit.until > Date.now()) return hit.e;
+  try {
+    const res = await fetch(DISCOVERY[k], { headers: { Accept: "application/json" } });
+    const d = (await res.json()) as { authorization_endpoint?: string; token_endpoint?: string };
+    if (res.ok && d.authorization_endpoint?.startsWith("https://") && d.token_endpoint?.startsWith("https://")) {
+      const e = { authorize: d.authorization_endpoint, token: d.token_endpoint };
+      endpointCache[k] = { e, until: Date.now() + 24 * 60 * 60 * 1000 };
+      return e;
+    }
+  } catch {
+    /* use the fallback below */
+  }
+  return FALLBACK;
+}
 const MINOR = "minorversion=75";
 const ITEM_NAME = "Elevator Inspection";
 
@@ -64,24 +96,31 @@ export async function isSandbox(): Promise<boolean> {
   return !(await qbSetup()).real;
 }
 
-// The production keys, for the Connect sign-in (empty if Robert hasn't added them).
-export async function realKeys(): Promise<{ clientId: string; clientSecret: string }> {
+// The keys for the Connect sign-in: production keys for the real company (empty
+// if Robert hasn't added them), development keys for the test company.
+export async function connectKeys(test = false): Promise<{ clientId: string; clientSecret: string }> {
   const c = await readConfig();
-  return { clientId: c.get("qbClientId") ?? "", clientSecret: c.get("qbClientSecret") ?? "" };
+  return test
+    ? { clientId: c.get("devClientId") ?? "", clientSecret: c.get("devClientSecret") ?? "" }
+    : { clientId: c.get("qbClientId") ?? "", clientSecret: c.get("qbClientSecret") ?? "" };
 }
 
-// For Settings: is the real company connected, and are the production keys in Config?
-export async function qbStatus(): Promise<{ real: boolean; haveKeys: boolean }> {
-  const [sandbox, k] = await Promise.all([isSandbox(), realKeys()]);
-  return { real: !sandbox, haveKeys: !!(k.clientId && k.clientSecret) };
+// For Settings: is the real company connected, are the production keys in
+// Config, and does QuickBooks need signing in again?
+export async function qbStatus(): Promise<{ real: boolean; haveKeys: boolean; reconnect: "" | "real" | "test" }> {
+  const [sandbox, k, c] = await Promise.all([isSandbox(), connectKeys(), readConfig()]);
+  const r = c.get(NEEDS_RECONNECT);
+  return { real: !sandbox, haveKeys: !!(k.clientId && k.clientSecret), reconnect: r === "real" || r === "test" ? r : "" };
 }
 
 // Connect, step 2: swap Intuit's one-time code for the long-lived sign-in and
-// save it (and the company id) to Config. From then on billing uses the real company.
-export async function finishConnect(code: string, realmId: string, redirectUri: string): Promise<void> {
-  const k = await realKeys();
-  if (!k.clientId || !k.clientSecret) throw new Error("QuickBooks production keys are missing from Config");
-  const res = await fetch(TOKEN_URL, {
+// save it (and the company id) to Config. Real company: from then on billing
+// uses it. Test company (`test`): replaces the test company's sign-in — used to
+// test connecting, disconnecting and reconnecting without touching real books.
+export async function finishConnect(code: string, realmId: string, redirectUri: string, test = false): Promise<void> {
+  const k = await connectKeys(test);
+  if (!k.clientId || !k.clientSecret) throw new Error(`QuickBooks ${test ? "development" : "production"} keys are missing from Config`);
+  const res = await fetch((await endpoints(!test)).token, {
     method: "POST",
     headers: {
       Authorization: `Basic ${Buffer.from(`${k.clientId}:${k.clientSecret}`).toString("base64")}`,
@@ -92,9 +131,10 @@ export async function finishConnect(code: string, realmId: string, redirectUri: 
   });
   const tok = (await res.json()) as { refresh_token?: string; error?: string };
   if (!res.ok || !tok.refresh_token) throw new Error(`QuickBooks connect failed (${res.status}): ${tok.error ?? "unknown"}`);
-  await writeConfig("qbRealmId", realmId);
-  await writeConfig("qbRealRefreshToken", tok.refresh_token);
-  accessCache = null; // the next call signs in to the real company
+  await writeConfig(test ? "sandboxRealmId" : "qbRealmId", realmId);
+  await writeConfig(test ? "qbRefreshToken" : "qbRealRefreshToken", tok.refresh_token);
+  await writeConfig(NEEDS_RECONNECT, "");
+  accessCache = null; // the next call signs in with the new connection
 }
 
 // Cache the short-lived access token in memory (it lasts ~60 min) — per company,
@@ -124,7 +164,7 @@ async function refreshAccess(retried = false): Promise<Access> {
   const cfg = await qbSetup();
   if (!cfg.clientId || !cfg.refreshToken) throw new Error("QuickBooks keys are missing from Config");
   const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
-  const res = await fetch(TOKEN_URL, {
+  const res = await fetch((await endpoints(cfg.real)).token, {
     method: "POST",
     headers: {
       Authorization: `Basic ${basic}`,
@@ -138,6 +178,12 @@ async function refreshAccess(retried = false): Promise<Access> {
     if (!retried && tok.error === "invalid_grant") {
       await new Promise((r) => setTimeout(r, 1500)); // give the other copy time to save the new token
       return refreshAccess(true);
+    }
+    // Still refused after a fresh look: the sign-in has expired or was
+    // disconnected from the QuickBooks side. Settings now asks to reconnect.
+    if (tok.error === "invalid_grant") {
+      await writeConfig(NEEDS_RECONNECT, cfg.real ? "real" : "test").catch(() => {});
+      throw new Error("QuickBooks needs you to sign in again — open Settings → QuickBooks → Reconnect");
     }
     throw new Error(`QuickBooks sign-in failed (${res.status}): ${tok.error ?? "unknown"}`);
   }
@@ -155,7 +201,9 @@ async function refreshAccess(retried = false): Promise<Access> {
 }
 
 // One call to the QuickBooks API, with auth and the required minor version.
-async function qb<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
+// A 401 means QuickBooks didn't accept the access token (it expired early or
+// was revoked) and did nothing — so sign in again and try once more.
+async function qb<T>(path: string, init?: { method?: string; body?: unknown }, retried = false): Promise<T> {
   const { token, realmId, base } = await getAccess();
   const sep = path.includes("?") ? "&" : "?";
   const url = `${base}/v3/company/${realmId}/${path}${sep}${MINOR}`;
@@ -168,7 +216,11 @@ async function qb<T>(path: string, init?: { method?: string; body?: unknown }): 
     },
     body: init?.body ? JSON.stringify(init.body) : undefined,
   });
-  const json = (await res.json()) as unknown;
+  if (res.status === 401 && !retried) {
+    accessCache = null;
+    return qb<T>(path, init, true);
+  }
+  const json = (await res.json().catch(() => ({}))) as unknown;
   if (!res.ok) {
     const fault = (json as { Fault?: { Error?: { Message?: string; Detail?: string }[] } }).Fault;
     const msg = fault?.Error?.[0]?.Detail ?? fault?.Error?.[0]?.Message ?? `HTTP ${res.status}`;
