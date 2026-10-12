@@ -4,6 +4,7 @@ import { fillReport, type FinalizePayload } from "@/lib/fillForm";
 import { uploadFile } from "@/lib/google";
 import { findRowByOkla, markInspected, setReportFile } from "@/lib/roster";
 import { requireElevatorRow } from "@/lib/sheet";
+import { dispositionFor, reportFileName } from "@/lib/reportName";
 
 export const runtime = "nodejs";
 
@@ -39,9 +40,10 @@ export async function POST(req: Request) {
   const templateBytes = new Uint8Array(await readFile(templatePath));
   const pdf = await fillReport(templateBytes, payload);
 
-  const { okla, row, account } = payload.elevator;
+  const { okla, row, account, building } = payload.elevator;
   const dateText = displayDate(payload.report.date);
-  const fileName = `report-${okla || "unknown"}-${dateText.replace(/\//g, "-")}.pdf`;
+  // "Lawton City: Oct 9, 2026 (TV Civic center).pdf" — see reportName.ts.
+  const fileName = reportFileName(account ?? "", dateText, building ?? "", okla ?? "");
 
   // Flip the dashboard cells and save the PDF to Drive independently, so one
   // failing never blocks the other or loses the finished PDF.
@@ -71,7 +73,7 @@ export async function POST(req: Request) {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="${fileName}"`,
+      "Content-Disposition": dispositionFor("inline", fileName),
       "X-Drive-Link": driveLink,
       "X-Drive": drive,
       "X-Writeback": writeback,

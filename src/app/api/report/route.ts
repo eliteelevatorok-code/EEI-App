@@ -1,6 +1,7 @@
 import { sendProblemAlert } from "@/lib/push";
 import { finishedReport } from "@/lib/report";
 import { cell, findByToken } from "@/lib/sheet";
+import { dispositionFor } from "@/lib/reportName";
 
 export const runtime = "nodejs";
 
@@ -24,11 +25,13 @@ export async function GET(req: Request) {
     return new Response("couldn't read the report right now", { status: 503 });
   }
   if (!report?.bytes) return new Response("no finished report for this visit yet", { status: 404 });
-  const okla = cell(hit.cells, "okla") || "elevator";
+  // The emailed attachment carries the report's own name, with " -" for the
+  // colon (a colon can't be in a file name once it's saved on a computer).
+  const name = (report.name || `inspection-report-${cell(hit.cells, "okla") || "elevator"}.pdf`).replace(/:/g, " -");
   return new Response(Buffer.from(report.bytes), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="inspection-report-${okla}.pdf"`,
+      "Content-Disposition": dispositionFor("attachment", name),
     },
   });
 }
