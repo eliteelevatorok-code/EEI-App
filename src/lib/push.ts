@@ -138,7 +138,9 @@ export async function alertItems(ignoreMaster = false): Promise<AlertItem[]> {
     if (safetyAnswer(cell(r, "safetyTest")) === "No" && visit !== "Inspected") add(`nopass:${okla}`, `No passing safety test: ${building}`);
     // No price → the quote (and later the bill) can't go out. Flag it once it's inside the 60-day window.
     const dueIn = dateNum(cell(r, "due"));
-    if (!/[1-9]/.test(cell(r, "price")) && cell(r, "quote") !== "Sent" && dueIn && dueIn <= addDaysNum(today, 60)) add(`noprice:${okla}`, `Price missing: ${building}`);
+    // (A fast-tracked elevator needs its price now, not 60 days out.)
+    const soon = (dueIn && dueIn <= addDaysNum(today, 60)) || cell(r, "fastTrack") === "On";
+    if (!/[1-9]/.test(cell(r, "price")) && cell(r, "quote") !== "Sent" && soon) add(`noprice:${okla}`, `Price missing: ${building}`);
     if (visit === "Inspected" && cell(r, "report") !== "Sent") {
       // The report email (customer + state) waits for the finished report. If
       // Drive can't be checked right now, say nothing rather than guess.

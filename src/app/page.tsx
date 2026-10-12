@@ -1289,11 +1289,11 @@ function Profile({
   const [enteringSafety, setEnteringSafety] = useState(false);
   const [editingTech, setEditingTech] = useState(false);
   const steps = nextSteps(e, onStartReport, () => setEnteringSafety(true));
-  const [swStep, setSwStep] = useState<null | "pause1" | "pause2" | "resume">(null);
+  const [swStep, setSwStep] = useState<null | "pause1" | "pause2" | "resume" | "fastOn" | "fastOff">(null);
   const [swBusy, setSwBusy] = useState(false);
   const [swErr, setSwErr] = useState("");
   const closeSw = () => { setSwStep(null); setSwErr(""); };
-  async function setSwitch(next: boolean) {
+  async function setSwitch(next: boolean, target: "elevator" | "fasttrack" = "elevator") {
     if (e.row == null) { setSwErr("This elevator has no saved row yet."); return; }
     setSwBusy(true);
     setSwErr("");
@@ -1301,12 +1301,12 @@ function Profile({
       const r = await fetch("/api/switches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target: "elevator", row: e.row, okla: e.okla, on: next }),
+        body: JSON.stringify({ target, row: e.row, okla: e.okla, on: next }),
       });
       const d = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(d.error || "Save failed");
       buzz();
-      onChange({ ...e, active: next });
+      onChange(target === "fasttrack" ? { ...e, fastTrack: next } : { ...e, active: next });
       closeSw();
     } catch (err) {
       setSwErr(err instanceof Error ? err.message : "Save failed");
@@ -1446,6 +1446,16 @@ function Profile({
           </div>
           <Toggle label="Automatic steps" on={swOn} onClick={() => setSwStep(swOn ? "pause1" : "resume")} />
         </div>
+        {/* Fast track: the pre-visit emails go one per hourly check instead of waiting for the calendar. */}
+        <div className="row justify-between">
+          <div>
+            <div className="text-[15px]">Fast track</div>
+            <div className="text-sm text-ink-3">
+              {e.fastTrack ? "Pre-visit emails go out about an hour apart" : "Pre-visit emails follow the due date"}
+            </div>
+          </div>
+          <Toggle label="Fast track" on={!!e.fastTrack} onClick={() => setSwStep(e.fastTrack ? "fastOff" : "fastOn")} />
+        </div>
       </List>
       {swErr && !swStep && <p className="mt-2 px-1 text-sm font-semibold text-danger">{swErr}</p>}
 
@@ -1487,6 +1497,35 @@ function Profile({
           onConfirm={() => setSwitch(true)}
         >
           Automatic steps start running again for this elevator.
+        </ConfirmDialog>
+      )}
+      {swStep === "fastOn" && (
+        <ConfirmDialog
+          title={`Fast-track ${e.building}?`}
+          confirmLabel="Fast-track it"
+          busyLabel="Saving…"
+          busy={swBusy}
+          error={swErr}
+          onCancel={closeSw}
+          onConfirm={() => setSwitch(true, "fasttrack")}
+        >
+          The pre-visit emails stop waiting for the calendar and go one after another at the hourly checks (7am–6pm):
+          the 2-month heads-up, then the quote and safety-test question, then the scheduling email — about three hours
+          in all. Steps already sent aren&apos;t sent again. It turns itself off when you finish the report.
+          {!swOn && " This elevator is paused, so nothing goes until you resume it."}
+        </ConfirmDialog>
+      )}
+      {swStep === "fastOff" && (
+        <ConfirmDialog
+          title="Turn off fast track?"
+          confirmLabel="Turn off"
+          busyLabel="Saving…"
+          busy={swBusy}
+          error={swErr}
+          onCancel={closeSw}
+          onConfirm={() => setSwitch(false, "fasttrack")}
+        >
+          The remaining pre-visit emails go back to following the due date.
         </ConfirmDialog>
       )}
 
