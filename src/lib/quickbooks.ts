@@ -1,5 +1,6 @@
 import { readConfig, writeConfig } from "@/lib/config";
 import { appendRow } from "@/lib/google";
+import { seal, unseal } from "@/lib/secretBox";
 
 // The QuickBooks Online engine. It creates the customer invoice and, once the
 // real company is connected, tells QuickBooks to send its own official bill
@@ -64,21 +65,33 @@ type Setup = {
   realmId: string;
   refreshToken: string;
   refreshKey: string; // the Config row the refresh token lives in
+  unreadable: boolean; // the saved sign-in couldn't be decrypted
 };
 
-// Which company, and its keys, from the Config tab.
+// Which company, and its keys, from the Config tab. The sign-in (refresh token
+// and company id) is stored encrypted — see secretBox.ts.
 async function qbSetup(): Promise<Setup> {
   const c = await readConfig();
   const g = (k: string) => c.get(k) ?? "";
+  let unreadable = false;
+  const open = (k: string) => {
+    try {
+      return unseal(g(k));
+    } catch {
+      unreadable = true;
+      return "";
+    }
+  };
   if (g("qbClientId") && g("qbRealRefreshToken") && g("qbRealmId")) {
     return {
       real: true,
       base: REAL_BASE,
       clientId: g("qbClientId"),
       clientSecret: g("qbClientSecret"),
-      realmId: g("qbRealmId"),
-      refreshToken: g("qbRealRefreshToken"),
+      realmId: open("qbRealmId"),
+      refreshToken: open("qbRealRefreshToken"),
       refreshKey: "qbRealRefreshToken",
+      unreadable,
     };
   }
   return {
@@ -86,9 +99,10 @@ async function qbSetup(): Promise<Setup> {
     base: SANDBOX_BASE,
     clientId: g("devClientId"),
     clientSecret: g("devClientSecret"),
-    realmId: g("sandboxRealmId"),
-    refreshToken: g("qbRefreshToken"),
+    realmId: open("sandboxRealmId"),
+    refreshToken: open("qbRefreshToken"),
     refreshKey: "qbRefreshToken",
+    unreadable,
   };
 }
 
@@ -132,8 +146,8 @@ export async function finishConnect(code: string, realmId: string, redirectUri: 
   });
   const tok = (await res.json()) as { refresh_token?: string; error?: string };
   if (!res.ok || !tok.refresh_token) throw new Error(`QuickBooks connect failed (${res.status}): ${tok.error ?? "unknown"}`);
-  await writeConfig(test ? "sandboxRealmId" : "qbRealmId", realmId);
-  await writeConfig(test ? "qbRefreshToken" : "qbRealRefreshToken", tok.refresh_token);
+  await writeConfig(test ? "sandboxRealmId" : "qbRealmId", seal(realmId));
+  await writeConfig(test ? "qbRefreshToken" : "qbRealRefreshToken", seal(tok.refresh_token));
   await writeConfig(NEEDS_RECONNECT, "");
   accessCache = null; // the next call signs in with the new connection
 }
@@ -163,6 +177,11 @@ async function getAccess(): Promise<Access> {
 // once), re-read Config once: that copy will have saved the new one.
 async function refreshAccess(retried = false): Promise<Access> {
   const cfg = await qbSetup();
+  if (cfg.unreadable) {
+    // Saved with a different key (or altered): the only way back is a fresh sign-in.
+    await writeConfig(NEEDS_RECONNECT, cfg.real ? "real" : "test").catch(() => {});
+    throw new Error("QuickBooks needs you to sign in again — open Settings → QuickBooks → Reconnect");
+  }
   if (!cfg.clientId || !cfg.refreshToken) throw new Error("QuickBooks keys are missing from Config");
   const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
   const res = await fetch((await endpoints(cfg.real)).token, {
@@ -190,7 +209,7 @@ async function refreshAccess(retried = false): Promise<Access> {
     throw new Error(`QuickBooks sign-in failed (${res.status}): ${tok.error ?? "unknown"}`);
   }
   if (tok.refresh_token && tok.refresh_token !== cfg.refreshToken) {
-    await writeConfig(cfg.refreshKey, tok.refresh_token);
+    await writeConfig(cfg.refreshKey, seal(tok.refresh_token));
   }
   accessCache = {
     token: tok.access_token,

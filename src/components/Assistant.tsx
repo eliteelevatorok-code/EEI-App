@@ -47,7 +47,6 @@ const LOOKED: Record<string, (i: Record<string, unknown>) => string> = {
   list_elevators: (i) => (i.search ? `Searched the list for “${i.search}”` : "Looked through the elevator list"),
   get_elevator: (i) => `Opened OK # ${i.okla}`,
   get_overview: () => "Checked today's overview",
-  get_invoice_balance: (i) => `Checked QuickBooks for OK # ${i.okla}`,
   read_email_wording: () => "Read the email wording",
   set_reminder: (i) => `Reminder: ${String(i.text ?? "")} — ${String(i.date ?? "")}`,
   list_reminders: () => "Checked your reminders",

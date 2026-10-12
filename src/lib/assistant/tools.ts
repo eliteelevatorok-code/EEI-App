@@ -1,5 +1,4 @@
 import { readRange } from "@/lib/google";
-import { getInvoiceBalance } from "@/lib/quickbooks";
 import { LIFECYCLE_DEFS, appendElevator, type NewElevatorInput } from "@/lib/roster";
 import { FIRST_ROW, cell, readRows, writeRow, type Col } from "@/lib/sheet";
 import { isMasterOn, setElevatorSwitch, setMaster } from "@/lib/switches";
@@ -73,7 +72,9 @@ const EDITABLE: Col[] = (Object.keys(FIELD_HELP) as Col[]).filter(
 );
 const READABLE = Object.keys(FIELD_HELP) as Col[];
 
-// Public tool list sent to Claude.
+// Public tool list sent to Claude. Deliberately no QuickBooks tool: Intuit's
+// rules forbid passing QuickBooks data to another company (Anthropic included).
+// Paid / unpaid comes from the dashboard's own Invoice and Paid columns.
 export const TOOLS = [
   {
     name: "list_elevators",
@@ -91,11 +92,6 @@ export const TOOLS = [
     description:
       "The big picture right now: whether the whole system is running, what needs a person today (booked visits, maintenance to chase), overdue elevators, due within 30 days, and money (unpaid bills, being billed, paid, totals).",
     input_schema: { type: "object", properties: {} },
-  },
-  {
-    name: "get_invoice_balance",
-    description: "Ask QuickBooks for the current balance of an elevator's invoice (0 = paid).",
-    input_schema: { type: "object", properties: { okla: { type: "string" } }, required: ["okla"] },
   },
   {
     name: "read_email_wording",
@@ -298,13 +294,6 @@ export async function runTool(name: string, input: Json): Promise<unknown> {
           paidTotal: paid.reduce((n, r) => n + priceNum(cell(r, "price")), 0),
         },
       };
-    }
-    case "get_invoice_balance": {
-      const hit = await findRow(String(input.okla));
-      if (!hit) throw new Error(`No elevator with OK # ${input.okla}`);
-      const id = cell(hit.cells, "invoiceId");
-      if (!id) return { invoiced: false, note: "No QuickBooks invoice on this elevator yet." };
-      return { invoiced: true, invoiceId: id, balance: await getInvoiceBalance(id) };
     }
     case "read_email_wording":
       return await readRange("Emails!A1:H60");
