@@ -1,4 +1,5 @@
 import { readConfig, writeConfig } from "@/lib/config";
+import { appendRow } from "@/lib/google";
 
 // The QuickBooks Online engine. It creates the customer invoice and, once the
 // real company is connected, tells QuickBooks to send its own official bill
@@ -173,12 +174,13 @@ async function refreshAccess(retried = false): Promise<Access> {
     },
     body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: cfg.refreshToken }),
   });
-  const tok = (await res.json()) as { access_token?: string; refresh_token?: string; expires_in?: number; error?: string };
+  const tok = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; expires_in?: number; error?: string };
   if (!res.ok || !tok.access_token) {
     if (!retried && tok.error === "invalid_grant") {
       await new Promise((r) => setTimeout(r, 1500)); // give the other copy time to save the new token
       return refreshAccess(true);
     }
+    await logQbError(cfg.real, "sign in (refresh token)", tok.error ?? `HTTP ${res.status}`, res.headers.get("intuit_tid") ?? "");
     // Still refused after a fresh look: the sign-in has expired or was
     // disconnected from the QuickBooks side. Settings now asks to reconnect.
     if (tok.error === "invalid_grant") {
@@ -224,9 +226,21 @@ async function qb<T>(path: string, init?: { method?: string; body?: unknown }, r
   if (!res.ok) {
     const fault = (json as { Fault?: { Error?: { Message?: string; Detail?: string }[] } }).Fault;
     const msg = fault?.Error?.[0]?.Detail ?? fault?.Error?.[0]?.Message ?? `HTTP ${res.status}`;
-    throw new Error(`QuickBooks: ${msg}`);
+    const tid = res.headers.get("intuit_tid") ?? "";
+    await logQbError(base === REAL_BASE, `${init?.method ?? "GET"} ${path.split("?")[0]}`, msg, tid);
+    throw new Error(`QuickBooks: ${msg}${tid ? ` (Intuit tracking # ${tid})` : ""}`);
   }
   return json as T;
+}
+
+// Every QuickBooks error is kept in the dashboard's "QB log" tab — when, which
+// company, what the app was doing, what QuickBooks said, and Intuit's tracking
+// number (intuit_tid), which Intuit support asks for. (The server's own log only
+// lasts about an hour.) A failure to log never hides the original error.
+async function logQbError(real: boolean, doing: string, said: string, tid: string): Promise<void> {
+  const when = new Date().toLocaleString("en-US", { timeZone: "America/Chicago" });
+  console.error(`[quickbooks] ${doing}: ${said}${tid ? ` intuit_tid=${tid}` : ""}`);
+  await appendRow("QB log!A:E", [when, real ? "real" : "test", doing.slice(0, 200), said.slice(0, 500), tid]).catch(() => {});
 }
 
 // A QuickBooks query (SELECT ...). Returns the named entity array (may be empty).
