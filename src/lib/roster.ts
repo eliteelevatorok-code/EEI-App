@@ -71,7 +71,7 @@ function rowToElevator(r: string[], row: number): Elevator {
     active: !isRowPaused(r),
     reportDone: !!cell(r, "reportFile"),
     lastReport: cell(r, "lastReport") || cell(r, "reportFile"),
-    fastTrack: cell(r, "fastTrack") === "On",
+    fastTrack: cell(r, "ftStep") && cell(r, "ftAt") ? { step: cell(r, "ftStep"), at: cell(r, "ftAt") } : undefined,
     row, // the sheet row, so later writes land on the right line
     lifecycle: LIFECYCLE_DEFS.map((d): LifecycleStage => ({
       key: d.key,
@@ -158,8 +158,8 @@ export async function setTechDetails(row: number, values: Partial<Record<TechKey
 // Visit = Inspected AND Report ≠ Sent, emails the report to the customer and
 // ODOL, and only then sets Report = Sent — which is what starts billing.
 export async function markInspected(row: number, dateText: string): Promise<void> {
-  // The visit happened, so any fast track has done its job.
-  await writeRow(row, { visit: "Inspected", tripDay: dateText, fastTrack: "" });
+  // The visit happened, so any fast track waiting is moot.
+  await writeRow(row, { visit: "Inspected", tripDay: dateText, ftStep: "", ftAt: "" });
 }
 
 // Keep the finished report's Drive link on the row.

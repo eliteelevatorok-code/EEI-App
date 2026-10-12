@@ -118,12 +118,14 @@ export async function writeCell(a1: string, value: string): Promise<void> {
 
 // Overwrite several cells in ONE request: [["Elevators!U5", "Received"], …].
 // Cheaper than several writeCell calls and keeps Google's per-minute limit happy.
-export async function writeCells(cells: [a1: string, value: string][]): Promise<void> {
+// `raw`: store the text exactly as given (no date/number guessing by Sheets) —
+// e.g. a fast-track time, which the automation must read back as written.
+export async function writeCells(cells: [a1: string, value: string][], raw = false): Promise<void> {
   if (!cells.length) return;
   await sheets({
     url: `${SHEET_URL}/values:batchUpdate`,
     method: "POST",
-    data: { valueInputOption: "USER_ENTERED", data: cells.map(([range, v]) => ({ range, values: [[safeCell(v)]] })) },
+    data: { valueInputOption: raw ? "RAW" : "USER_ENTERED", data: cells.map(([range, v]) => ({ range, values: [[safeCell(v)]] })) },
   });
 }
 

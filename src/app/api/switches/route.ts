@@ -1,4 +1,4 @@
-import { FIRST_ROW, NoSuchRow, requireElevatorRow, writeRow } from "@/lib/sheet";
+import { FIRST_ROW, NoSuchRow, requireElevatorRow } from "@/lib/sheet";
 import { isMasterOn, readSwitches, setMaster, setElevatorSwitch } from "@/lib/switches";
 
 export const runtime = "nodejs";
@@ -17,8 +17,7 @@ export async function GET(req: Request) {
 // POST changes a switch.
 //   { target: "master", on: boolean, confirm?: "STOP" }
 //     - turning the master OFF requires confirm === "STOP" (accident guard).
-//   { target: "elevator", row: number, okla, on: boolean }
-//   { target: "fasttrack", row: number, okla, on: boolean } — the elevator's fast track (col BM)
+//   { target: "elevator", row: number, on: boolean }
 export async function POST(req: Request) {
   let body: { target?: string; on?: boolean; row?: number; okla?: string; confirm?: string };
   try {
@@ -40,7 +39,7 @@ export async function POST(req: Request) {
       return Response.json({ ok: true, master: body.on });
     }
 
-    if (body.target === "elevator" || body.target === "fasttrack") {
+    if (body.target === "elevator") {
       const row = body.row;
       if (!Number.isInteger(row) || (row as number) < FIRST_ROW || (row as number) > 100000) {
         return Response.json({ error: "Bad row" }, { status: 400 });
@@ -48,8 +47,7 @@ export async function POST(req: Request) {
       // The OK # is required so a moved row can never switch the wrong elevator.
       if (!String(body.okla ?? "").trim()) return Response.json({ error: "Missing elevator" }, { status: 400 });
       const at = await requireElevatorRow(row as number, body.okla); // the right elevator, even if rows moved
-      if (body.target === "fasttrack") await writeRow(at, { fastTrack: body.on ? "On" : "" });
-      else await setElevatorSwitch(at, body.on);
+      await setElevatorSwitch(at, body.on);
       return Response.json({ ok: true, row: at, on: body.on });
     }
 
