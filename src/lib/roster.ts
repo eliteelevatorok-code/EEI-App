@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import type { Account, Elevator, Field, LifecycleStage } from "@/lib/data";
 import { appendRow } from "@/lib/google";
-import { COL, FIRST_ROW, TAB, cell, letter, readRows, writeRow, type Col } from "@/lib/sheet";
+import { COL, FAST_COL, FIRST_ROW, TAB, cell, letter, readRows, writeRow, type Col } from "@/lib/sheet";
+import { FAST_ORDER } from "@/lib/fasttrack";
 import { safetyAnswer } from "@/lib/records";
 import { TECH, type TechKey } from "@/lib/tech";
 import { isRowPaused } from "@/lib/switches";
@@ -71,7 +72,7 @@ function rowToElevator(r: string[], row: number): Elevator {
     active: !isRowPaused(r),
     reportDone: !!cell(r, "reportFile"),
     lastReport: cell(r, "lastReport") || cell(r, "reportFile"),
-    fastTrack: cell(r, "ftStep") && cell(r, "ftAt") ? { step: cell(r, "ftStep"), at: cell(r, "ftAt") } : undefined,
+    fastTrack: Object.fromEntries(FAST_ORDER.filter((k) => cell(r, FAST_COL[k])).map((k) => [k, cell(r, FAST_COL[k])])),
     row, // the sheet row, so later writes land on the right line
     lifecycle: LIFECYCLE_DEFS.map((d): LifecycleStage => ({
       key: d.key,
@@ -159,7 +160,7 @@ export async function setTechDetails(row: number, values: Partial<Record<TechKey
 // ODOL, and only then sets Report = Sent — which is what starts billing.
 export async function markInspected(row: number, dateText: string): Promise<void> {
   // The visit happened, so any fast track waiting is moot.
-  await writeRow(row, { visit: "Inspected", tripDay: dateText, ftStep: "", ftAt: "" });
+  await writeRow(row, { visit: "Inspected", tripDay: dateText, ...Object.fromEntries(FAST_ORDER.map((k) => [FAST_COL[k], ""])) });
 }
 
 // Keep the finished report's Drive link on the row.

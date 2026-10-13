@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { FastStepKey } from "@/lib/fasttrack";
 import { readRange, writeCells } from "@/lib/google";
 
 // The dashboard's Elevators tab — the ONE place that knows which column holds
@@ -38,13 +39,17 @@ export const COL = {
   // BL: Drive link to the most recent finished report, for the profile's "Last
   // report" button. Unlike reportFile (AO), the yearly reset never clears it.
   lastReport: 63,
-  // BM/BN: fast track — the next step to rush ("heads-up", "quote", "safety",
-  // "scheduling", "access") and when (ISO UTC). The automation sends it at the
-  // first hourly run after that time and clears both. See src/lib/fasttrack.ts.
-  ftStep: 64,
-  ftAt: 65,
+  // BM–BQ: fast track — each pre-visit step's own early time (ISO UTC, stored as
+  // plain text). The automation sends that step at the first hourly run after
+  // its time and clears just that cell. See src/lib/fasttrack.ts.
+  ftHeadsUp: 64, ftQuote: 65, ftSafety: 66, ftScheduling: 67, ftAccess: 68,
 } as const;
 export type Col = keyof typeof COL;
+
+// Which column holds each fast-track step's time.
+export const FAST_COL: Record<FastStepKey, Col> = {
+  "heads-up": "ftHeadsUp", quote: "ftQuote", safety: "ftSafety", scheduling: "ftScheduling", access: "ftAccess",
+};
 
 // 0 → "A", 25 → "Z", 26 → "AA", …
 export function letter(i: number): string {
@@ -52,7 +57,7 @@ export function letter(i: number): string {
   for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
   return s;
 }
-const LAST = letter(COL.ftAt); // read this far to get every column the app uses
+const LAST = letter(COL.ftAccess); // read this far to get every column the app uses
 
 // One trimmed cell from a row that was read from the sheet.
 export const cell = (row: string[], c: Col) => (row[COL[c]] ?? "").trim();

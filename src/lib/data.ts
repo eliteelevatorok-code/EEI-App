@@ -1,5 +1,6 @@
 // Types + constants for the field app. Live records come from the dashboard
 // via src/lib/roster.ts — no sample data ships here.
+import type { FastTimes } from "@/lib/fasttrack";
 
 export type LineKind = "V" | "R" | "C";
 
@@ -50,7 +51,7 @@ export type Elevator = {
   price?: string; // customer price from the dashboard (col P)
   moneyPath?: string; // col Q
   active?: boolean; // the on/off switch (col AL); false = paused
-  fastTrack?: { step: string; at: string }; // cols BM/BN: a step set to go early, and when (ISO) — see fasttrack.ts
+  fastTrack?: FastTimes; // cols BM–BQ: each pre-visit step's early time (ISO), if set — see fasttrack.ts
   lastReport?: string; // Drive link to the newest finished report (col BL, never cleared)
   reportDone?: boolean; // a finished report is saved for this visit (col AO holds its Drive link; cleared each new cycle)
   row?: number; // the dashboard sheet row this came from (for write-back)

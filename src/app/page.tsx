@@ -23,7 +23,18 @@ import { computeCycle, computePrice, formatPrice } from "@/lib/pricing";
 import { DEVICE_TYPE_CODE, ENTITY_TYPE_CODE, MACHINE_TYPE_CODE } from "@/lib/formCodes";
 import { TECH, TECH_KEYS, type TechKey, type TechKind } from "@/lib/tech";
 import { DASHBOARD_URL } from "@/lib/dashboard";
-import { FAST_MIN_LEAD_MS, FAST_STEPS, nextFastStep, type FastStepKey } from "@/lib/fasttrack";
+import {
+  FAST_MIN_LEAD_MS,
+  FAST_ORDER,
+  FAST_STEPS,
+  fastCancelSet,
+  fastStepForStage,
+  fastWindow,
+  nextFastStep,
+  type FastInputs,
+  type FastStepKey,
+  type FastTimes,
+} from "@/lib/fasttrack";
 import { APRIL, WHERE_TO_FIND, isAmerican, isoToday, toIsoDate } from "@/lib/records";
 import { AssistantButton } from "@/components/Assistant";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -954,14 +965,37 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
 const IN_PROGRESS = new Set(["Waiting", "Awaiting", "Booked", "Review", "No answer"]);
 
 // Tap a lifecycle step → a sheet to change it; saving asks once more in the same sheet.
-// "Access fast track": send the elevator's NEXT pre-visit step early, at a date
-// and time at least an hour out. Save → "Are you sure?" → saved. After that step
-// goes, the elevator is back on normal timing (see src/lib/fasttrack.ts).
+// FAST TRACK, per step: each automatic pre-visit step can get its own date and
+// time (from that step's sheet, or "Access fast track" for the next one). Save →
+// "Are you sure?" → saved. Each time must be at least an hour from now and an
+// hour after the step before it (src/lib/fasttrack.ts).
 const localDate = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const localTime = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-const whenText = (iso: string) =>
+const whenText = (iso: string | number) =>
   new Date(iso).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const fastInputs = (e: Elevator): FastInputs => ({
+  email: e.email ?? "",
+  price: e.price ?? "",
+  moneyPath: e.moneyPath ?? "",
+  twoMoEmail: stage(e, "twoMoEmail"),
+  quote: stage(e, "quote"),
+  maintConfirm: stage(e, "maintConfirm"),
+  scheduling: stage(e, "scheduling"),
+  accessReminder: stage(e, "accessReminder"),
+  visit: stage(e, "visit"),
+  tripDay: stage(e, "tripDay"),
+});
+
+// "Now", refreshed every half minute, so time limits stay true while a sheet is open.
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  return now;
+}
 
 function FastTrackSheet({
   elevator: e,
@@ -972,86 +1006,136 @@ function FastTrackSheet({
   elevator: Elevator;
   step: FastStepKey;
   onClose: () => void;
-  onSaved: (fast: { step: string; at: string }) => void;
+  onSaved: (fastTrack: FastTimes) => void;
 }) {
-  // Default: the first whole hour that's at least an hour away.
+  const times = e.fastTrack ?? {};
+  const current = times[step];
+  const now = useNow();
+  // The allowed range, ignoring this step's own old time.
+  const win = fastWindow(fastInputs(e), { ...times, [step]: undefined }, step, now);
+  // Default: the time already set, or the first whole hour the rules allow.
   const [start] = useState(() => {
-    const d = new Date(Date.now() + FAST_MIN_LEAD_MS);
-    if (d.getMinutes() || d.getSeconds()) d.setHours(d.getHours() + 1, 0, 0, 0);
+    if (current) return new Date(current);
+    const d = new Date("min" in win ? win.min : Date.now() + FAST_MIN_LEAD_MS);
+    if (d.getMinutes() || d.getSeconds() || d.getMilliseconds()) d.setHours(d.getHours() + 1, 0, 0, 0);
     return d;
   });
   const [date, setDate] = useState(localDate(start));
   const [time, setTime] = useState(localTime(start));
-  const [confirm, setConfirm] = useState(false);
+  const [mode, setMode] = useState<"edit" | "confirm" | "cancel">("edit");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  // "Now", refreshed every half minute, so "at least an hour out" stays true while the sheet is open.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(t);
-  }, []);
   const when = new Date(`${date}T${time}`);
-  const tooSoon = Number.isNaN(when.getTime()) || when.getTime() - now < FAST_MIN_LEAD_MS - 60_000;
+  const ms = when.getTime();
+  const problem =
+    "none" in win
+      ? win.none
+      : Number.isNaN(ms)
+        ? "Pick a date and time."
+        : ms < win.min - 60_000
+          ? `Pick ${whenText(win.min)} or later.`
+          : ms > win.max
+            ? `Pick ${whenText(win.max)} or earlier.`
+            : "";
+  // Cancelling also clears the steps after this one (they'd only wait on it).
+  const alsoCleared = fastCancelSet(times, step).filter((k) => k !== step);
 
-  async function save() {
+  async function send(body: Record<string, unknown>) {
     setBusy(true);
     setErr("");
     try {
       const res = await fetch("/api/fasttrack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ row: e.row, okla: e.okla, step, at: when.toISOString() }),
+        body: JSON.stringify({ row: e.row, okla: e.okla, step, ...body }),
       });
-      const d = (await res.json().catch(() => ({}))) as { error?: string; step?: string; at?: string };
-      if (!res.ok || !d.step || !d.at) throw new Error(d.error || `Error ${res.status}`);
+      const d = (await res.json().catch(() => ({}))) as { error?: string; fastTrack?: FastTimes };
+      if (!res.ok || !d.fastTrack) throw new Error(d.error || `Error ${res.status}`);
       buzz();
-      onSaved({ step: d.step, at: d.at });
+      onSaved(d.fastTrack);
     } catch (x) {
       setErr(x instanceof Error ? x.message : "Save failed");
-      setConfirm(false);
+      setMode("edit");
     } finally {
       setBusy(false);
     }
   }
 
+  const back = (
+    <Button variant="secondary" full onClick={() => setMode("edit")} disabled={busy}>
+      Back
+    </Button>
+  );
   return (
     <Sheet onClose={busy ? () => {} : onClose}>
-      {confirm ? (
+      {mode === "confirm" ? (
         <>
           <h3 className="text-[21px] font-bold tracking-tight">Are you sure?</h3>
           <p className="mt-1.5 text-[15px] text-ink-2">
             Send {FAST_STEPS[step].what} for <span className="font-semibold text-ink">{e.building}</span> at the first
-            automatic check after <span className="font-semibold text-ink">{whenText(when.toISOString())}</span>?
+            automatic check after <span className="font-semibold text-ink">{whenText(ms)}</span>?
           </p>
           <div className="mt-6 flex flex-col gap-2.5">
-            <Button full onClick={save} disabled={busy}>
+            <Button full onClick={() => send({ at: when.toISOString() })} disabled={busy}>
               {busy ? "Saving…" : "Yes, save"}
             </Button>
-            <Button variant="secondary" full onClick={() => setConfirm(false)} disabled={busy}>
-              Back
+            {back}
+          </div>
+        </>
+      ) : mode === "cancel" ? (
+        <>
+          <h3 className="text-[21px] font-bold tracking-tight">Are you sure?</h3>
+          <p className="mt-1.5 text-[15px] text-ink-2">
+            Cancel the fast track for the {FAST_STEPS[step].label.toLowerCase()}
+            {alsoCleared.length > 0 && (
+              <> and the steps after it ({alsoCleared.map((k) => FAST_STEPS[k].label.toLowerCase()).join(", ")})</>
+            )}
+            ? {alsoCleared.length > 0 ? "They go back" : "It goes back"} to normal timing.
+          </p>
+          <div className="mt-6 flex flex-col gap-2.5">
+            <Button full onClick={() => send({ cancel: true })} disabled={busy}>
+              {busy ? "Cancelling…" : "Yes, cancel it"}
             </Button>
+            {back}
           </div>
         </>
       ) : (
         <>
           <h3 className="text-[21px] font-bold tracking-tight">Fast track: {FAST_STEPS[step].label}</h3>
           <p className="mb-4 mt-1 text-sm text-ink-3">
+            {current ? (
+              <>
+                Set for <span className="font-semibold text-ink">{whenText(current)}</span>.{" "}
+              </>
+            ) : null}
             Sends {FAST_STEPS[step].what} early. The automation checks once an hour (7am–6pm), so it goes at the
-            first check after the time you pick. After it goes, this elevator is back on its normal timing.
+            first check after the time you pick. Each step needs at least an hour after the one before it.
           </p>
-          <div className="flex gap-2.5">
-            <input type="date" className="input flex-1" value={date} min={localDate(new Date())} onChange={(ev) => setDate(ev.target.value)} />
-            <input type="time" className="input flex-1" value={time} onChange={(ev) => setTime(ev.target.value)} />
-          </div>
-          {tooSoon && <p className="mt-2 text-sm font-semibold text-danger">Pick a time at least an hour from now.</p>}
+          {"none" in win ? (
+            <p className="text-sm font-semibold text-danger">{win.none}</p>
+          ) : (
+            <>
+              <div className="flex gap-2.5">
+                <input type="date" className="input flex-1" value={date} min={localDate(new Date(win.min))} onChange={(ev) => setDate(ev.target.value)} />
+                <input type="time" className="input flex-1" value={time} onChange={(ev) => setTime(ev.target.value)} />
+              </div>
+              {problem && <p className="mt-2 text-sm font-semibold text-danger">{problem}</p>}
+            </>
+          )}
           {err && <p className="mt-2 text-sm font-semibold text-danger">{err}</p>}
           <div className="mt-5 flex flex-col gap-2.5">
-            <Button full onClick={() => setConfirm(true)} disabled={tooSoon}>
-              Save
-            </Button>
+            {!("none" in win) && (
+              <Button full onClick={() => setMode("confirm")} disabled={!!problem}>
+                Save
+              </Button>
+            )}
+            {current && (
+              <Button variant="secondary" full onClick={() => setMode("cancel")}>
+                Cancel the fast track
+              </Button>
+            )}
             <Button variant="secondary" full onClick={onClose}>
-              Cancel
+              Close
             </Button>
           </div>
         </>
@@ -1064,12 +1148,18 @@ function LifecycleEditor({
   stage,
   row,
   okla,
+  fastAt,
+  fastNote,
+  onFastTrack,
   onClose,
   onSaved,
 }: {
   stage: LifecycleStage;
   row?: number;
   okla: string; // sent with the row so the server can check it's still the same elevator
+  fastAt?: string; // this step's fast-track time, if set
+  fastNote?: string; // why this step can't be fast-tracked yet
+  onFastTrack?: () => void; // this step can be fast-tracked → opens the fast-track sheet
   onClose: () => void;
   onSaved: (value: string) => void;
 }) {
@@ -1158,6 +1248,24 @@ function LifecycleEditor({
               Cancel
             </Button>
           </div>
+          {!onFastTrack && fastNote && <p className="mt-7 text-sm text-ink-3">Fast track: {fastNote}</p>}
+          {onFastTrack && (
+            <div className="mt-7">
+              <p className="text-sm text-ink-3">
+                {fastAt ? (
+                  <>
+                    Fast track set: goes at the first check after{" "}
+                    <span className="font-semibold text-ink">{whenText(fastAt)}</span>.
+                  </>
+                ) : (
+                  "Send this step early, at a date and time you pick."
+                )}
+              </p>
+              <Button variant="secondary" full onClick={onFastTrack} className="mt-2.5">
+                {fastAt ? "Change fast track" : "Fast track this step"}
+              </Button>
+            </div>
+          )}
         </>
       )}
     </Sheet>
@@ -1395,41 +1503,14 @@ function Profile({
   const swOn = e.active !== false;
   const [enteringSafety, setEnteringSafety] = useState(false);
   const [editingTech, setEditingTech] = useState(false);
-  // Fast track: the next pre-visit step that can go early, and any already set for it.
-  const [fastOpen, setFastOpen] = useState(false);
-  const [fastBusy, setFastBusy] = useState(false);
-  const [fastErr, setFastErr] = useState("");
-  const fast = nextFastStep({
-    email: e.email ?? "",
-    price: e.price ?? "",
-    moneyPath: e.moneyPath ?? "",
-    twoMoEmail: stage(e, "twoMoEmail"),
-    quote: stage(e, "quote"),
-    maintConfirm: stage(e, "maintConfirm"),
-    scheduling: stage(e, "scheduling"),
-    accessReminder: stage(e, "accessReminder"),
-    visit: stage(e, "visit"),
-    tripDay: stage(e, "tripDay"),
-  });
-  const fastWaiting = "step" in fast && e.fastTrack?.step === fast.step ? e.fastTrack : null;
-  async function cancelFast() {
-    setFastBusy(true);
-    setFastErr("");
-    try {
-      const res = await fetch("/api/fasttrack", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ row: e.row, okla: e.okla, cancel: true }),
-      });
-      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error || "Couldn't cancel");
-      buzz();
-      onChange({ ...e, fastTrack: undefined });
-    } catch (x) {
-      setFastErr(x instanceof Error ? x.message : "Couldn't cancel");
-    } finally {
-      setFastBusy(false);
-    }
-  }
+  // Fast track: each pre-visit step's own time (if set), and the next step that still needs one.
+  const [fastStep, setFastStep] = useState<FastStepKey | null>(null);
+  const fastTimes = e.fastTrack ?? {};
+  const fastSet = FAST_ORDER.filter((k) => fastTimes[k]);
+  const fastNext = nextFastStep(fastInputs(e), fastTimes);
+  const now = useNow();
+  const editingFast = editing ? fastStepForStage(editing.key) : undefined;
+  const editingWin = editingFast ? fastWindow(fastInputs(e), { ...fastTimes, [editingFast]: undefined }, editingFast, now) : null;
   const steps = nextSteps(e, onStartReport, () => setEnteringSafety(true));
   const [swStep, setSwStep] = useState<null | "pause1" | "pause2" | "resume">(null);
   const [swBusy, setSwBusy] = useState(false);
@@ -1464,6 +1545,17 @@ function Profile({
           stage={editing}
           row={e.row}
           okla={e.okla}
+          fastAt={editingFast ? fastTimes[editingFast] : undefined}
+          fastNote={editingWin && "none" in editingWin && !editingWin.done ? editingWin.none : undefined}
+          onFastTrack={
+            // Offered once the step can take a time (or already has one).
+            editingFast && (fastTimes[editingFast] || (editingWin && "min" in editingWin))
+              ? () => {
+                  setFastStep(editingFast);
+                  setEditing(null);
+                }
+              : undefined
+          }
           onClose={() => setEditing(null)}
           onSaved={(value) => {
             onChange({ ...e, lifecycle: e.lifecycle.map((s) => (s.key === editing.key ? { ...s, value } : s)) });
@@ -1521,39 +1613,39 @@ function Profile({
         </a>
       )}
 
-      {/* Fast track the next pre-visit step (only while there is one to send). */}
-      {fastWaiting && "step" in fast ? (
+      {/* Fast track: the steps already set (tap one to change or cancel it), and a
+          shortcut to the next step that still needs a time. Each step can also be
+          set from its own line in the Customer lifecycle list below. */}
+      {fastSet.length > 0 && (
         <Glass pad className="mt-2.5">
           <div className="text-sm font-medium text-accent-ink">Fast track set</div>
-          <p className="mt-0.5 text-[15px] text-ink-2">
-            {FAST_STEPS[fast.step].label} goes at the first check after {whenText(fastWaiting.at)}.
-          </p>
-          {fastErr && <p className="mt-2 text-sm font-semibold text-danger">{fastErr}</p>}
-          <div className="mt-3 flex gap-2.5">
-            <Button variant="secondary" className="flex-1" onClick={() => setFastOpen(true)} disabled={fastBusy}>
-              Change time
-            </Button>
-            <Button variant="secondary" className="flex-1" onClick={cancelFast} disabled={fastBusy}>
-              {fastBusy ? "Cancelling…" : "Cancel it"}
-            </Button>
+          <div className="mt-1 flex flex-col">
+            {fastSet.map((k) => (
+              <button key={k} onClick={() => setFastStep(k)} className="flex justify-between gap-3 py-1.5 text-left text-[15px]">
+                <span>{FAST_STEPS[k].label}</span>
+                <span className="text-ink-2">{whenText(fastTimes[k]!)}</span>
+              </button>
+            ))}
           </div>
+          <p className="mt-1 text-sm text-ink-3">Each goes at the first automatic check after its time. Tap one to change it.</p>
         </Glass>
-      ) : "step" in fast ? (
-        <Button full variant="secondary" onClick={() => setFastOpen(true)} className="mt-2.5">
-          Access fast track
+      )}
+      {"step" in fastNext ? (
+        <Button full variant="secondary" onClick={() => setFastStep(fastNext.step)} className="mt-2.5">
+          {fastSet.length ? `Fast track next: ${FAST_STEPS[fastNext.step].label}` : "Access fast track"}
         </Button>
       ) : (
-        stage(e, "visit") !== "Inspected" &&
-        !/every pre-visit|already inspected/i.test(fast.none) && <p className="mt-2.5 px-1 text-sm text-ink-3">Fast track: {fast.none}</p>
+        fastNext.none &&
+        stage(e, "visit") !== "Inspected" && <p className="mt-2.5 px-1 text-sm text-ink-3">Fast track: {fastNext.none}</p>
       )}
-      {fastOpen && "step" in fast && (
+      {fastStep && (
         <FastTrackSheet
           elevator={e}
-          step={fast.step}
-          onClose={() => setFastOpen(false)}
+          step={fastStep}
+          onClose={() => setFastStep(null)}
           onSaved={(ft) => {
             onChange({ ...e, fastTrack: ft });
-            setFastOpen(false);
+            setFastStep(null);
           }}
         />
       )}
@@ -1562,6 +1654,8 @@ function Profile({
       <Glass className="px-4 py-1.5">
         {e.lifecycle.map((s) => {
           const state = !s.value ? "tl-todo" : IN_PROGRESS.has(s.value) ? "tl-now" : "tl-done";
+          const fk = fastStepForStage(s.key);
+          const ft = fk ? fastTimes[fk] : undefined;
           return (
             <button
               key={s.key}
@@ -1572,7 +1666,10 @@ function Profile({
             >
               <span className="tl-node">{state === "tl-done" && <CheckIcon />}</span>
               <span className={"flex-1 text-[15px] " + (s.value ? "" : "text-ink-3")}>{s.label}</span>
-              <span className="text-[13px] text-ink-2">{s.value}</span>
+              <span className="text-right text-[13px] text-ink-2">
+                {s.value}
+                {ft && <span className="block text-accent-ink">Fast track {whenText(ft)}</span>}
+              </span>
             </button>
           );
         })}
