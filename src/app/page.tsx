@@ -1123,11 +1123,14 @@ function FastTrackSheet({
   const now = useNow();
   // The allowed range, ignoring this step's own old time.
   const win = fastWindow(fastInputs(e), { ...times, [step]: undefined }, step, now);
-  // Default: the time already set, or the first whole hour the rules allow.
+  // Default: the time already set, or the first whole hour the rules allow —
+  // moved to 7am if that falls outside the automation's 7am–6pm checks.
   const [start] = useState(() => {
     if (current) return new Date(current);
     const d = new Date("min" in win ? win.min : Date.now() + FAST_MIN_LEAD_MS);
     if (d.getMinutes() || d.getSeconds() || d.getMilliseconds()) d.setHours(d.getHours() + 1, 0, 0, 0);
+    if (d.getHours() > 18) d.setDate(d.getDate() + 1);
+    if (d.getHours() < 7 || d.getHours() > 18) d.setHours(7, 0, 0, 0);
     return d;
   });
   const [date, setDate] = useState(localDate(start));
