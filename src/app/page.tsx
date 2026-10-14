@@ -197,6 +197,111 @@ function useInstall() {
   return { installed: state.installed, canInstall: state.canInstall, install };
 }
 
+// Settings → Calendly: is the booking page in the scheduling email offering
+// times? If not, why (in plain words), and a "Fix Calendly" button for what the
+// app can change — with "Are you sure?" listing exactly what changes
+// (src/lib/calendlyCheck.ts).
+type CalCheck = {
+  connected: boolean;
+  error?: string;
+  link?: string;
+  weekly?: string[];
+  hoursZone?: string;
+  openTimes?: number;
+  firstOpen?: string;
+  problems: string[];
+  fixes: string[];
+};
+function CalendlyCard() {
+  const [c, setC] = useState<CalCheck | null>(null);
+  const [sure, setSure] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    fetch("/api/calendly")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setC)
+      .catch(() => setC(null));
+  }, []);
+  async function fix() {
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await fetch("/api/calendly", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fix: true }) });
+      const d = (await r.json().catch(() => ({}))) as { error?: string; check?: CalCheck };
+      if (!r.ok || !d.check) throw new Error(d.error || `Error ${r.status}`);
+      buzz();
+      setC(d.check);
+      setSure(false);
+    } catch (x) {
+      setErr(x instanceof Error ? x.message : "Fix failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (!c) return null;
+  const good = c.connected && !c.problems.length;
+  return (
+    <>
+      <SectionLabel>Calendly</SectionLabel>
+      <Glass pad>
+        <div className="flex items-center justify-between">
+          <span className="text-[15px]">Booking page</span>
+          <Pill tone={good ? "green" : "red"} dot>
+            {!c.connected ? "Not connected" : c.openTimes ? "Offering times" : "No open times"}
+          </Pill>
+        </div>
+        {c.error && <p className="mt-2 text-sm text-danger">{c.error}</p>}
+        {c.connected && (
+          <p className="mt-2 text-sm text-ink-3">
+            {c.openTimes
+              ? `${c.openTimes} open times in the next 4 weeks${c.firstOpen ? ` — first ${whenText(c.firstOpen)}` : ""}.`
+              : "Customers see “No openings at the moment.”"}{" "}
+            Hours: {c.weekly?.length ? c.weekly.join(" · ") : "none set"}
+            {c.hoursZone ? ` (${c.hoursZone} time)` : ""}.
+          </p>
+        )}
+        {c.problems.length > 0 && (
+          <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-[15px] text-ink-2">
+            {c.problems.map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+        )}
+        {c.fixes.length > 0 &&
+          (sure ? (
+            <div className="mt-4">
+              <p className="text-[15px] font-semibold">Are you sure? This changes Calendly:</p>
+              <ul className="mt-1 flex list-disc flex-col gap-1 pl-5 text-[15px] text-ink-2">
+                {c.fixes.map((f) => (
+                  <li key={f}>{f}</li>
+                ))}
+              </ul>
+              {err && <p className="mt-2 text-sm font-semibold text-danger">{err}</p>}
+              <div className="mt-3 flex flex-col gap-2.5">
+                <Button full onClick={fix} disabled={busy}>
+                  {busy ? "Fixing…" : "Yes, fix it"}
+                </Button>
+                <Button variant="secondary" full onClick={() => setSure(false)} disabled={busy}>
+                  Back
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button full onClick={() => setSure(true)} className="mt-4">
+              Fix Calendly
+            </Button>
+          ))}
+        {c.link && (
+          <a href={c.link} target="_blank" rel="noopener noreferrer" className="btn btn-secondary mt-2.5 w-full">
+            Open the booking page
+          </a>
+        )}
+      </Glass>
+    </>
+  );
+}
+
 function SettingsTab({ onLogout }: { onLogout: () => void }) {
   const { installed, canInstall, install } = useInstall();
   const [scale, setScale] = useState(currentFontScale);
@@ -355,6 +460,8 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
           </Glass>
         </>
       )}
+
+      <CalendlyCard />
 
       <SectionLabel>Text size</SectionLabel>
       <Glass pad>
@@ -1144,6 +1251,181 @@ function FastTrackSheet({
   );
 }
 
+// A Calendly booking waiting for Robert (see src/lib/booking.ts):
+//   "confirm" — Yes, that time works → Visit = Booked + Trip day.
+//   "other"   — tap the days he IS free (next 6 weeks) and the hours → Calendly
+//               offers only those days, the booking is cancelled, and the
+//               customer is emailed to pick again. Both ask "Are you sure?".
+function BookingSheet({
+  elevator: e,
+  mode,
+  onClose,
+  onSaved,
+}: {
+  elevator: Elevator;
+  mode: "confirm" | "other";
+  onClose: () => void;
+  onSaved: (next: Elevator) => void;
+}) {
+  const at = e.booking?.at ?? "";
+  const who = e.contact || "The customer";
+  const [days, setDays] = useState<string[]>([]);
+  const [from, setFrom] = useState("08:00");
+  const [to, setTo] = useState("17:00");
+  const [sure, setSure] = useState(mode === "confirm");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  // The next six weeks from tomorrow, laid out Sunday → Saturday.
+  const [grid] = useState(() => {
+    const first = new Date();
+    first.setHours(12, 0, 0, 0);
+    first.setDate(first.getDate() + 1);
+    const cells: (string | null)[] = Array(first.getDay()).fill(null);
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(first);
+      d.setDate(first.getDate() + i);
+      cells.push(localDate(d));
+    }
+    return cells;
+  });
+  const sorted = [...days].sort();
+  const dayText = (d: string) =>
+    new Date(`${d}T12:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const hoursOk = from < to;
+
+  async function save() {
+    setBusy(true);
+    setErr("");
+    try {
+      const res = await fetch("/api/booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          mode === "confirm" ? { row: e.row, okla: e.okla, action: "confirm" } : { row: e.row, okla: e.okla, action: "other", days: sorted, from, to },
+        ),
+      });
+      const d = (await res.json().catch(() => ({}))) as { error?: string; tripDay?: string };
+      if (!res.ok) throw new Error(d.error || `Error ${res.status}`);
+      buzz();
+      const setStage = (key: string, value: string) => (s: LifecycleStage) => (s.key === key ? { ...s, value } : s);
+      if (mode === "confirm") {
+        onSaved({
+          ...e,
+          booking: e.booking && { ...e.booking, waiting: false },
+          lifecycle: e.lifecycle.map(setStage("visit", "Booked")).map(setStage("tripDay", d.tripDay ?? "")),
+        });
+      } else {
+        const wasBooked = stage(e, "visit") === "Booked";
+        onSaved({
+          ...e,
+          booking: undefined,
+          lifecycle: wasBooked ? e.lifecycle.map(setStage("visit", "")).map(setStage("tripDay", "")) : e.lifecycle,
+        });
+      }
+    } catch (x) {
+      setErr(x instanceof Error ? x.message : "Save failed");
+      if (mode === "other") setSure(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet onClose={busy ? () => {} : onClose}>
+      {mode === "confirm" ? (
+        <>
+          <h3 className="text-[21px] font-bold tracking-tight">Are you sure?</h3>
+          <p className="mt-1.5 text-[15px] text-ink-2">
+            Book <span className="font-semibold text-ink">{e.building}</span> for{" "}
+            <span className="font-semibold text-ink">{at ? whenText(at) : "the picked time"}</span>? The visit is marked
+            Booked, and the access reminder goes to {who.toLowerCase() === "the customer" ? "the customer" : who} before it.
+          </p>
+          {err && <p className="mt-2 text-sm font-semibold text-danger">{err}</p>}
+          <div className="mt-6 flex flex-col gap-2.5">
+            <Button full onClick={save} disabled={busy}>
+              {busy ? "Saving…" : "Yes, book it"}
+            </Button>
+            <Button variant="secondary" full onClick={onClose} disabled={busy}>
+              Back
+            </Button>
+          </div>
+        </>
+      ) : sure ? (
+        <>
+          <h3 className="text-[21px] font-bold tracking-tight">Are you sure?</h3>
+          <ul className="mt-2 flex list-disc flex-col gap-1.5 pl-5 text-[15px] text-ink-2">
+            <li>
+              {who}&apos;s booking for {at ? whenText(at) : "the picked time"} is cancelled.
+            </li>
+            <li>
+              Calendly offers only {sorted.map(dayText).join(", ")} ({from}–{to}). Other days up to{" "}
+              {dayText(sorted[sorted.length - 1])} close for everyone.
+            </li>
+            <li>{who} gets an email to pick one of those days.</li>
+          </ul>
+          {err && <p className="mt-2 text-sm font-semibold text-danger">{err}</p>}
+          <div className="mt-6 flex flex-col gap-2.5">
+            <Button full onClick={save} disabled={busy}>
+              {busy ? "Saving…" : "Yes, do it"}
+            </Button>
+            <Button variant="secondary" full onClick={() => setSure(false)} disabled={busy}>
+              Back
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <h3 className="text-[21px] font-bold tracking-tight">Pick the days that work</h3>
+          <p className="mb-4 mt-1 text-sm text-ink-3">
+            Tap the days Robert is free. The customer will only be able to pick from these.
+          </p>
+          <div className="grid grid-cols-7 gap-1.5 text-center text-xs text-ink-3">
+            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+              <div key={i}>{d}</div>
+            ))}
+            {grid.map((d, i) =>
+              d ? (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setDays((x) => (x.includes(d) ? x.filter((y) => y !== d) : [...x, d]))}
+                  className={"chip px-0 py-2 text-sm " + (days.includes(d) ? "chip-on" : "")}
+                  aria-pressed={days.includes(d)}
+                  aria-label={dayText(d)}
+                >
+                  {(+d.slice(8, 10) === 1 || !grid[i - 1]) && (
+                    <span className="block text-[10px] leading-none">
+                      {new Date(`${d}T12:00`).toLocaleDateString("en-US", { month: "short" })}
+                    </span>
+                  )}
+                  {+d.slice(8, 10)}
+                </button>
+              ) : (
+                <div key={i} />
+              ),
+            )}
+          </div>
+          <div className="mt-4 flex items-center gap-2.5">
+            <input type="time" className="input flex-1" value={from} onChange={(ev) => setFrom(ev.target.value)} aria-label="From" />
+            <span className="text-sm text-ink-3">to</span>
+            <input type="time" className="input flex-1" value={to} onChange={(ev) => setTo(ev.target.value)} aria-label="To" />
+          </div>
+          {!hoursOk && <p className="mt-2 text-sm font-semibold text-danger">The start time has to be before the end time.</p>}
+          {err && <p className="mt-2 text-sm font-semibold text-danger">{err}</p>}
+          <div className="mt-5 flex flex-col gap-2.5">
+            <Button full onClick={() => setSure(true)} disabled={!days.length || !hoursOk}>
+              Save
+            </Button>
+            <Button variant="secondary" full onClick={onClose}>
+              Cancel
+            </Button>
+          </div>
+        </>
+      )}
+    </Sheet>
+  );
+}
+
 function LifecycleEditor({
   stage,
   row,
@@ -1280,7 +1562,12 @@ type NextStep = {
   actions: { label: string; href?: string; onClick?: () => void }[];
   startsReport?: boolean;
 };
-function nextSteps(e: Elevator, onStartReport: () => void, onEnterSafety: () => void): NextStep[] {
+function nextSteps(
+  e: Elevator,
+  onStartReport: () => void,
+  onEnterSafety: () => void,
+  onBooking: (mode: "confirm" | "other") => void,
+): NextStep[] {
   const out: NextStep[] = [];
   const visit = stage(e, "visit");
   const trip = stage(e, "tripDay");
@@ -1288,10 +1575,25 @@ function nextSteps(e: Elevator, onStartReport: () => void, onEnterSafety: () => 
   const mail = (label: string, email?: string, subject?: string) =>
     email ? [{ label, href: `mailto:${email}${subject ? `?subject=${encodeURIComponent(subject)}` : ""}` }] : [];
 
+  // A customer picked a time on Calendly — Robert says whether it works (src/lib/booking.ts).
+  if (e.booking?.waiting) {
+    out.push({
+      title: "The customer picked a time",
+      text: `${e.contact || "The customer"} picked ${whenText(e.booking.at)} on Calendly. Does that work for Robert?`,
+      actions: [
+        { label: "Yes, it works", onClick: () => onBooking("confirm") },
+        { label: "Pick other days", onClick: () => onBooking("other") },
+      ],
+    });
+  }
   if (visit === "Booked") {
     const today = daysUntil(trip) === 0;
+    // The Calendly time, when the booking came from there and is on the trip day.
+    const time = e.booking && !e.booking.waiting && trip && new Date(e.booking.at).toLocaleDateString("en-US") === new Date(`${toIsoDate(trip)}T12:00`).toLocaleDateString("en-US")
+      ? ` at ${new Date(e.booking.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
+      : "";
     out.push({
-      title: today ? "You're inspecting this today" : trip ? `Booked for ${humanDate(trip)}` : "A visit is booked",
+      title: today ? `You're inspecting this today${time}` : trip ? `Booked for ${humanDate(trip)}${time}` : "A visit is booked",
       text: today ? "When you get there, start the report." : "Everything's set. Start the report when you're on site.",
       actions: [{ label: "Start inspection", onClick: onStartReport }],
       startsReport: true,
@@ -1511,7 +1813,8 @@ function Profile({
   const now = useNow();
   const editingFast = editing ? fastStepForStage(editing.key) : undefined;
   const editingWin = editingFast ? fastWindow(fastInputs(e), { ...fastTimes, [editingFast]: undefined }, editingFast, now) : null;
-  const steps = nextSteps(e, onStartReport, () => setEnteringSafety(true));
+  const [bookingMode, setBookingMode] = useState<"confirm" | "other" | null>(null);
+  const steps = nextSteps(e, onStartReport, () => setEnteringSafety(true), setBookingMode);
   const [swStep, setSwStep] = useState<null | "pause1" | "pause2" | "resume">(null);
   const [swBusy, setSwBusy] = useState(false);
   const [swErr, setSwErr] = useState("");
@@ -1637,6 +1940,17 @@ function Profile({
       ) : (
         fastNext.none &&
         stage(e, "visit") !== "Inspected" && <p className="mt-2.5 px-1 text-sm text-ink-3">Fast track: {fastNext.none}</p>
+      )}
+      {bookingMode && e.booking && (
+        <BookingSheet
+          elevator={e}
+          mode={bookingMode}
+          onClose={() => setBookingMode(null)}
+          onSaved={(next) => {
+            onChange(next);
+            setBookingMode(null);
+          }}
+        />
       )}
       {fastStep && (
         <FastTrackSheet

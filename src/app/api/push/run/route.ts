@@ -1,6 +1,8 @@
 import { alertItems, readSent, saveSent, sendAlert, todayNum, type AlertItem } from "@/lib/push";
 import { rejectUnlessScheduler } from "@/lib/schedulerKey";
 import { dropReminders } from "@/lib/reminders";
+import { syncBookings } from "@/lib/booking";
+import { isMasterOn } from "@/lib/switches";
 
 export const runtime = "nodejs";
 
@@ -36,6 +38,19 @@ async function handle(req: Request) {
     return Response.json({ ok: true, test: true, title, ...result });
   }
 
+  // New Calendly bookings land on their elevators first, so this run's alert
+  // can ask Robert about them (see src/lib/booking.ts). A Calendly problem never
+  // stops the alerts.
+  let calendly: Awaited<ReturnType<typeof syncBookings>> | { error: string } | null = null;
+  if (!dry && (await isMasterOn())) {
+    try {
+      calendly = await syncBookings();
+      for (const b of calendly.cancelledConfirmed) await sendAlert(`Customer cancelled: ${b}`, "", "/?tab=today", `eei-cancel-${Date.now()}`);
+    } catch (err) {
+      calendly = { error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   const [items, sent] = await Promise.all([alertItems(), readSent()]);
   // The first run of the day (Make starts at 7am Oklahoma time) is the summary.
   const morning = params.has("summary") || sent.day !== todayNum();
@@ -50,7 +65,7 @@ async function handle(req: Request) {
     // Remember today + what's currently waiting (things that went away drop off).
     await saveSent(items.map((i) => i.key));
   }
-  return Response.json({ ok: true, morning, waiting: items.length, alert, dry, ...result, ...(dry ? { items } : {}) });
+  return Response.json({ ok: true, morning, waiting: items.length, alert, dry, calendly, ...result, ...(dry ? { items } : {}) });
 }
 
 // One short line per alert — Robert reads the title and taps. The screen it

@@ -6,6 +6,7 @@ import { isMasterOn, isRowPaused } from "@/lib/switches";
 import { finishedReport } from "@/lib/report";
 import { safetyAnswer } from "@/lib/records";
 import { dueReminders, readReminders } from "@/lib/reminders";
+import { pickedText } from "@/lib/booking";
 
 // Phone alerts (web push). The signing keys and the scheduler secret live in the
 // dashboard's private Config tab, which only the app's Google robot account can
@@ -83,6 +84,7 @@ async function dropSubscription(row: number): Promise<void> {
 //   nopass  — the safety-test answer was No (no passing test in 12 months)
 //   noprice — no price on it, inside the 60-day window (the quote can't go out)
 //   remind  — a reminder Robert set through the assistant (see reminders.ts)
+//   pick    — a customer booked a time on Calendly: does it work? (see booking.ts)
 // Each alert is ONE short line — what and which building. Tapping it opens the
 // elevator, whose "Next step" card explains and has the button to act.
 // `key` identifies the item so the same thing isn't announced twice.
@@ -133,6 +135,10 @@ export async function alertItems(ignoreMaster = false): Promise<AlertItem[]> {
         when === today ? `Inspection today: ${building}` : when ? `Booked ${shortDate(when)}: ${building}` : `Visit booked: ${building}`,
       );
     }
+    // A customer picked a time on Calendly — does it work for Robert? (One alert per booking, even for several elevators.)
+    const picked = cell(r, "bookedAt");
+    if (picked && visit !== "Booked" && visit !== "Inspected" && !out.some((x) => x.key === `pick:${cell(r, "bookingEvent")}`))
+      add(`pick:${cell(r, "bookingEvent")}`, `Picked ${pickedText(picked)}: ${building} — OK?`);
     if (cell(r, "maintConfirm") === "Waiting") add(`chase:${okla}`, `Safety test missing: ${building}`);
     // The answer was No (no passing test in 12 months) — a person has to decide what happens.
     if (safetyAnswer(cell(r, "safetyTest")) === "No" && visit !== "Inspected") add(`nopass:${okla}`, `No passing safety test: ${building}`);
