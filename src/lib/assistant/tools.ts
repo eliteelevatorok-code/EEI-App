@@ -426,7 +426,7 @@ const CARD_LABEL: Partial<Record<Col, string>> = {
   okla: "OK #", building: "Building", area: "Area", city: "City", account: "Account", contact: "Contact",
   email: "Customer email", phone: "Customer phone", maintCo: "Maintenance company", maintContact: "Maintenance contact",
   maintEmail: "Maintenance email", maintPhone: "Maintenance phone", type: "Type", floors: "Floors", cycle: "Cycle",
-  price: "Price", moneyPath: "Billing", due: "Due date", twoMoEmail: "2-month heads-up", quote: "Quote", po: "PO",
+  price: "Price", moneyPath: "Billing", due: "Due date", twoMoEmail: "2-month heads-up", quote: "Price quote email", po: "Purchase order (PO)",
   scheduling: "Scheduling email", maintConfirm: "Safety test question", accessReminder: "Access reminder",
   visit: "Visit", tripDay: "Trip day", report: "Report", invoice: "Invoice", followUps: "Payment reminders",
   paid: "Paid", newTimer: "Next cycle", notes: "Notes", poNumber: "PO #", poFile: "PO file",

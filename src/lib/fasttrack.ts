@@ -18,7 +18,7 @@ export const FAST_ORDER: FastStepKey[] = ["heads-up", "quote", "safety", "schedu
 
 export const FAST_STEPS: Record<FastStepKey, { label: string; what: string; stage: string }> = {
   "heads-up": { label: "2-month heads-up email", what: "the 2-month heads-up email to the customer", stage: "twoMoEmail" },
-  quote: { label: "Quote email", what: "the quote email (with the PO link) to the customer", stage: "quote" },
+  quote: { label: "Price quote email", what: "the price quote email (with the purchase order link) to the customer", stage: "quote" },
   safety: { label: "Safety-test question", what: "the safety-test question (to American Elevator if they maintain it, otherwise the customer)", stage: "maintConfirm" },
   scheduling: { label: "Scheduling email", what: "the scheduling email (with the booking link) to the customer", stage: "scheduling" },
   access: { label: "Access reminder", what: "the access reminder for the booked visit to the customer", stage: "accessReminder" },

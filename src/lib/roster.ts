@@ -17,11 +17,11 @@ import { isRowPaused } from "@/lib/switches";
 // report is never edited directly), and Visit = Inspected only by finishing the
 // report in the app, so it isn't a hand choice either.
 const STAGES: { key: Col; label: string; options: string[]; date?: boolean; locked?: boolean }[] = [
-  { key: "twoMoEmail", label: "2-month email", options: ["Sent"] },
-  { key: "quote", label: "Quote", options: ["Review", "Sent"] },
-  { key: "po", label: "PO", options: ["Awaiting", "Received", "N/A"] },
-  { key: "scheduling", label: "Scheduling email", options: ["Sent"] },
+  { key: "twoMoEmail", label: "2-month heads-up email", options: ["Sent"] },
+  { key: "quote", label: "Price quote email", options: ["Review", "Sent"] },
+  { key: "po", label: "Purchase order (PO)", options: ["Awaiting", "Received", "N/A"] },
   { key: "maintConfirm", label: "Safety test question", options: ["Waiting", "Answered", "No answer"] },
+  { key: "scheduling", label: "Scheduling email", options: ["Sent"] },
   { key: "accessReminder", label: "Access reminder", options: ["Sent"] },
   { key: "visit", label: "Visit", options: ["Booked"] },
   { key: "tripDay", label: "Trip day", options: [], date: true },
