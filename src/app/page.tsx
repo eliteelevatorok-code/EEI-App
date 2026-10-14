@@ -1257,172 +1257,6 @@ function FastTrackSheet({
   );
 }
 
-// A Calendly booking waiting for Robert (see src/lib/booking.ts):
-//   "confirm" — Yes, that time works → Visit = Booked + Trip day.
-//   "other"   — tap the days he IS free (next 6 weeks) and the hours → Calendly
-//               offers only those days, the booking is cancelled, and the
-//               customer is emailed to pick again. Both ask "Are you sure?".
-function BookingSheet({
-  elevator: e,
-  mode,
-  onClose,
-  onSaved,
-}: {
-  elevator: Elevator;
-  mode: "confirm" | "other";
-  onClose: () => void;
-  onSaved: (next: Elevator) => void;
-}) {
-  const at = e.booking?.at ?? "";
-  const who = e.contact || "The customer";
-  const [days, setDays] = useState<string[]>([]);
-  const [sure, setSure] = useState(mode === "confirm");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  // The next six weeks from tomorrow, laid out Sunday → Saturday.
-  const [grid] = useState(() => {
-    const first = new Date();
-    first.setHours(12, 0, 0, 0);
-    first.setDate(first.getDate() + 1);
-    const cells: (string | null)[] = Array(first.getDay()).fill(null);
-    for (let i = 0; i < 42; i++) {
-      const d = new Date(first);
-      d.setDate(first.getDate() + i);
-      cells.push(localDate(d));
-    }
-    return cells;
-  });
-  const sorted = [...days].sort();
-  const dayText = (d: string) =>
-    new Date(`${d}T12:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-
-  async function save() {
-    setBusy(true);
-    setErr("");
-    try {
-      const res = await fetch("/api/booking", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          mode === "confirm" ? { row: e.row, okla: e.okla, action: "confirm" } : { row: e.row, okla: e.okla, action: "other", days: sorted },
-        ),
-      });
-      const d = (await res.json().catch(() => ({}))) as { error?: string; tripDay?: string };
-      if (!res.ok) throw new Error(d.error || `Error ${res.status}`);
-      buzz();
-      const setStage = (key: string, value: string) => (s: LifecycleStage) => (s.key === key ? { ...s, value } : s);
-      if (mode === "confirm") {
-        onSaved({
-          ...e,
-          booking: e.booking && { ...e.booking, waiting: false },
-          lifecycle: e.lifecycle.map(setStage("visit", "Booked")).map(setStage("tripDay", d.tripDay ?? "")),
-        });
-      } else {
-        const wasBooked = stage(e, "visit") === "Booked";
-        onSaved({
-          ...e,
-          booking: undefined,
-          lifecycle: wasBooked ? e.lifecycle.map(setStage("visit", "")).map(setStage("tripDay", "")) : e.lifecycle,
-        });
-      }
-    } catch (x) {
-      setErr(x instanceof Error ? x.message : "Save failed");
-      if (mode === "other") setSure(false);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Sheet onClose={busy ? () => {} : onClose}>
-      {mode === "confirm" ? (
-        <>
-          <h3 className="text-[21px] font-bold tracking-tight">Are you sure?</h3>
-          <p className="mt-1.5 text-[15px] text-ink-2">
-            Book <span className="font-semibold text-ink">{e.building}</span> for{" "}
-            <span className="font-semibold text-ink">{at ? dayOf(at) : "the picked day"}</span>? The visit is marked
-            Booked, and the access reminder goes to {who.toLowerCase() === "the customer" ? "the customer" : who} before it.
-          </p>
-          {err && <p className="mt-2 text-sm font-semibold text-danger">{err}</p>}
-          <div className="mt-6 flex flex-col gap-2.5">
-            <Button full onClick={save} disabled={busy}>
-              {busy ? "Saving…" : "Yes, book it"}
-            </Button>
-            <Button variant="secondary" full onClick={onClose} disabled={busy}>
-              Back
-            </Button>
-          </div>
-        </>
-      ) : sure ? (
-        <>
-          <h3 className="text-[21px] font-bold tracking-tight">Are you sure?</h3>
-          <ul className="mt-2 flex list-disc flex-col gap-1.5 pl-5 text-[15px] text-ink-2">
-            <li>
-              {who}&apos;s booking for {at ? dayOf(at) : "the picked day"} is cancelled.
-            </li>
-            <li>
-              Calendly offers only {sorted.map(dayText).join(", ")}. Other days up to{" "}
-              {dayText(sorted[sorted.length - 1])} close for everyone.
-            </li>
-            <li>{who} gets an email to pick one of those days.</li>
-          </ul>
-          {err && <p className="mt-2 text-sm font-semibold text-danger">{err}</p>}
-          <div className="mt-6 flex flex-col gap-2.5">
-            <Button full onClick={save} disabled={busy}>
-              {busy ? "Saving…" : "Yes, do it"}
-            </Button>
-            <Button variant="secondary" full onClick={() => setSure(false)} disabled={busy}>
-              Back
-            </Button>
-          </div>
-        </>
-      ) : (
-        <>
-          <h3 className="text-[21px] font-bold tracking-tight">Pick the days that work</h3>
-          <p className="mb-4 mt-1 text-sm text-ink-3">
-            Tap the days Robert is free. The customer will only be able to pick one of these.
-          </p>
-          <div className="grid grid-cols-7 gap-1.5 text-center text-xs text-ink-3">
-            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-              <div key={i}>{d}</div>
-            ))}
-            {grid.map((d, i) =>
-              d ? (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setDays((x) => (x.includes(d) ? x.filter((y) => y !== d) : [...x, d]))}
-                  className={"chip px-0 py-2 text-sm " + (days.includes(d) ? "chip-on" : "")}
-                  aria-pressed={days.includes(d)}
-                  aria-label={dayText(d)}
-                >
-                  {(+d.slice(8, 10) === 1 || !grid[i - 1]) && (
-                    <span className="block text-[10px] leading-none">
-                      {new Date(`${d}T12:00`).toLocaleDateString("en-US", { month: "short" })}
-                    </span>
-                  )}
-                  {+d.slice(8, 10)}
-                </button>
-              ) : (
-                <div key={i} />
-              ),
-            )}
-          </div>
-          {err && <p className="mt-2 text-sm font-semibold text-danger">{err}</p>}
-          <div className="mt-5 flex flex-col gap-2.5">
-            <Button full onClick={() => setSure(true)} disabled={!days.length}>
-              Save
-            </Button>
-            <Button variant="secondary" full onClick={onClose}>
-              Cancel
-            </Button>
-          </div>
-        </>
-      )}
-    </Sheet>
-  );
-}
-
 function LifecycleEditor({
   stage,
   row,
@@ -1563,7 +1397,6 @@ function nextSteps(
   e: Elevator,
   onStartReport: () => void,
   onEnterSafety: () => void,
-  onBooking: (mode: "confirm" | "other") => void,
 ): NextStep[] {
   const out: NextStep[] = [];
   const visit = stage(e, "visit");
@@ -1572,17 +1405,6 @@ function nextSteps(
   const mail = (label: string, email?: string, subject?: string) =>
     email ? [{ label, href: `mailto:${email}${subject ? `?subject=${encodeURIComponent(subject)}` : ""}` }] : [];
 
-  // A customer picked a time on Calendly — Robert says whether it works (src/lib/booking.ts).
-  if (e.booking?.waiting) {
-    out.push({
-      title: "The customer picked a day",
-      text: `${e.contact || "The customer"} picked ${dayOf(e.booking.at)} on Calendly. Does that day work for Robert?`,
-      actions: [
-        { label: "Yes, it works", onClick: () => onBooking("confirm") },
-        { label: "Pick other days", onClick: () => onBooking("other") },
-      ],
-    });
-  }
   if (visit === "Booked") {
     const today = daysUntil(trip) === 0;
     out.push({
@@ -1806,8 +1628,7 @@ function Profile({
   const now = useNow();
   const editingFast = editing ? fastStepForStage(editing.key) : undefined;
   const editingWin = editingFast ? fastWindow(fastInputs(e), { ...fastTimes, [editingFast]: undefined }, editingFast, now) : null;
-  const [bookingMode, setBookingMode] = useState<"confirm" | "other" | null>(null);
-  const steps = nextSteps(e, onStartReport, () => setEnteringSafety(true), setBookingMode);
+  const steps = nextSteps(e, onStartReport, () => setEnteringSafety(true));
   const [swStep, setSwStep] = useState<null | "pause1" | "pause2" | "resume">(null);
   const [swBusy, setSwBusy] = useState(false);
   const [swErr, setSwErr] = useState("");
@@ -1933,17 +1754,6 @@ function Profile({
       ) : (
         fastNext.none &&
         stage(e, "visit") !== "Inspected" && <p className="mt-2.5 px-1 text-sm text-ink-3">Fast track: {fastNext.none}</p>
-      )}
-      {bookingMode && e.booking && (
-        <BookingSheet
-          elevator={e}
-          mode={bookingMode}
-          onClose={() => setBookingMode(null)}
-          onSaved={(next) => {
-            onChange(next);
-            setBookingMode(null);
-          }}
-        />
       )}
       {fastStep && (
         <FastTrackSheet

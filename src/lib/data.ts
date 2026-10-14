@@ -53,7 +53,6 @@ export type Elevator = {
   active?: boolean; // the on/off switch (col AL); false = paused
   fastTrack?: FastTimes; // cols BM–BQ: each pre-visit step's early time (ISO), if set — see fasttrack.ts
   lastReport?: string; // Drive link to the newest finished report (col BL, never cleared)
-  booking?: { at: string; waiting: boolean }; // Calendly: the time the customer picked (col BR); waiting = Robert hasn't said yes yet (see booking.ts)
   reportDone?: boolean; // a finished report is saved for this visit (col AO holds its Drive link; cleared each new cycle)
   row?: number; // the dashboard sheet row this came from (for write-back)
   lifecycle: LifecycleStage[]; // the customer-lifecycle status cells (cols S..AE)

@@ -1,42 +1,22 @@
-import { readRows, cell, COL, FIRST_ROW, TAB, letter, type Col, requireElevatorRow, readRow } from "@/lib/sheet";
+import { readRows, cell, COL, FIRST_ROW, TAB, letter, type Col } from "@/lib/sheet";
 import { writeCells } from "@/lib/google";
-import {
+import { OK_TZ, calendlyConfigured, invitees, listEvents, me } from "@/lib/calendly";
 
-  CalendlyError,
-  OK_TZ,
-  bookingEventType,
-  calendlyConfigured,
-  cancelEvent,
-  getAvailability,
-  invitees,
-  listEvents,
-  me,
-  setAvailability,
-  type CalInterval,
-  type CalRule,
-} from "@/lib/calendly";
-
-// BOOKING CONFIRM (Robert, 2026-10-13). A customer books a time on Calendly →
-// Robert is asked on his phone whether it works:
-//   Yes              → Visit = Booked + Trip day (the access reminder can go).
-//   Pick other days  → that Calendly booking is cancelled, Calendly is changed to
-//                      offer only the days he picked, and the customer gets an
-//                      email (Make "Pick a new time") listing them.
-// Nothing after the scheduling email moves until he says Yes.
+// CALENDLY BOOKINGS (Robert, 2026-10-14). A customer picks a day on Calendly →
+// the visit is booked: Visit = Booked, Trip day = that day. No one is asked —
+// Robert marks the days he can't do as busy in his Google Calendar (Calendly
+// won't offer them), and anything else is a phone call to reschedule.
+// A customer who cancels (or reschedules) in Calendly undoes the booking, and
+// Robert's phone is told.
 //
-// Sheet: BR bookedAt = the picked time (ISO UTC; kept after Yes so the time
-// shows), BS bookingEvent = the Calendly event, BT newDays = text for the
-// "pick a new time" email (Make sends it, then clears it). Waiting for Robert =
-// BR set and Visit not Booked.
+// Sheet: BR bookedAt = the booked time (ISO UTC), BS bookingEvent = the Calendly
+// event (so a cancellation can be matched back to the elevator).
 
 const clock = (iso: string, opts: Intl.DateTimeFormatOptions) => new Date(iso).toLocaleString("en-US", { timeZone: OK_TZ, ...opts });
-// "Tue, Oct 21" (Oklahoma) — customers book a whole day, so no time.
-export const pickedText = (iso: string) => clock(iso, { weekday: "short", month: "short", day: "numeric" });
 // "10/21/2026" (Oklahoma date) — the dashboard's Trip day format.
 const tripDate = (iso: string) => clock(iso, { month: "numeric", day: "numeric", year: "numeric" });
 
 type Row = string[];
-const isWaiting = (r: Row) => !!cell(r, "bookedAt") && cell(r, "visit") !== "Booked" && cell(r, "visit") !== "Inspected";
 
 // Which elevators a Calendly booking belongs to. The link in the scheduling
 // email carries the elevator's link code (utm_content); a booking without it
@@ -59,12 +39,12 @@ function matchRows(rows: Row[], people: { email: string; code: string }[]): numb
   return rows.map((r, i) => (i === hit || same(r) ? i : -1)).filter((i) => i !== -1);
 }
 
-// Every hour (from /api/push/run, while the master switch is on): record new
-// Calendly bookings on their elevators, and undo ones the customer cancelled.
-// Returns what changed, plus the buildings whose CONFIRMED visit was cancelled
-// by the customer (so Robert is told).
-export async function syncBookings(): Promise<{ added: string[]; dropped: string[]; cancelledConfirmed: string[] }> {
-  const out = { added: [] as string[], dropped: [] as string[], cancelledConfirmed: [] as string[] };
+// Every hour (from /api/push/run) and when Settings opens (/api/calendly), while
+// the master switch is on: book new Calendly bookings onto their elevators, and
+// undo ones the customer cancelled. `cancelled` = buildings whose booked visit
+// the customer cancelled (Robert's phone is told).
+export async function syncBookings(): Promise<{ booked: string[]; cancelled: string[] }> {
+  const out = { booked: [] as string[], cancelled: [] as string[] };
   if (!calendlyConfigured()) return out;
   const user = await me();
   const since = new Date(Date.now() - 60 * 60_000); // a booking for the next hour still counts
@@ -81,16 +61,15 @@ export async function syncBookings(): Promise<{ added: string[]; dropped: string
     if (cell(r, "visit") === "Booked") {
       set(i, "visit", "");
       set(i, "tripDay", "");
-      out.cancelledConfirmed.push(cell(r, "building"));
+      out.cancelled.push(cell(r, "building"));
     }
     set(i, "bookedAt", "");
     set(i, "bookingEvent", "");
-    out.dropped.push(cell(r, "okla"));
     r[COL.bookingEvent] = ""; // so a rescheduled booking below can land on it
-    r[COL.visit] = cell(r, "visit") === "Booked" ? "" : r[COL.visit];
+    if (cell(r, "visit") === "Booked") r[COL.visit] = "";
   });
 
-  // New bookings.
+  // New bookings → booked.
   const known = new Set(rows.map((r) => cell(r, "bookingEvent")).filter(Boolean));
   for (const ev of active) {
     if (known.has(ev.uri)) continue;
@@ -98,114 +77,20 @@ export async function syncBookings(): Promise<{ added: string[]; dropped: string
       .filter((p) => p.status === "active")
       .map((p) => ({ email: p.email ?? "", code: p.tracking?.utm_content ?? "" }));
     for (const i of matchRows(rows, people)) {
+      set(i, "visit", "Booked");
+      set(i, "tripDay", tripDate(ev.start_time));
       set(i, "bookedAt", ev.start_time.replace(/\.\d+Z$/, "Z"));
       set(i, "bookingEvent", ev.uri);
       rows[i][COL.bookingEvent] = ev.uri;
-      out.added.push(cell(rows[i], "okla"));
+      rows[i][COL.visit] = "Booked";
+      out.booked.push(cell(rows[i], "okla"));
     }
   }
-  if (writes.length) await writeCells(writes, true);
+  // Dates as dates (Trip day), everything else exactly as written.
+  const tripCol = `${TAB}!${letter(COL.tripDay)}`;
+  const dates = writes.filter(([a]) => a.startsWith(tripCol) && /\d$/.test(a.slice(tripCol.length)));
+  const rest = writes.filter((w) => !dates.includes(w));
+  if (rest.length) await writeCells(rest, true);
+  if (dates.length) await writeCells(dates);
   return out;
 }
-
-// The rows that share this elevator's booking (one visit, several elevators).
-async function bookingRows(row: number, okla: string) {
-  const at = await requireElevatorRow(row, okla);
-  const me_ = await readRow(at);
-  const ev = cell(me_, "bookingEvent");
-  if (!ev) throw new BookingError("There's no Calendly booking on this elevator.");
-  const rows = await readRows();
-  const idx = rows.map((r, i) => (cell(r, "bookingEvent") === ev ? i : -1)).filter((i) => i !== -1);
-  return { ev, mine: me_, rows, idx };
-}
-export class BookingError extends Error {}
-
-// Robert: "Yes, that works."
-export async function confirmBooking(row: number, okla: string): Promise<{ tripDay: string; at: string }> {
-  const { mine, rows, idx } = await bookingRows(row, okla);
-  if (!isWaiting(mine)) throw new BookingError("This booking isn't waiting for an answer any more.");
-  const at = cell(mine, "bookedAt");
-  const tripDay = tripDate(at);
-  const writes: [string, string][] = [];
-  for (const i of idx) {
-    if (!isWaiting(rows[i])) continue;
-    writes.push([`${TAB}!${letter(COL.visit)}${FIRST_ROW + i}`, "Booked"], [`${TAB}!${letter(COL.tripDay)}${FIRST_ROW + i}`, tripDay]);
-  }
-  await writeCells(writes);
-  return { tripDay, at };
-}
-
-// "10:30" → minutes.
-const mins = (t: string) => +t.slice(0, 2) * 60 + +t.slice(3, 5);
-const okToday = () => new Date().toLocaleDateString("en-CA", { timeZone: OK_TZ }); // yyyy-mm-dd
-const addDays = (d: string, n: number) => {
-  const x = new Date(`${d}T12:00:00Z`);
-  x.setUTCDate(x.getUTCDate() + n);
-  return x.toISOString().slice(0, 10);
-};
-const longDay = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" });
-const wdayOf = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "long" }).toLowerCase();
-const len = (i: CalInterval) => Math.max(0, mins(i.to) - mins(i.from));
-
-// Robert: "Pick other days." `days` are yyyy-mm-dd (Oklahoma). Customers book
-// whole days, so each picked day opens with Robert's normal hours for that
-// weekday in Calendly (or his longest normal day, if that weekday is off) — one
-// booking choice per day (see calendlyCheck.ts). On Calendly, from
-// tomorrow through the last picked day, ONLY the picked days stay open (for
-// every customer — it's Robert's real availability); days after that are left
-// alone. Then the customer's booking is cancelled and the email is queued.
-export async function pickOtherDays(row: number, okla: string, days: string[]): Promise<{ newDays: string }> {
-  const today = okToday();
-  const picked = [...new Set(days)].sort();
-  if (!picked.length) throw new BookingError("Pick at least one day.");
-  if (picked.length > 31) throw new BookingError("Pick 31 days or fewer.");
-  if (picked.some((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d) || d <= today || d > addDays(today, 90)))
-    throw new BookingError("Pick days between tomorrow and 90 days from now.");
-
-  const { ev, rows, idx } = await bookingRows(row, okla);
-
-  // 1. Calendly shows only the picked days (tomorrow → last picked day).
-  const user = await me();
-  const et = await bookingEventType(user);
-  const avail = await getAvailability(et);
-  const last = picked[picked.length - 1];
-  const window = new Set<string>();
-  for (let d = addDays(today, 1); d <= last; d = addDays(d, 1)) window.add(d);
-  const keep = avail.rules.filter((r) => !(r.type === "date" && r.date && window.has(r.date)));
-  const weekly = avail.rules.filter((r) => r.type === "wday");
-  const longest = weekly.flatMap((r) => r.intervals).sort((x, y) => len(y) - len(x))[0] ?? { from: "09:00", to: "17:00" };
-  const add: CalRule[] = [...window].map((d) => {
-    if (!picked.includes(d)) return { type: "date", date: d, intervals: [] };
-    const usual = weekly.find((r) => r.wday === wdayOf(d))?.intervals ?? [];
-    return { type: "date", date: d, intervals: usual.length ? usual : [longest] };
-  });
-  await setAvailability(et, { timezone: avail.timezone, rules: [...keep, ...add] });
-
-  // 2. Cancel the customer's booking (Calendly emails them the reason).
-  try {
-    await cancelEvent(ev, "Robert isn't available on that day. You'll get an email with the days that work so you can pick again.");
-  } catch (err) {
-    // Already cancelled is fine; anything else stops here (Calendly is already changed — say so).
-    if (!(err instanceof CalendlyError && (err.status === 403 || err.status === 404 || /cancel/i.test(err.message))))
-      throw new BookingError(`Calendly's days were changed, but the booking couldn't be cancelled: ${(err as Error).message}`);
-  }
-
-  // 3. Clear the booking on the dashboard and queue the "pick a new time" email.
-  const newDays = picked.map(longDay).join("; ");
-  const writes: [string, string][] = [];
-  const set = (i: number, c: Col, v: string) => writes.push([`${TAB}!${letter(COL[c])}${FIRST_ROW + i}`, v]);
-  for (const i of idx) {
-    const r = rows[i];
-    if (cell(r, "visit") === "Booked") {
-      set(i, "visit", "");
-      set(i, "tripDay", "");
-    }
-    set(i, "bookedAt", "");
-    set(i, "bookingEvent", "");
-  }
-  set(idx[0], "newDays", newDays); // one email per customer, not one per elevator
-  await writeCells(writes, true);
-  return { newDays };
-}
-
-

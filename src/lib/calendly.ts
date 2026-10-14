@@ -1,10 +1,8 @@
 // Calendly — the booking page in the scheduling email. Robert kept Calendly
 // (it syncs with his Google Calendar); the app only talks to it to:
 //   • see new bookings (checked every hour — webhooks need a paid plan, the
-//     API itself works on the free plan),
-//   • cancel a booking Robert says doesn't work,
-//   • open only the days Robert picks instead,
-//   • show what's wrong when the page has no open times (Settings).
+//     API itself works on the free plan) and book them onto their elevators,
+//   • show what's wrong when the page has no open days, and fix it (Settings).
 //
 // Signs in with a Calendly personal access token that Robert made himself and
 // put in Vercel as CALENDLY_TOKEN (Calendly → Integrations → API & Webhooks).
@@ -101,10 +99,6 @@ export function listEvents(user: CalUser, status: "active" | "canceled", minStar
 
 export type CalInvitee = { email: string; name: string; status: string; tracking?: { utm_content?: string | null } };
 export const invitees = (event: CalEvent) => all<CalInvitee>(`${event.uri}/invitees?count=100`);
-
-export async function cancelEvent(eventUri: string, reason: string): Promise<void> {
-  await cal(`${eventUri}/cancellation`, { method: "POST", body: { reason } });
-}
 
 // Availability of the booking event type. Rules: weekly ("wday") and one-off
 // ("date", overrides that day); an empty `intervals` list = closed that day.

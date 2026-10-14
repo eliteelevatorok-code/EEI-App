@@ -38,14 +38,14 @@ async function handle(req: Request) {
     return Response.json({ ok: true, test: true, title, ...result });
   }
 
-  // New Calendly bookings land on their elevators first, so this run's alert
-  // can ask Robert about them (see src/lib/booking.ts). A Calendly problem never
+  // New Calendly bookings are booked onto their elevators first, so this run's
+  // alert includes them (see src/lib/booking.ts). A Calendly problem never
   // stops the alerts.
   let calendly: Awaited<ReturnType<typeof syncBookings>> | { error: string } | null = null;
   if (!dry && (await isMasterOn())) {
     try {
       calendly = await syncBookings();
-      for (const b of calendly.cancelledConfirmed) await sendAlert(`Customer cancelled: ${b}`, "", "/?tab=today", `eei-cancel-${Date.now()}`);
+      for (const b of calendly.cancelled) await sendAlert(`Customer cancelled: ${b}`, "", "/?tab=today", `eei-cancel-${Date.now()}`);
     } catch (err) {
       calendly = { error: err instanceof Error ? err.message : String(err) };
     }

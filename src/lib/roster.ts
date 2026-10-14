@@ -72,9 +72,6 @@ function rowToElevator(r: string[], row: number): Elevator {
     active: !isRowPaused(r),
     reportDone: !!cell(r, "reportFile"),
     lastReport: cell(r, "lastReport") || cell(r, "reportFile"),
-    booking: cell(r, "bookedAt")
-      ? { at: cell(r, "bookedAt"), waiting: cell(r, "visit") !== "Booked" && cell(r, "visit") !== "Inspected" }
-      : undefined,
     fastTrack: Object.fromEntries(FAST_ORDER.filter((k) => cell(r, FAST_COL[k])).map((k) => [k, cell(r, FAST_COL[k])])),
     row, // the sheet row, so later writes land on the right line
     lifecycle: LIFECYCLE_DEFS.map((d): LifecycleStage => ({

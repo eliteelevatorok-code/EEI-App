@@ -43,11 +43,9 @@ export const COL = {
   // plain text). The automation sends that step at the first hourly run after
   // its time and clears just that cell. See src/lib/fasttrack.ts.
   ftHeadsUp: 64, ftQuote: 65, ftSafety: 66, ftScheduling: 67, ftAccess: 68,
-  // BR–BT: Calendly booking waiting for Robert's OK (see src/lib/booking.ts) —
-  // the time the customer picked (ISO UTC), the Calendly event's address, and
-  // the days Robert offered instead (text for the "pick a new time" email,
-  // which the automation sends and then clears).
-  bookedAt: 69, bookingEvent: 70, newDays: 71,
+  // BR–BS: the Calendly booking (see src/lib/booking.ts) — the booked time (ISO
+  // UTC) and the Calendly event's address (to match a cancellation back).
+  bookedAt: 69, bookingEvent: 70,
 } as const;
 export type Col = keyof typeof COL;
 
@@ -62,7 +60,7 @@ export function letter(i: number): string {
   for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
   return s;
 }
-const LAST = letter(COL.newDays); // read this far to get every column the app uses
+const LAST = letter(COL.bookingEvent); // read this far to get every column the app uses
 
 // One trimmed cell from a row that was read from the sheet.
 export const cell = (row: string[], c: Col) => (row[COL[c]] ?? "").trim();
