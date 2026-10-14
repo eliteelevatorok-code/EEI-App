@@ -1,12 +1,22 @@
+import { syncBookings } from "@/lib/booking";
 import { checkCalendly, fixCalendly } from "@/lib/calendlyCheck";
+import { isMasterOn } from "@/lib/switches";
 
 export const runtime = "nodejs";
 
 // Settings → Calendly (signed-in only, see proxy.ts).
-//   GET            — is the booking page offering times? If not, why, and what the fix would change.
-//   POST {fix:true} — make that fix (after Robert's "Are you sure?"), then check again.
+//   GET            — is the booking page offering days? If not, why, and what the fix would change.
+//                    Also picks up new Calendly bookings right away (otherwise
+//                    the hourly alert run does it), while the master switch is on.
+//   POST {fix:true} — make that fix, then check again.
 export async function GET() {
-  return Response.json(await checkCalendly());
+  let bookings: Awaited<ReturnType<typeof syncBookings>> | { error: string } | null = null;
+  try {
+    if (await isMasterOn()) bookings = await syncBookings();
+  } catch (err) {
+    bookings = { error: err instanceof Error ? err.message : String(err) };
+  }
+  return Response.json({ ...(await checkCalendly()), bookings });
 }
 
 export async function POST(req: Request) {
