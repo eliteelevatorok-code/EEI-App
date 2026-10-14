@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 // A Calendly booking waiting for Robert (signed-in only, see proxy.ts):
 //   POST { row, okla, action: "confirm" }                       — "Yes, that works"
-//   POST { row, okla, action: "other", days, from, to }         — "Pick other days"
+//   POST { row, okla, action: "other", days }                   — "Pick other days"
 // See src/lib/booking.ts.
 export async function POST(req: Request) {
   let body: { row?: number; okla?: string; action?: string; days?: unknown; from?: string; to?: string };
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     if (body.action === "confirm") return Response.json({ ok: true, ...(await confirmBooking(row, okla)) });
     if (body.action === "other") {
       const days = Array.isArray(body.days) ? body.days.map(String) : [];
-      return Response.json({ ok: true, ...(await pickOtherDays(row, okla, days, String(body.from ?? ""), String(body.to ?? ""))) });
+      return Response.json({ ok: true, ...(await pickOtherDays(row, okla, days)) });
     }
     return Response.json({ error: "Bad action" }, { status: 400 });
   } catch (err) {

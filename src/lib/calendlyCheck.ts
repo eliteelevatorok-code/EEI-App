@@ -7,7 +7,9 @@ import {
   getAvailability,
   me,
   setAvailability,
+  updateEventType,
   type CalAvailability,
+  type CalEventType,
   type CalRule,
 } from "@/lib/calendly";
 
@@ -36,6 +38,7 @@ export type CalendlyCheck = {
   hoursZone?: string;
   weekly?: string[]; // "Mon 9am–5pm"
   openTimes?: number; // open start times in the next 4 weeks
+  openDays?: number; // days with at least one open time
   firstOpen?: string;
   busyDays?: number; // of the next 7 days, how many are busy all day on his calendar
   problems: string[];
@@ -65,6 +68,40 @@ function fixedRules(a: CalAvailability): { timezone: string; rules: CalRule[]; f
   return { timezone: OK_TZ, rules, fixes };
 }
 
+// The booking page itself (Robert, 2026-10-14): customers book a whole DAY, not
+// an hour — so each booking lasts the full working day (one choice per day);
+// it's called "Elevator inspection" and happens on site, not on Google Meet.
+export const BOOKING_NAME = "Elevator inspection";
+const ON_SITE = "On site at the elevator's building";
+const DESCRIPTION = "Pick the day for your elevator's state inspection. The inspector comes on site during the day.";
+const span = (i: { from: string; to: string }) => +i.to.slice(0, 2) * 60 + +i.to.slice(3, 5) - (+i.from.slice(0, 2) * 60 + +i.from.slice(3, 5));
+function fixedEvent(et: CalEventType, a: { rules: CalRule[] }) {
+  // The longest working day in the weekly hours (Calendly allows up to 12 hours).
+  const day = Math.min(720, Math.max(0, ...a.rules.filter((r) => r.type === "wday").flatMap((r) => r.intervals.map(span))));
+  const changes: { name?: string; duration?: number; description?: string; locations?: { kind: string; location: string }[] } = {};
+  const fixes: string[] = [];
+  const problems: string[] = [];
+  if (day && et.duration !== day) {
+    changes.duration = day;
+    problems.push(`Customers pick a ${et.duration}-minute time slot, not a whole day.`);
+    fixes.push(`Book whole days: each booking takes the full working day (${day / 60} hours), so customers pick a day, not a time`);
+  }
+  if (et.name !== BOOKING_NAME) {
+    changes.name = BOOKING_NAME;
+    problems.push(`The booking page is called "${et.name}".`);
+    fixes.push(`Name it "${BOOKING_NAME}" (now "${et.name}")`);
+  }
+  const locs = et.locations ?? [];
+  if (!(locs.length === 1 && locs[0].kind === "custom" && locs[0].location === ON_SITE)) {
+    changes.locations = [{ kind: "custom", location: ON_SITE }];
+    if (!et.description_plain) changes.description = DESCRIPTION;
+    const was = locs.map((l) => (l.kind === "google_conference" ? "Google Meet" : l.location || l.kind)).join(", ") || "none";
+    problems.push(`The location is ${was}, not on site.`);
+    fixes.push(`Location: on site (now ${was})`);
+  }
+  return { changes, fixes, problems };
+}
+
 export async function checkCalendly(): Promise<CalendlyCheck> {
   if (!calendlyConfigured()) return { connected: false, problems: ["Calendly isn't connected to the app yet (no CALENDLY_TOKEN in Vercel)."], fixes: [] };
   try {
@@ -89,7 +126,9 @@ export async function checkCalendly(): Promise<CalendlyCheck> {
     if (user.timezone !== OK_TZ) problems.push(`Your Calendly account's time zone is ${zoneName(user.timezone)} (change it in Calendly → Profile → Time zone).`);
     if (!open.length && w.length && busyDays >= 5) problems.push("Your Google Calendar shows you busy all day on most days, and Calendly treats busy as taken.");
     if (!open.length && !problems.length) problems.push("No open times in the next 4 weeks, and the cause isn't visible from here — open Calendly → Availability.");
-    const { fixes } = fixedRules(a);
+    const ev = fixedEvent(et, fixedRules(a));
+    problems.push(...ev.problems);
+    const fixes = [...fixedRules(a).fixes, ...ev.fixes];
     return {
       connected: true,
       link: et.scheduling_url,
@@ -99,6 +138,7 @@ export async function checkCalendly(): Promise<CalendlyCheck> {
       hoursZone: zoneName(a.timezone),
       weekly: w,
       openTimes: open.length,
+      openDays: new Set(open.map((t) => new Date(t).toLocaleDateString("en-CA", { timeZone: OK_TZ }))).size,
       firstOpen: open[0],
       busyDays,
       problems,
@@ -115,7 +155,8 @@ export async function fixCalendly(): Promise<string[]> {
   const et = await bookingEventType(user);
   const a = await getAvailability(et);
   const f = fixedRules(a);
-  if (!f.fixes.length) return [];
-  await setAvailability(et, { timezone: f.timezone, rules: f.rules });
-  return f.fixes;
+  if (f.fixes.length) await setAvailability(et, { timezone: f.timezone, rules: f.rules });
+  const ev = fixedEvent(et, f);
+  if (ev.fixes.length) await updateEventType(et, ev.changes);
+  return [...f.fixes, ...ev.fixes];
 }

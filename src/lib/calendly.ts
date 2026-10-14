@@ -67,7 +67,24 @@ async function all<T>(path: string): Promise<T[]> {
 export type CalUser = { uri: string; name: string; timezone: string; scheduling_url: string };
 export const me = async () => (await cal<{ resource: CalUser }>("/users/me")).resource;
 
-export type CalEventType = { uri: string; name: string; slug: string; active: boolean; scheduling_url: string; duration: number };
+export type CalLocation = { kind: string; location?: string };
+export type CalEventType = {
+  uri: string;
+  name: string;
+  slug: string;
+  active: boolean;
+  scheduling_url: string;
+  duration: number;
+  description_plain?: string | null;
+  locations?: CalLocation[] | null;
+};
+// Rename / re-time / re-locate the booking event type (needs event_types:write).
+export async function updateEventType(
+  eventType: CalEventType,
+  changes: { name?: string; duration?: number; description?: string; locations?: CalLocation[] },
+): Promise<void> {
+  await cal(eventType.uri, { method: "PATCH", body: changes });
+}
 // The event type the scheduling email links to.
 export async function bookingEventType(user: CalUser): Promise<CalEventType> {
   const types = await all<CalEventType>(`/event_types?user=${encodeURIComponent(user.uri)}&count=100`);

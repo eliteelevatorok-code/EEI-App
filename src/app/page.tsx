@@ -208,6 +208,7 @@ type CalCheck = {
   weekly?: string[];
   hoursZone?: string;
   openTimes?: number;
+  openDays?: number;
   firstOpen?: string;
   problems: string[];
   fixes: string[];
@@ -248,14 +249,14 @@ function CalendlyCard() {
         <div className="flex items-center justify-between">
           <span className="text-[15px]">Booking page</span>
           <Pill tone={good ? "green" : "red"} dot>
-            {!c.connected ? "Not connected" : c.openTimes ? "Offering times" : "No open times"}
+            {!c.connected ? "Not connected" : c.openTimes ? "Offering days" : "No open days"}
           </Pill>
         </div>
         {c.error && <p className="mt-2 text-sm text-danger">{c.error}</p>}
         {c.connected && (
           <p className="mt-2 text-sm text-ink-3">
             {c.openTimes
-              ? `${c.openTimes} open times in the next 4 weeks${c.firstOpen ? ` — first ${whenText(c.firstOpen)}` : ""}.`
+              ? `${c.openDays ?? c.openTimes} open days in the next 4 weeks${c.firstOpen ? ` — first ${dayOf(c.firstOpen)}` : ""}.`
               : "Customers see “No openings at the moment.”"}{" "}
             Hours: {c.weekly?.length ? c.weekly.join(" · ") : "none set"}
             {c.hoursZone ? ` (${c.hoursZone} time)` : ""}.
@@ -1079,6 +1080,8 @@ const IN_PROGRESS = new Set(["Waiting", "Awaiting", "Booked", "Review", "No answ
 const localDate = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const localTime = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+// "Wed, Oct 21" — Calendly bookings are whole days.
+const dayOf = (iso: string) => new Date(iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 const whenText = (iso: string | number) =>
   new Date(iso).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const fastInputs = (e: Elevator): FastInputs => ({
@@ -1270,8 +1273,6 @@ function BookingSheet({
   const at = e.booking?.at ?? "";
   const who = e.contact || "The customer";
   const [days, setDays] = useState<string[]>([]);
-  const [from, setFrom] = useState("08:00");
-  const [to, setTo] = useState("17:00");
   const [sure, setSure] = useState(mode === "confirm");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -1291,7 +1292,6 @@ function BookingSheet({
   const sorted = [...days].sort();
   const dayText = (d: string) =>
     new Date(`${d}T12:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-  const hoursOk = from < to;
 
   async function save() {
     setBusy(true);
@@ -1301,7 +1301,7 @@ function BookingSheet({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          mode === "confirm" ? { row: e.row, okla: e.okla, action: "confirm" } : { row: e.row, okla: e.okla, action: "other", days: sorted, from, to },
+          mode === "confirm" ? { row: e.row, okla: e.okla, action: "confirm" } : { row: e.row, okla: e.okla, action: "other", days: sorted },
         ),
       });
       const d = (await res.json().catch(() => ({}))) as { error?: string; tripDay?: string };
@@ -1337,7 +1337,7 @@ function BookingSheet({
           <h3 className="text-[21px] font-bold tracking-tight">Are you sure?</h3>
           <p className="mt-1.5 text-[15px] text-ink-2">
             Book <span className="font-semibold text-ink">{e.building}</span> for{" "}
-            <span className="font-semibold text-ink">{at ? whenText(at) : "the picked time"}</span>? The visit is marked
+            <span className="font-semibold text-ink">{at ? dayOf(at) : "the picked day"}</span>? The visit is marked
             Booked, and the access reminder goes to {who.toLowerCase() === "the customer" ? "the customer" : who} before it.
           </p>
           {err && <p className="mt-2 text-sm font-semibold text-danger">{err}</p>}
@@ -1355,10 +1355,10 @@ function BookingSheet({
           <h3 className="text-[21px] font-bold tracking-tight">Are you sure?</h3>
           <ul className="mt-2 flex list-disc flex-col gap-1.5 pl-5 text-[15px] text-ink-2">
             <li>
-              {who}&apos;s booking for {at ? whenText(at) : "the picked time"} is cancelled.
+              {who}&apos;s booking for {at ? dayOf(at) : "the picked day"} is cancelled.
             </li>
             <li>
-              Calendly offers only {sorted.map(dayText).join(", ")} ({from}–{to}). Other days up to{" "}
+              Calendly offers only {sorted.map(dayText).join(", ")}. Other days up to{" "}
               {dayText(sorted[sorted.length - 1])} close for everyone.
             </li>
             <li>{who} gets an email to pick one of those days.</li>
@@ -1377,7 +1377,7 @@ function BookingSheet({
         <>
           <h3 className="text-[21px] font-bold tracking-tight">Pick the days that work</h3>
           <p className="mb-4 mt-1 text-sm text-ink-3">
-            Tap the days Robert is free. The customer will only be able to pick from these.
+            Tap the days Robert is free. The customer will only be able to pick one of these.
           </p>
           <div className="grid grid-cols-7 gap-1.5 text-center text-xs text-ink-3">
             {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
@@ -1405,15 +1405,9 @@ function BookingSheet({
               ),
             )}
           </div>
-          <div className="mt-4 flex items-center gap-2.5">
-            <input type="time" className="input flex-1" value={from} onChange={(ev) => setFrom(ev.target.value)} aria-label="From" />
-            <span className="text-sm text-ink-3">to</span>
-            <input type="time" className="input flex-1" value={to} onChange={(ev) => setTo(ev.target.value)} aria-label="To" />
-          </div>
-          {!hoursOk && <p className="mt-2 text-sm font-semibold text-danger">The start time has to be before the end time.</p>}
           {err && <p className="mt-2 text-sm font-semibold text-danger">{err}</p>}
           <div className="mt-5 flex flex-col gap-2.5">
-            <Button full onClick={() => setSure(true)} disabled={!days.length || !hoursOk}>
+            <Button full onClick={() => setSure(true)} disabled={!days.length}>
               Save
             </Button>
             <Button variant="secondary" full onClick={onClose}>
@@ -1578,8 +1572,8 @@ function nextSteps(
   // A customer picked a time on Calendly — Robert says whether it works (src/lib/booking.ts).
   if (e.booking?.waiting) {
     out.push({
-      title: "The customer picked a time",
-      text: `${e.contact || "The customer"} picked ${whenText(e.booking.at)} on Calendly. Does that work for Robert?`,
+      title: "The customer picked a day",
+      text: `${e.contact || "The customer"} picked ${dayOf(e.booking.at)} on Calendly. Does that day work for Robert?`,
       actions: [
         { label: "Yes, it works", onClick: () => onBooking("confirm") },
         { label: "Pick other days", onClick: () => onBooking("other") },
@@ -1588,12 +1582,8 @@ function nextSteps(
   }
   if (visit === "Booked") {
     const today = daysUntil(trip) === 0;
-    // The Calendly time, when the booking came from there and is on the trip day.
-    const time = e.booking && !e.booking.waiting && trip && new Date(e.booking.at).toLocaleDateString("en-US") === new Date(`${toIsoDate(trip)}T12:00`).toLocaleDateString("en-US")
-      ? ` at ${new Date(e.booking.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
-      : "";
     out.push({
-      title: today ? `You're inspecting this today${time}` : trip ? `Booked for ${humanDate(trip)}${time}` : "A visit is booked",
+      title: today ? "You're inspecting this today" : trip ? `Booked for ${humanDate(trip)}` : "A visit is booked",
       text: today ? "When you get there, start the report." : "Everything's set. Start the report when you're on site.",
       actions: [{ label: "Start inspection", onClick: onStartReport }],
       startsReport: true,
