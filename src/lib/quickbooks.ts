@@ -308,6 +308,23 @@ type InvoiceInput = {
   dueDate?: string; // YYYY-MM-DD
 };
 
+// The next invoice number. Robert's company numbers invoices itself ("custom
+// transaction numbers" is on), so an invoice sent without a number gets NONE —
+// QuickBooks showed it as "Invoice #NA" (2026-10-14). So: one more than the
+// highest plain-number invoice among the most recent ones (1301 → 1302).
+// If the lookup fails, the invoice still goes out (just without a number), and
+// QuickBooks errors are written to the QB log tab by qb().
+async function nextDocNumber(): Promise<string | undefined> {
+  try {
+    const recent = await query<Invoice>("SELECT * FROM Invoice ORDERBY MetaData.CreateTime DESC MAXRESULTS 100", "Invoice");
+    const nums = recent.map((i) => i.DocNumber ?? "").filter((d) => /^\d{1,15}$/.test(d)).map(Number);
+    return nums.length ? String(Math.max(...nums) + 1) : undefined; // none yet → let QuickBooks decide
+  } catch (err) {
+    console.error("[quickbooks] next invoice number:", err instanceof Error ? err.message : err); // qb() already wrote it to the QB log tab
+    return undefined;
+  }
+}
+
 // Create an invoice for one amount to one customer. Returns the new invoice.
 export async function createInvoice(input: InvoiceInput): Promise<Invoice> {
   if (!(input.amount > 0)) throw new Error(`Invoice amount must be positive (got ${input.amount})`);
@@ -323,6 +340,8 @@ export async function createInvoice(input: InvoiceInput): Promise<Invoice> {
       },
     ],
   };
+  const docNumber = await nextDocNumber();
+  if (docNumber) body.DocNumber = docNumber;
   if (input.email) body.BillEmail = { Address: input.email };
   if (input.dueDate) body.DueDate = input.dueDate;
   if (input.memo) body.CustomerMemo = { value: input.memo };

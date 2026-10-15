@@ -6,7 +6,7 @@ import { isAllowed } from "@/lib/allowlist";
 // middleware.ts). Public routes never require sign-in: the customer/maintenance
 // pages (PO, maint, pay, report) are opened from emails and authorized by the
 // random link token in the address; the scheduler endpoints (push/run,
-// push/problem, invoice/run, switches/master) are authorized by the secret in
+// push/problem, invoice/run, switches/master, payments/log) are authorized by the secret in
 // schedulerKey.ts. /privacy is public for Google (and Intuit), /terms for Intuit; /api/push/ack only writes a
 // log line when an alert reaches a phone (the app may be closed then).
 const isPublic = createRouteMatcher([
@@ -26,6 +26,7 @@ const isPublic = createRouteMatcher([
   "/api/push/ack(.*)",
   "/api/invoice/run(.*)",
   "/api/switches/master(.*)",
+  "/api/payments/log(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

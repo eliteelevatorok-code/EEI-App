@@ -764,12 +764,23 @@ function useMasterOn(): boolean | null {
   return on;
 }
 
+// One line of the dashboard's Payments tab (src/lib/payments.ts) — every payment
+// ever, kept after the yearly reset clears the elevator's Invoice / Paid steps.
+type PaymentLine = { paidOn: string; okla: string; building: string; account: string; amount: number; invoice: string; tripDay: string };
+
 function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; error: string; onPick: (e: Elevator) => void }) {
   const master = useMasterOn();
+  const [payments, setPayments] = useState<PaymentLine[] | null>(null);
+  useEffect(() => {
+    fetch("/api/payments")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { payments?: PaymentLine[] } | null) => setPayments(d?.payments ?? []))
+      .catch(() => setPayments([]));
+  }, []);
   if (!accounts) {
     return (
       <Screen bottomSpace>
-        <Title eyebrow="This cycle">Money</Title>
+        <Title eyebrow="Bills and payments">Money</Title>
         <RosterStatus error={error} />
       </Screen>
     );
@@ -778,14 +789,21 @@ function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; err
   const paid = (u: Elevator) => stage(u, "paid") === "Paid";
   const outstanding = all.filter((u) => stage(u, "invoice") === "Sent" && !paid(u));
   const toBill = all.filter((u) => stage(u, "report") === "Sent" && stage(u, "invoice") !== "Sent" && !paid(u));
-  const collected = all.filter(paid);
   const sum = (list: Elevator[]) => list.reduce((n, u) => n + priceOf(u), 0);
+  // Collected this year: the Payments log, plus any elevator marked Paid that
+  // the automation hasn't logged yet (it logs it within the hour, at the reset).
+  const year = String(new Date().getFullYear());
+  const logged = (payments ?? []).filter((p) => p.paidOn.endsWith(year)).reverse();
+  const unlogged = all.filter((u) => paid(u) && !logged.some((p) => p.okla === u.okla && p.tripDay === stage(u, "tripDay")));
+  const collectedTotal = logged.reduce((n, p) => n + p.amount, 0) + sum(unlogged);
+  const collectedCount = logged.length + unlogged.length;
+  const byOkla = new Map(all.map((u) => [u.okla, u]));
   // Nothing is billed or reset while the whole system, or that elevator, is paused.
   const held = (u: Elevator) => master === false || u.active === false;
 
   return (
     <Screen bottomSpace>
-      <Title eyebrow="This cycle">Money</Title>
+      <Title eyebrow="Bills and payments">Money</Title>
       {master === false && (
         <Glass pad className="mt-4">
           <p className="text-[15px] text-ink-2">
@@ -804,9 +822,11 @@ function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; err
           </div>
         </Glass>
         <Glass pad>
-          <div className="text-sm text-ink-2">Collected</div>
-          <div className="mt-1 text-[26px] font-bold tracking-tight tabular-nums text-accent-ink">{money(sum(collected))}</div>
-          <div className="text-xs text-ink-3">{collected.length} paid</div>
+          <div className="text-sm text-ink-2">Collected in {year}</div>
+          <div className="mt-1 text-[26px] font-bold tracking-tight tabular-nums text-accent-ink">
+            {payments === null ? "…" : money(collectedTotal)}
+          </div>
+          <div className="text-xs text-ink-3">{collectedCount} paid</div>
         </Glass>
       </div>
 
@@ -837,15 +857,33 @@ function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; err
         </>
       )}
 
-      <SectionLabel>Paid · {collected.length}</SectionLabel>
-      {collected.length > 0 ? (
+      <SectionLabel>Paid in {year} · {collectedCount}</SectionLabel>
+      {collectedCount > 0 ? (
         <List>
-          {collected.map((u) => (
-            <MoneyRow key={u.okla} u={u} onPick={onPick} note={held(u) ? "Paid" : "Paid — next year's cycle is being set"} />
+          {unlogged.map((u) => (
+            <MoneyRow key={`now-${u.okla}`} u={u} onPick={onPick} note={held(u) ? "Paid" : "Paid — next year's cycle is being set"} />
           ))}
+          {logged.map((p, i) => {
+            const u = byOkla.get(p.okla);
+            return (
+              <button
+                key={`${p.okla}-${p.invoice}-${i}`}
+                onClick={() => u && onPick(u)}
+                disabled={!u}
+                className="row"
+                aria-label={`${p.building}: paid ${p.paidOn}`}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-semibold">{p.building}</div>
+                  <div className="mt-0.5 truncate text-sm text-ink-2">Paid {humanDate(p.paidOn)}</div>
+                </div>
+                <span className="font-semibold tabular-nums">{money(p.amount)}</span>
+              </button>
+            );
+          })}
         </List>
       ) : (
-        <p className="px-1 text-sm text-ink-3">Nothing paid yet this cycle.</p>
+        <p className="px-1 text-sm text-ink-3">{payments === null ? "Loading…" : `Nothing paid yet in ${year}.`}</p>
       )}
     </Screen>
   );
