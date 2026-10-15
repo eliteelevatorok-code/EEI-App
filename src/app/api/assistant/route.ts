@@ -1,4 +1,4 @@
-import { AssistantError, callClaude, keyStatus, type Block, type Msg } from "@/lib/assistant/claude";
+import { AssistantError, BadChatError, callClaude, keyStatus, type Block, type Msg } from "@/lib/assistant/claude";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { describe, isChange, runTool, type ChangeCard } from "@/lib/assistant/tools";
 import { getPushConfig } from "@/lib/push";
@@ -104,8 +104,20 @@ export async function POST(req: Request) {
     }
 
     messages = trim(closeUnanswered(messages));
+    let cleaned = false;
     for (let round = 0; round < MAX_ROUNDS; round++) {
-      const reply = await callClaude(messages, looking);
+      let reply;
+      try {
+        reply = await callClaude(messages, looking);
+      } catch (e) {
+        // Anthropic refused the chat itself (something saved in it earlier) →
+        // keep only the plain words of the conversation and ask once more, so
+        // one bad step can't break every later question in that chat.
+        if (!(e instanceof BadChatError) || cleaned) throw e;
+        cleaned = true;
+        messages = plainChat(messages);
+        reply = await callClaude(messages, looking);
+      }
       messages = [...messages, { role: "assistant", content: reply.content }];
       if (reply.stop_reason !== "tool_use") return Response.json({ messages, changed });
 
@@ -191,6 +203,25 @@ function closeUnanswered(messages: Msg[]): Msg[] {
     if (next) i++; // that message has been folded in
   }
   return out;
+}
+
+// The conversation as plain words only: lookups and their answers dropped,
+// empty turns dropped, back-to-back turns from the same side joined, starting
+// with the person and ending with their latest question.
+function plainChat(messages: Msg[]): Msg[] {
+  const words = (m: Msg) =>
+    (typeof m.content === "string" ? m.content : m.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("\n")).trim();
+  const out: { role: Msg["role"]; content: string }[] = [];
+  for (const m of messages) {
+    const text = words(m);
+    if (!text) continue;
+    const prev = out[out.length - 1];
+    if (prev && prev.role === m.role) prev.content += "\n\n" + text;
+    else out.push({ role: m.role, content: text });
+  }
+  while (out.length && out[0].role !== "user") out.shift();
+  while (out.length && out[out.length - 1].role !== "user") out.pop();
+  return out.length ? out.slice(-MAX_HISTORY) : [{ role: "user", content: "Hello" }];
 }
 
 function trim(messages: Msg[]): Msg[] {

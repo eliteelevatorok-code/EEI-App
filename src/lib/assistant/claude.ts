@@ -45,6 +45,9 @@ export async function keyStatus(): Promise<{ connected: boolean; reason: string 
 
 // A friendly message for the person when the call fails.
 export class AssistantError extends Error {}
+// Anthropic refused the conversation itself (400) — usually something saved in
+// an old chat it no longer accepts. The route retries with a cleaned-up chat.
+export class BadChatError extends AssistantError {}
 
 // `looking`: the elevator the person has open in the app, if any.
 export async function callClaude(messages: Msg[], looking?: string): Promise<{ content: Block[]; stop_reason: string }> {
@@ -83,6 +86,7 @@ export async function callClaude(messages: Msg[], looking?: string): Promise<{ c
     if (res.status === 429) throw new AssistantError("Anthropic says we're over the rate or spending limit. Try again in a minute, or check your Anthropic plan.");
     // Plain words on screen; Anthropic's own technical text goes to the server log only.
     console.error(`[assistant] Anthropic ${res.status}: ${detail}`);
+    if (res.status === 400) throw new BadChatError("The assistant couldn't answer that — try asking it a different way, or start a new chat.");
     throw new AssistantError(
       res.status >= 500 ? "Anthropic is having trouble right now — try again in a minute." : "The assistant couldn't answer that — try asking it a different way, or start a new chat.",
     );
