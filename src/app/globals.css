@@ -407,6 +407,10 @@
   .tl-now .tl-node {
     box-shadow: inset 0 0 0 2px var(--color-accent);
   }
+  /* Filled in before an earlier step (see lifecycleLooks in page.tsx): amber ring. */
+  .tl-out .tl-node {
+    box-shadow: inset 0 0 0 2px var(--color-warn);
+  }
   .tl-now .tl-node::after {
     content: "";
     width: 0.5rem;

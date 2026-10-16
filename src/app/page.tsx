@@ -1110,6 +1110,47 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
 // breathing "now" node); any other value means the step is done.
 const IN_PROGRESS = new Set(["Waiting", "Awaiting", "Booked", "Review", "No answer"]);
 
+// How each Customer lifecycle step looks (Robert, 2026-10-15: "nothing should be
+// green if not all of the things before it are green"), top to bottom:
+//   tl-done  green check — done (or doesn't apply to this elevator: "Not needed")
+//   tl-now   green ring  — started, waiting on someone (Waiting, Booked, …)
+//   tl-todo  gray        — not done yet
+//   tl-out   amber       — has a value although an earlier step is still empty
+//                          (a mix-up to look at, e.g. a stray booking)
+// Steps that don't apply count as done: quote + PO on "Invoice only"; the access
+// reminder once the visit is inspected without one; payment reminders once paid
+// (they're only ever needed when a bill is late, so they never hold others back).
+type StepLook = { look: "tl-done" | "tl-now" | "tl-todo" | "tl-out"; note: string };
+function lifecycleLooks(e: Elevator): Map<string, StepLook> {
+  const invoiceOnly = e.moneyPath === "Invoice only";
+  const inspected = stage(e, "visit") === "Inspected";
+  const paid = stage(e, "paid") === "Paid";
+  const notNeeded = (key: string) =>
+    ((key === "quote" || key === "po") && invoiceOnly) || (key === "accessReminder" && inspected) || (key === "followUps" && paid);
+  const optional = (key: string) => key === "followUps" || key === "newTimer";
+  const out = new Map<string, StepLook>();
+  let gap = false;
+  for (const s of e.lifecycle) {
+    // The quote went out and the customer hasn't sent a PO yet: that's waiting
+    // on them (the visit can still be scheduled meanwhile), not a missing step.
+    if (s.key === "po" && !s.value && !invoiceOnly && stage(e, "quote") === "Sent") {
+      out.set(s.key, { look: gap ? "tl-todo" : "tl-now", note: gap ? "" : "Waiting for PO" });
+      continue;
+    }
+    if (!s.value) {
+      if (notNeeded(s.key)) out.set(s.key, { look: gap ? "tl-todo" : "tl-done", note: gap ? "" : "Not needed" });
+      else {
+        out.set(s.key, { look: "tl-todo", note: "" });
+        if (!optional(s.key)) gap = true;
+      }
+      continue;
+    }
+    if (gap) out.set(s.key, { look: "tl-out", note: `${s.value} · out of order` });
+    else out.set(s.key, { look: IN_PROGRESS.has(s.value) ? "tl-now" : "tl-done", note: s.value });
+  }
+  return out;
+}
+
 // Tap a lifecycle step → a sheet to change it; saving asks once more in the same sheet.
 // FAST TRACK, per step: each automatic pre-visit step can get its own date and
 // time (from that step's sheet, or "Access fast track" for the next one). Save →
@@ -1667,6 +1708,7 @@ function Profile({
   const editingFast = editing ? fastStepForStage(editing.key) : undefined;
   const editingWin = editingFast ? fastWindow(fastInputs(e), { ...fastTimes, [editingFast]: undefined }, editingFast, now) : null;
   const steps = nextSteps(e, onStartReport, () => setEnteringSafety(true));
+  const looks = lifecycleLooks(e);
   const [swStep, setSwStep] = useState<null | "pause1" | "pause2" | "resume">(null);
   const [swBusy, setSwBusy] = useState(false);
   const [swErr, setSwErr] = useState("");
@@ -1808,7 +1850,7 @@ function Profile({
       <SectionLabel>Customer lifecycle</SectionLabel>
       <Glass className="px-4 py-1.5">
         {e.lifecycle.map((s) => {
-          const state = !s.value ? "tl-todo" : IN_PROGRESS.has(s.value) ? "tl-now" : "tl-done";
+          const { look: state, note } = looks.get(s.key) ?? { look: "tl-todo", note: s.value };
           const fk = fastStepForStage(s.key);
           const ft = fk ? fastTimes[fk] : undefined;
           return (
@@ -1820,9 +1862,9 @@ function Profile({
               className={"tl-step " + state}
             >
               <span className="tl-node">{state === "tl-done" && <CheckIcon />}</span>
-              <span className={"flex-1 text-[15px] " + (s.value ? "" : "text-ink-3")}>{s.label}</span>
-              <span className="text-right text-[13px] text-ink-2">
-                {s.value}
+              <span className={"flex-1 text-[15px] " + (state === "tl-todo" ? "text-ink-3" : "")}>{s.label}</span>
+              <span className={"text-right text-[13px] " + (state === "tl-out" ? "font-semibold text-warn" : "text-ink-2")}>
+                {note}
                 {ft && <span className="block text-accent-ink">Fast track {whenText(ft)}</span>}
               </span>
             </button>
@@ -1830,8 +1872,9 @@ function Profile({
         })}
       </Glass>
       <p className="mt-2 px-1 text-sm text-ink-3">
-        Tap a step to change it — you&apos;ll confirm before it saves. Report is set automatically once the finished
-        report has been emailed.
+        Green check = done · green ring = waiting on someone · gray = not yet · amber = filled in before an earlier
+        step. Tap a step to change it — you&apos;ll confirm before it saves. Report is set automatically once the
+        finished report has been emailed.
       </p>
 
       <SectionLabel>Safety test</SectionLabel>
