@@ -1,10 +1,19 @@
 import {
-  PDFBool,
+  PDFButton,
   PDFCheckBox,
+  PDFDict,
   PDFDocument,
   PDFDropdown,
   PDFName,
+  PDFNumber,
+  PDFWidgetAnnotation,
+  drawObject,
+  popGraphicsState,
+  pushGraphicsState,
+  translate,
+  type PDFObject,
   PDFRadioGroup,
+  PDFRef,
   PDFTextField,
   StandardFonts,
   type PDFField,
@@ -225,7 +234,55 @@ export async function fillReport(templateBytes: Uint8Array, p: FinalizePayload):
       /* this field can't be drawn by pdf-lib — the flag below still covers other viewers */
     }
   }
-  // Also ask viewers that do honor it (Acrobat, Chrome) to redraw everything.
-  form.acroForm.dict.set(PDFName.of("NeedAppearances"), PDFBool.True);
+  flattenForm(doc);
   return doc.save({ updateFieldAppearances: false });
+}
+
+// FLATTEN (2026-10-15): stamp every filled-in box onto the page itself as plain
+// printed content and remove the form. Some PDF viewers (the one Gmail opens
+// attachments in, among others) ignore or redraw form boxes and showed the
+// finished report completely blank; a flattened page looks the same everywhere.
+// A finished report is final anyway — it isn't meant to be edited.
+// The form's script buttons (Reset, File Save…) are dropped, not stamped.
+// (pdf-lib's own form.flatten() breaks on this form, so it's done by hand: draw
+// each box's picture where the box sits, then remove the boxes and the form.)
+export function flattenForm(doc: PDFDocument): void {
+  const buttons = new Set<PDFDict>();
+  for (const f of doc.getForm().getFields()) {
+    if (f instanceof PDFButton) for (const w of f.acroField.getWidgets()) buttons.add(w.dict);
+  }
+  const HIDDEN = 2;
+  for (const page of doc.getPages()) {
+    const annots = page.node.Annots();
+    if (!annots) continue;
+    const keep: PDFObject[] = [];
+    for (let i = 0; i < annots.size(); i++) {
+      const ref = annots.get(i);
+      const dict = doc.context.lookup(ref);
+      if (!(dict instanceof PDFDict) || dict.get(PDFName.of("Subtype")) !== PDFName.of("Widget")) {
+        keep.push(ref); // links and other notes stay
+        continue;
+      }
+      if (buttons.has(dict)) continue;
+      const flags = dict.lookup(PDFName.of("F"));
+      if (flags instanceof PDFNumber && flags.asNumber() & HIDDEN) continue;
+      try {
+        const widget = PDFWidgetAnnotation.fromDict(dict);
+        let ap: PDFObject | undefined = widget.getNormalAppearance();
+        if (ap instanceof PDFDict) {
+          // A check box / radio: the drawing for its current state (checked or off).
+          const state = widget.getAppearanceState() ?? PDFName.of("Off");
+          ap = ap.get(state) ?? ap.get(PDFName.of("Off"));
+        }
+        if (!(ap instanceof PDFRef)) continue;
+        const r = widget.getRectangle();
+        const key = page.node.newXObject("FlatWidget", ap);
+        page.pushOperators(pushGraphicsState(), translate(r.x, r.y), drawObject(key), popGraphicsState());
+      } catch {
+        /* no drawing for this box — nothing to stamp */
+      }
+    }
+    page.node.set(PDFName.of("Annots"), doc.context.obj(keep));
+  }
+  doc.catalog.delete(PDFName.of("AcroForm"));
 }
