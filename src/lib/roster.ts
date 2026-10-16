@@ -4,7 +4,7 @@ import { appendRow } from "@/lib/google";
 import { COL, FAST_COL, FIRST_ROW, TAB, cell, letter, readRows, writeRow, type Col } from "@/lib/sheet";
 import { FAST_ORDER } from "@/lib/fasttrack";
 import { safetyAnswer } from "@/lib/records";
-import { TECH, type TechKey } from "@/lib/tech";
+import { TECH, type BasicKey, type TechKey } from "@/lib/tech";
 import { isRowPaused } from "@/lib/switches";
 
 // Reading elevators off the dashboard for the phone app, and the few writes the
@@ -149,8 +149,9 @@ export async function appendElevator(f: NewElevatorInput): Promise<number | null
   return row;
 }
 
-// Save the state-form details for one elevator (profile → "For the state form").
-export async function setTechDetails(row: number, values: Partial<Record<TechKey, string>>): Promise<void> {
+// Save the state-form details for one elevator (profile → "For the state form",
+// or the report screen's missing ones — which can include the customer basics).
+export async function setTechDetails(row: number, values: Partial<Record<TechKey | BasicKey, string>>): Promise<void> {
   await writeRow(row, values);
 }
 

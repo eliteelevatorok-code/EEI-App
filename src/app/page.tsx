@@ -20,7 +20,7 @@ import { VHEAD, VIOLATIONS, parseViolation } from "@/lib/violations";
 import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from "@/lib/prefs";
 import { computeCycle, computePrice, formatPrice } from "@/lib/pricing";
 import { DEVICE_TYPE_CODE, ENTITY_TYPE_CODE, MACHINE_TYPE_CODE } from "@/lib/formCodes";
-import { TECH, TECH_KEYS, type TechKey, type TechKind } from "@/lib/tech";
+import { FORM_BASICS, TECH, TECH_KEYS, missingForForm, type BasicKey, type TechKey, type TechKind } from "@/lib/tech";
 import { DASHBOARD_URL } from "@/lib/dashboard";
 import {
   FAST_MIN_LEAD_MS,
@@ -945,32 +945,42 @@ function TextRow({
   value,
   onChange,
   type = "text",
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: string;
+  placeholder?: string;
 }) {
   return (
     <Field label={label}>
-      <input className="input" type={type} value={value} onChange={(e) => onChange(e.target.value)} />
+      <input className="input" type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
     </Field>
   );
 }
 
 // The state-form details (serial, permit, owner, …) as input boxes / choices —
 // the same set on "New elevator" and on the profile's "For the state form" editor.
-function TechFields({ values, onChange }: { values: Record<TechKey, string>; onChange: (k: TechKey, v: string) => void }) {
+function TechFields({
+  values,
+  onChange,
+  only,
+}: {
+  values: Record<TechKey, string>;
+  onChange: (k: TechKey, v: string) => void;
+  only?: TechKey[]; // just these (the report screen's missing ones)
+}) {
   const choices: Partial<Record<TechKind, string[]>> = { device: DEVICE_TYPES, machine: MACHINE_TYPES, entity: ENTITY_TYPES };
   return (
     <>
-      {TECH.map((t) =>
+      {TECH.filter((t) => !only || only.includes(t.key)).map((t) =>
         choices[t.kind] ? (
           <Field key={t.key} label={t.label}>
             <Chips options={choices[t.kind]!} value={values[t.key]} onChange={(v) => onChange(t.key, v)} />
           </Field>
         ) : (
-          <TextRow key={t.key} label={t.label} value={values[t.key]} onChange={(v) => onChange(t.key, v)} />
+          <TextRow key={t.key} label={t.label} value={values[t.key]} placeholder={t.hint} onChange={(v) => onChange(t.key, v)} />
         ),
       )}
     </>
@@ -1696,6 +1706,84 @@ function TechEditor({ elevator, onClose, onSaved }: { elevator: Elevator; onClos
   );
 }
 
+// The report screen's "Fill them in": only the details the state form still
+// needs (customer basics and/or saved details), saved to the dashboard.
+function MissingDetailsSheet({
+  elevator,
+  need,
+  onClose,
+  onSaved,
+}: {
+  elevator: Elevator;
+  need: (TechKey | BasicKey)[];
+  onClose: () => void;
+  onSaved: (e: Elevator) => void;
+}) {
+  const basics = FORM_BASICS.filter((b) => need.includes(b.key));
+  const techOnly = TECH.filter((t) => need.includes(t.key)).map((t) => t.key);
+  const [b, setB] = useState<Record<BasicKey, string>>({ contact: "", phone: "", email: "", city: "" });
+  const [v, setV] = useState(
+    () => Object.fromEntries(TECH.map((t) => [t.key, elevator.carried.find((c) => c.label === t.label)?.value ?? ""])) as Record<TechKey, string>,
+  );
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function save() {
+    if (elevator.row == null) return setErr("This elevator has no saved row yet.");
+    const values: Record<string, string> = {};
+    for (const x of basics) if (b[x.key].trim()) values[x.key] = b[x.key].trim();
+    for (const k of techOnly) if (v[k].trim()) values[k] = v[k].trim();
+    if (!Object.keys(values).length) return onClose();
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await fetch("/api/details", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ row: elevator.row, okla: elevator.okla, values }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(d.error || "Save failed");
+      buzz();
+      const next: Elevator = { ...elevator, carried: carriedFromForm(Object.fromEntries(TECH_KEYS.map((k) => [k, v[k].trim()])) as Record<TechKey, string>) };
+      for (const x of basics) if (b[x.key].trim()) next[x.key] = b[x.key].trim();
+      onSaved(next);
+      void refreshRoster();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Save failed");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet onClose={busy ? () => {} : onClose}>
+      <h3 className="text-[21px] font-bold tracking-tight">Still blank for the state form</h3>
+      <p className="mt-1 text-sm text-ink-3">{elevator.building} · saved with the elevator for every report</p>
+      <div className="mt-5">
+        {basics.map((x) => (
+          <TextRow
+            key={x.key}
+            label={x.label}
+            type={x.key === "email" ? "email" : x.key === "phone" ? "tel" : "text"}
+            value={b[x.key]}
+            onChange={(val) => setB((p) => ({ ...p, [x.key]: val }))}
+          />
+        ))}
+        <TechFields values={v} only={techOnly} onChange={(k, val) => setV((p) => ({ ...p, [k]: val }))} />
+      </div>
+      {err && <p className="mt-3 text-sm font-semibold text-danger">{err}</p>}
+      <div className="mt-5 flex flex-col gap-2.5">
+        <Button full onClick={save} disabled={busy}>
+          {busy ? "Saving…" : "Save"}
+        </Button>
+        <Button variant="secondary" full onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+    </Sheet>
+  );
+}
+
 function Profile({
   elevator,
   onChange,
@@ -2162,6 +2250,18 @@ function Report({
   const [finished, setFinished] = useState<{ view: string } | null>(null);
 
   const set = <K extends keyof ReportDraft,>(k: K, v: ReportDraft[K]) => setR((p) => ({ ...p, [k]: v }));
+  // A temporary certificate means no certificate is issued (as on Robert's own
+  // reports), so picking one sets the other.
+  function pickCert(v: string) {
+    setR((p) => ({ ...p, certIssue: v, tempCert: v === "Yes" ? "No" : p.tempCert }));
+  }
+  function pickTemp(v: string) {
+    setR((p) => ({ ...p, tempCert: v, certIssue: v === "No" ? p.certIssue : "No" }));
+  }
+  // The elevator's details the state form needs that are still blank (see
+  // missingForForm in lib/tech.ts) — filled in right here, saved to the dashboard.
+  const needDetails = missingForForm(elevator, elevator.carried);
+  const [fillDetails, setFillDetails] = useState(false);
   // Every answer is kept on this phone as it's typed, so a reload (or the app
   // closing) never loses it. Cleared once the report is finished and saved.
   useEffect(() => {
@@ -2231,14 +2331,25 @@ function Report({
 
   // What Finish needs before it can build the report. Tapping Finish with any of
   // these empty marks each one red ("— needed") and scrolls to the first.
+  // Test dates: the one-year test on every report except an inactive/scrapped
+  // elevator; the five-year test only on cable (traction) elevators.
+  const outOfService = r.condition === "Inactive" || r.condition === "Scrapped";
+  const isCable = elevator.carried.find((c) => c.label === "Machine type")?.value === "Cable";
   const required: { key: string; label: string; empty: boolean }[] = [
     { key: "date", label: "Date inspected", empty: !r.date },
     { key: "inspType", label: "Inspection type", empty: !r.inspType },
     { key: "cycle", label: "Inspection cycle", empty: !r.cycle },
+    { key: "test1", label: "One-year test", empty: !outOfService && !r.test1.trim() },
+    { key: "test5", label: "Five-year test", empty: !outOfService && isCable && !r.test5.trim() },
     { key: "certIssue", label: "Certificate issued", empty: !r.certIssue },
     { key: "condition", label: "Condition", empty: !r.condition },
     { key: "violations", label: "At least one violation", empty: r.condition === "Violations found" && r.added.length === 0 },
     { key: "violations", label: "36 lines or fewer for the state form", empty: formLineCount > 36 },
+    {
+      key: "details",
+      label: `${needDetails.length} elevator ${needDetails.length === 1 ? "detail" : "details"} for the state form`,
+      empty: needDetails.length > 0,
+    },
   ];
   const [showMissing, setShowMissing] = useState(false);
   const missing = new Set(showMissing ? required.filter((q) => q.empty).map((q) => q.key) : []);
@@ -2313,6 +2424,17 @@ function Report({
   return (
     <>
       {sheet && <ViolationSheet addedRaws={addedRaws} onToggle={toggleViolation} onClose={() => setSheet(false)} />}
+      {fillDetails && (
+        <MissingDetailsSheet
+          elevator={elevator}
+          need={needDetails.map((d) => d.key)}
+          onClose={() => setFillDetails(false)}
+          onSaved={(next) => {
+            patchElevator(next); // the report (and profile) show it right away
+            setFillDetails(false);
+          }}
+        />
+      )}
       {noteEdit && (
         <NoteSheet
           kind={noteEdit.kind}
@@ -2361,18 +2483,18 @@ function Report({
             <Chips options={CYCLES} value={r.cycle} onChange={(v) => set("cycle", v)} />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="One-year test">
+            <Field label="One-year test" id="req-test1" missing={missing.has("test1")}>
               <input className="input" placeholder="MM/YYYY" value={r.test1} onChange={(e) => set("test1", e.target.value)} />
             </Field>
-            <Field label="Five-year test">
+            <Field label={isCable ? "Five-year test" : "Five-year test (cable only)"} id="req-test5" missing={missing.has("test5")}>
               <input className="input" placeholder="MM/YYYY" value={r.test5} onChange={(e) => set("test5", e.target.value)} />
             </Field>
           </div>
           <Field label="Certificate issued" id="req-certIssue" missing={missing.has("certIssue")}>
-            <Chips options={CERT_ISSUE} value={r.certIssue} onChange={(v) => set("certIssue", v)} />
+            <Chips options={CERT_ISSUE} value={r.certIssue} onChange={pickCert} />
           </Field>
           <Field label="Temporary certificate of operation">
-            <Chips options={TEMP_CERT} value={r.tempCert || "No"} onChange={(v) => set("tempCert", v)} />
+            <Chips options={TEMP_CERT} value={r.tempCert || "No"} onChange={pickTemp} />
           </Field>
           <Field label="Condition" id="req-condition" missing={missing.has("condition")}>
             <Chips options={CONDITIONS} value={r.condition} onChange={pickCondition} />
@@ -2461,16 +2583,38 @@ function Report({
         </Glass>
 
         <SectionLabel>Carried over</SectionLabel>
+        <div id="req-details" className="scroll-mt-24" />
+        {needDetails.length > 0 && (
+          <Glass pad className={"mb-3 " + (missing.has("details") ? "ring-2 ring-danger/50" : "")}>
+            <p className={"text-[15px] font-semibold " + (missing.has("details") ? "text-danger" : "")}>
+              {needDetails.length} {needDetails.length === 1 ? "detail is" : "details are"} still blank for the state form
+            </p>
+            <p className="mt-1 text-sm text-ink-3">{needDetails.map((d) => d.label).join(", ")}</p>
+            <Button full className="mt-3" onClick={() => setFillDetails(true)}>
+              Fill them in
+            </Button>
+          </Glass>
+        )}
         <List>
+          {FORM_BASICS.map((b) => (
+            <InfoRow key={b.key} label={b.label}>
+              {elevator[b.key] || <span className={missing.has("details") ? "font-semibold text-danger" : ""}>— needed</span>}
+            </InfoRow>
+          ))}
           {elevator.carried.map((f) => (
             <InfoRow key={f.label} label={f.label}>
-              {f.value || "—"}
+              {f.value ||
+                (needDetails.some((d) => d.label === f.label) ? (
+                  <span className={missing.has("details") ? "font-semibold text-danger" : ""}>— needed</span>
+                ) : (
+                  "—"
+                ))}
             </InfoRow>
           ))}
         </List>
         <p className="mt-2 px-1 text-sm text-ink-3">
-          Locked on the report so nothing changes by accident. To fix one, go back to the elevator&apos;s profile → For
-          the state form → Edit.
+          Saved with the elevator, so every report has them. To change a filled-in one, go back to the elevator&apos;s
+          profile → For the state form → Edit.
         </p>
       </Screen>
 

@@ -51,6 +51,9 @@ export const COL = {
   // writeRow whenever Scheduling is set. A Calendly booking only counts if it was
   // made after this (src/lib/booking.ts).
   schedSentAt: 71,
+  // BU–BX: more state-form details (see src/lib/tech.ts) — boxes Robert fills on
+  // every report that the original AQ–BK set didn't cover.
+  natureOfBusiness: 72, hoistwayLocation: 73, deviceLocation: 74, ownerAttention: 75,
 } as const;
 export type Col = keyof typeof COL;
 
@@ -65,7 +68,7 @@ export function letter(i: number): string {
   for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
   return s;
 }
-const LAST = letter(COL.schedSentAt); // read this far to get every column the app uses
+const LAST = letter(COL.ownerAttention); // read this far to get every column the app uses
 
 // One trimmed cell from a row that was read from the sheet.
 export const cell = (row: string[], c: Col) => (row[COL[c]] ?? "").trim();

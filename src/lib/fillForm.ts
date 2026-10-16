@@ -96,7 +96,6 @@ const INSP_TYPE_CB: Record<string, string> = {
 // Robert's fixed inspector details — same on every report (from the handoff + rate card).
 const INSPECTOR = {
   name: "Robert Lassiter",
-  company: "Elite Elevator Inspections, LLC",
   qei: "C-5407",
   license: "40012",
 };
@@ -110,7 +109,14 @@ function parseDate(s?: string): Ymd | null {
   if (m) return { y: +m[3], mo: +m[1], d: +m[2] };
   return null;
 }
-const fmtDate = (o: Ymd) => `${o.mo}/${o.d}/${o.y}`;
+const pad = (n: number) => String(n).padStart(2, "0");
+// The form's formats, as Robert writes them: 10/12/2026 and 10/2028.
+const fmtDate = (o: Ymd) => `${pad(o.mo)}/${pad(o.d)}/${o.y}`;
+const fmtMonthYear = (o: Ymd) => `${pad(o.mo)}/${o.y}`;
+function addDays(o: Ymd, days: number): Ymd {
+  const d = new Date(Date.UTC(o.y, o.mo - 1, o.d + days));
+  return { y: d.getUTCFullYear(), mo: d.getUTCMonth() + 1, d: d.getUTCDate() };
+}
 
 export async function fillReport(templateBytes: Uint8Array, p: FinalizePayload): Promise<Uint8Array> {
   const doc = await PDFDocument.load(templateBytes, { updateMetadata: false });
@@ -128,6 +134,19 @@ export async function fillReport(templateBytes: Uint8Array, p: FinalizePayload):
   const check = (logical: string) => {
     const f = resolve(logical);
     if (f instanceof PDFCheckBox) f.check();
+  };
+  // A Yes/No pair that is ONE checkbox with two boxes on the form (Certificate
+  // issue, Temp): tick the box whose state is `state` ("Yes" or "No").
+  const tick = (logical: string, state: "Yes" | "No") => {
+    const f = resolve(logical);
+    if (!(f instanceof PDFCheckBox)) return;
+    // (pdf-lib's own setter only knows the first box's state, so set it by hand:
+    // the field's value, and each box shown on or off.)
+    const want = PDFName.of(state);
+    const boxes = f.acroField.getWidgets();
+    if (!boxes.some((w) => w.getOnValue() === want)) return; // no such box — leave it blank
+    f.acroField.dict.set(PDFName.of("V"), want);
+    for (const w of boxes) w.setAppearanceState(w.getOnValue() === want ? want : PDFName.of("Off"));
   };
   const pick = (logical: string, option: string) => {
     const f = resolve(logical);
@@ -153,6 +172,7 @@ export async function fillReport(templateBytes: Uint8Array, p: FinalizePayload):
   text("OKLA #", e.okla);
   text("LOC BLDG", e.building);
   text("EMAIL ADDRESS", e.email);
+  text("LOC ATTENTION", e.contact); // Robert puts the customer contact here too
   text("CONTACT PERSON", e.contact);
   text("CONTACT PHONE NUMBER", e.phone);
   pickByName("CITY_NAME", e.city);
@@ -173,17 +193,22 @@ export async function fillReport(templateBytes: Uint8Array, p: FinalizePayload):
 
   // fixed inspector details (same every report)
   text("INSPECTORS NAMES", INSPECTOR.name);
-  text("COMPANY NAME", INSPECTOR.company);
+  // "Company Name" by the signature is the CUSTOMER's company (as on Robert's own reports).
+  text("COMPANY NAME", e.account && e.account !== "Unassigned" ? e.account : e.building);
   text("QEI #", INSPECTOR.qei);
   text("OK St Lic #", INSPECTOR.license);
 
   // this visit
+  const temp = r.tempCert === "30 days" || r.tempCert === "60 days";
+  const issued = r.certIssue === "Yes";
   const dt = parseDate(r.date);
   if (dt) {
     text("DATE INSP", fmtDate(dt));
-    // certificate expiry = inspection date + cycle years (Res treated as 1)
+    // Certificate expiry (MO/YEAR): issued → inspection date + cycle years (Res
+    // treated as 1); temporary → + 30 or 60 days; neither (inactive…) → blank.
     const yrs = r.cycle === "Res" ? 1 : parseInt(r.cycle, 10) || 1;
-    text("CERT DATE", fmtDate({ ...dt, y: dt.y + yrs }));
+    if (issued) text("CERT DATE", fmtMonthYear({ ...dt, y: dt.y + yrs }));
+    else if (temp) text("CERT DATE", fmtMonthYear(addDays(dt, r.tempCert === "30 days" ? 30 : 60)));
   } else {
     text("DATE INSP", r.date);
   }
@@ -191,14 +216,15 @@ export async function fillReport(templateBytes: Uint8Array, p: FinalizePayload):
   text("LATEST TEST DATES FIVE  YEAR", r.test5);
   if (INSP_TYPE_CB[r.inspType]) check(INSP_TYPE_CB[r.inspType]);
   pick("Insp Cycle", r.cycle === "Res" ? "0" : r.cycle);
-  if (r.certIssue === "Yes") check("CERTIFICATE ISSUE YES NO");
-  // Temporary certificate of operation: "CERTIFICATE … TEMP: YES" plus the
-  // "TEMP CERT OF OPERATION □30 □60" choice at the top (the form calls its two
-  // options "Yes" = 30 and "No" = 60). "No" leaves both blank, like Issue.
-  if (r.tempCert === "30 days" || r.tempCert === "60 days") {
-    check("CERTIFICATE TEMP YESNO");
-    pick("Temp30/60", r.tempCert === "30 days" ? "Yes" : "No");
-  }
+  // Certificate ISSUE and TEMP are always ticked one way or the other. A
+  // temporary certificate also ticks "TEMP CERT OF OPERATION □30 □60" at the top
+  // (the form calls its two options "Yes" = 30 and "No" = 60).
+  if (r.certIssue === "Yes" || r.certIssue === "No") tick("CERTIFICATE ISSUE YES NO", r.certIssue);
+  tick("CERTIFICATE TEMP YESNO", temp ? "Yes" : "No");
+  if (temp) pick("Temp30/60", r.tempCert === "30 days" ? "Yes" : "No");
+  // Certificate goes TO the owner when a separate owner is listed, otherwise the
+  // location — only when there IS a certificate (none for inactive and the like).
+  if (issued || temp) check(carriedValue("Owner") ? "CERTIFICATE TO OWNER" : "CERTIFICATE TO LOCATION");
   if (r.condition === "No adverse conditions") check("NO ADVERSE CONDITIONS");
   if (r.condition === "Red Tag") check("RED TAG");
   if (r.condition === "Inactive") check("INACTIVE");
