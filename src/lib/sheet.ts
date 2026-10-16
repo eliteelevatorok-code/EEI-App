@@ -46,6 +46,11 @@ export const COL = {
   // BR–BS: the Calendly booking (see src/lib/booking.ts) — the booked time (ISO
   // UTC) and the Calendly event's address (to match a cancellation back).
   bookedAt: 69, bookingEvent: 70,
+  // BT: when this cycle's scheduling email went out — "sent <ISO UTC>" (the word
+  // keeps Sheets from turning it into a date). Written by Make (#8) and by
+  // writeRow whenever Scheduling is set. A Calendly booking only counts if it was
+  // made after this (src/lib/booking.ts).
+  schedSentAt: 71,
 } as const;
 export type Col = keyof typeof COL;
 
@@ -60,7 +65,7 @@ export function letter(i: number): string {
   for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
   return s;
 }
-const LAST = letter(COL.bookingEvent); // read this far to get every column the app uses
+const LAST = letter(COL.schedSentAt); // read this far to get every column the app uses
 
 // One trimmed cell from a row that was read from the sheet.
 export const cell = (row: string[], c: Col) => (row[COL[c]] ?? "").trim();
@@ -100,8 +105,18 @@ export async function requireElevatorRow(row: number, okla?: string): Promise<nu
 export class NoSuchRow extends Error {}
 
 // Write any number of cells on one row in a single request, by column name.
-export const writeRow = (row: number, values: Partial<Record<Col, string>>) =>
-  writeCells(Object.entries(values).map(([c, v]) => [`${TAB}!${letter(COL[c as Col])}${row}`, v ?? ""]));
+export const writeRow = (row: number, values: Partial<Record<Col, string>>) => {
+  // Setting Scheduling (by hand, the assistant, …) also stamps or clears when it was sent.
+  const v = { ...values };
+  if ("scheduling" in v && !("schedSentAt" in v)) v.schedSentAt = v.scheduling === "Sent" ? schedStamp() : "";
+  return writeCells(Object.entries(v).map(([c, x]) => [`${TAB}!${letter(COL[c as Col])}${row}`, x ?? ""]));
+};
+// "sent 2026-10-15T23:00:00Z" ↔ the moment.
+export const schedStamp = (d = new Date()) => `sent ${d.toISOString().replace(/\.\d+Z$/, "Z")}`;
+export const schedSentTime = (s: string) => {
+  const t = Date.parse(s.replace(/^sent\s+/, ""));
+  return Number.isNaN(t) ? null : t;
+};
 
 // Find the elevator whose link token matches. Used by the public pages opened
 // from emails (/po, /maint, /pay, /api/report). Null if the token is unknown.

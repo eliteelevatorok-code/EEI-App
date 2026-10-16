@@ -91,7 +91,7 @@ export async function bookingEventType(user: CalUser): Promise<CalEventType> {
   return t;
 }
 
-export type CalEvent = { uri: string; name: string; status: "active" | "canceled"; start_time: string; end_time: string; event_type: string };
+export type CalEvent = { uri: string; name: string; status: "active" | "canceled"; start_time: string; end_time: string; event_type: string; created_at: string };
 export function listEvents(user: CalUser, status: "active" | "canceled", minStart: Date): Promise<CalEvent[]> {
   const q = new URLSearchParams({ user: user.uri, status, min_start_time: minStart.toISOString(), sort: "start_time:asc", count: "100" });
   return all<CalEvent>(`/scheduled_events?${q}`);

@@ -1114,15 +1114,15 @@ const IN_PROGRESS = new Set(["Waiting", "Awaiting", "Booked", "Review", "No answ
 // green if not all of the things before it are green"), top to bottom:
 //   tl-done  green check — done (or doesn't apply to this elevator: "Not needed")
 //   tl-now   green ring  — started, waiting on someone (Waiting, Booked, …)
-//   tl-todo  gray        — not done yet
-//   tl-out   amber       — has a value although an earlier step is still empty
-//                          (a mix-up to look at, e.g. a stray booking)
+//   tl-todo  gray        — not done yet, or anything after a step that isn't
+//                          done (only possible by hand — Calendly bookings can't
+//                          land out of order, see src/lib/booking.ts)
 // "Invoice only" elevators have no quote or PO steps at all (they're hidden; see
 // the "Quote and PO first" switch on the elevator page). Steps that don't apply
 // count as done: the access
 // reminder once the visit is inspected without one; payment reminders once paid
 // (they're only ever needed when a bill is late, so they never hold others back).
-type StepLook = { look: "tl-done" | "tl-now" | "tl-todo" | "tl-out"; note: string };
+type StepLook = { look: "tl-done" | "tl-now" | "tl-todo"; note: string };
 function lifecycleLooks(e: Elevator): Map<string, StepLook> {
   const invoiceOnly = e.moneyPath === "Invoice only";
   const inspected = stage(e, "visit") === "Inspected";
@@ -1147,7 +1147,7 @@ function lifecycleLooks(e: Elevator): Map<string, StepLook> {
       }
       continue;
     }
-    if (gap) out.set(s.key, { look: "tl-out", note: `${s.value} · out of order` });
+    if (gap) out.set(s.key, { look: "tl-todo", note: s.value });
     else out.set(s.key, { look: IN_PROGRESS.has(s.value) ? "tl-now" : "tl-done", note: s.value });
   }
   return out;
@@ -1891,7 +1891,7 @@ function Profile({
             >
               <span className="tl-node">{state === "tl-done" && <CheckIcon />}</span>
               <span className={"flex-1 text-[15px] " + (state === "tl-todo" ? "text-ink-3" : "")}>{s.label}</span>
-              <span className={"text-right text-[13px] " + (state === "tl-out" ? "font-semibold text-warn" : "text-ink-2")}>
+              <span className="text-right text-[13px] text-ink-2">
                 {note}
                 {ft && <span className="block text-accent-ink">Fast track {whenText(ft)}</span>}
               </span>
@@ -1900,8 +1900,7 @@ function Profile({
         })}
       </Glass>
       <p className="mt-2 px-1 text-sm text-ink-3">
-        Green check = done · green ring = waiting on someone · gray = not yet · amber = filled in before an earlier
-        step. Tap a step to change it — you&apos;ll confirm before it saves. Report is set automatically once the
+        Green check = done · green ring = waiting on someone · gray = not yet. Tap a step to change it — you&apos;ll confirm before it saves. Report is set automatically once the
         finished report has been emailed.
       </p>
 

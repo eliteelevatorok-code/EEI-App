@@ -1,7 +1,7 @@
 import { writeCell } from "@/lib/google";
 import { toIsoDate } from "@/lib/records";
 import { LIFECYCLE_DEFS } from "@/lib/roster";
-import { FIRST_ROW, NoSuchRow, TAB, requireElevatorRow } from "@/lib/sheet";
+import { FIRST_ROW, NoSuchRow, TAB, requireElevatorRow, writeRow } from "@/lib/sheet";
 
 export const runtime = "nodejs";
 
@@ -40,7 +40,9 @@ export async function POST(req: Request) {
   }
   try {
     const at = await requireElevatorRow(row as number, body.okla); // the right elevator, even if rows moved
-    await writeCell(`${TAB}!${def.col}${at}`, value);
+    // Scheduling goes through writeRow so its "sent at" time is stamped/cleared too.
+    if (def.key === "scheduling") await writeRow(at, { scheduling: value });
+    else await writeCell(`${TAB}!${def.col}${at}`, value);
     return Response.json({ ok: true, col: def.col, row: at, value });
   } catch (err) {
     if (err instanceof NoSuchRow) return Response.json({ error: err.message }, { status: 404 });
