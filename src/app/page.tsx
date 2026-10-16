@@ -20,6 +20,7 @@ import { VHEAD, VIOLATIONS, parseViolation } from "@/lib/violations";
 import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from "@/lib/prefs";
 import { computeCycle, computePrice, formatPrice } from "@/lib/pricing";
 import { DEVICE_TYPE_CODE, ENTITY_TYPE_CODE, MACHINE_TYPE_CODE } from "@/lib/formCodes";
+import { inspectionBlocked } from "@/lib/inOrder";
 import { FORM_BASICS, TECH, TECH_KEYS, missingForForm, type BasicKey, type TechKey, type TechKind } from "@/lib/tech";
 import { DASHBOARD_URL } from "@/lib/dashboard";
 import {
@@ -90,6 +91,18 @@ function useRoster() {
 
 // One lifecycle cell's value on an elevator (e.g. stage(e, "visit") → "Booked").
 const stage = (e: Elevator, key: string) => e.lifecycle.find((s) => s.key === key)?.value ?? "";
+// Why this elevator's inspection can't start yet (a step before it isn't done), or null.
+const inspectWhy = (e: Elevator) =>
+  inspectionBlocked({
+    moneyPath: e.moneyPath,
+    twoMoEmail: stage(e, "twoMoEmail"),
+    quote: stage(e, "quote"),
+    po: stage(e, "po"),
+    maintConfirm: stage(e, "maintConfirm"),
+    scheduling: stage(e, "scheduling"),
+    visit: stage(e, "visit"),
+    report: stage(e, "report"),
+  });
 
 // "$1,175.50" → 1175.5; falls back to the rate card when the cell is empty.
 function priceOf(e: Elevator): number {
@@ -1159,10 +1172,11 @@ function lifecycleLooks(e: Elevator): Map<string, StepLook> {
   let gap = false;
   for (const s of e.lifecycle) {
     if (invoiceOnly && (s.key === "quote" || s.key === "po")) continue; // not shown
-    // The quote went out and the customer hasn't sent a PO yet: that's waiting
-    // on them (the visit can still be scheduled meanwhile), not a missing step.
-    if (s.key === "po" && !s.value && !invoiceOnly && stage(e, "quote") === "Sent") {
+    // The quote went out and the customer hasn't sent a PO yet: waiting on them —
+    // and, like any step not done, everything after it waits too.
+    if (s.key === "po" && (!s.value || s.value === "Awaiting") && !invoiceOnly && stage(e, "quote") === "Sent") {
       out.set(s.key, { look: gap ? "tl-todo" : "tl-now", note: gap ? "" : "Waiting for PO" });
+      gap = true;
       continue;
     }
     if (!s.value) {
@@ -1507,12 +1521,17 @@ function nextSteps(
 ): NextStep[] {
   const out: NextStep[] = [];
   const visit = stage(e, "visit");
+  // Only steps reached in order (everything before them done) get a card — a
+  // value set out of order means nothing until the steps before it are done.
+  const looks = lifecycleLooks(e);
+  const reached = (key: string) => looks.get(key)?.look !== "tl-todo";
+  const canInspect = inspectWhy(e) === null;
   const trip = stage(e, "tripDay");
   const call = (label: string, phone?: string) => (phone ? [{ label, href: `tel:${phone}` }] : []);
   const mail = (label: string, email?: string, subject?: string) =>
     email ? [{ label, href: `mailto:${email}${subject ? `?subject=${encodeURIComponent(subject)}` : ""}` }] : [];
 
-  if (visit === "Booked") {
+  if (visit === "Booked" && canInspect) {
     const today = daysUntil(trip) === 0;
     out.push({
       title: today ? "You're inspecting this today" : trip ? `Booked for ${humanDate(trip)}` : "A visit is booked",
@@ -1521,7 +1540,7 @@ function nextSteps(
       startsReport: true,
     });
   }
-  if (stage(e, "maintConfirm") === "Waiting") {
+  if (stage(e, "maintConfirm") === "Waiting" && reached("maintConfirm")) {
     // American Elevator is asked directly; for anyone else we asked the customer.
     const american = isAmerican(e.maintCo);
     const who = american ? e.maintCo || "American Elevator" : e.contact || "The customer";
@@ -1537,10 +1556,14 @@ function nextSteps(
       ],
     });
   }
-  if (visit === "Inspected" && stage(e, "report") !== "Sent") {
+  if (visit === "Inspected" && canInspect) {
     out.push(
       e.reportDone
-        ? { title: "Report is on its way", text: "The finished report goes to the customer and the state automatically within the hour.", actions: [] }
+        ? {
+            title: "Report is on its way",
+            text: "The finished report goes to the customer and the state at the next automatic check (every hour, 7am–6pm).",
+            actions: [],
+          }
         : {
             title: "The report isn't finished",
             text: "The visit is marked done, but no report has been finished for it — so nothing can be sent to the customer or the state yet.",
@@ -1549,7 +1572,7 @@ function nextSteps(
           },
     );
   }
-  if (e.safetyTest === "No" && visit !== "Inspected") {
+  if (e.safetyTest === "No" && visit !== "Inspected" && reached("maintConfirm")) {
     const american = isAmerican(e.maintCo);
     out.push({
       title: "No passing safety test",
@@ -1575,7 +1598,7 @@ function nextSteps(
       actions: [...call("Call customer", e.phone), ...mail("Email customer", e.email, `Scheduling the inspection at ${e.building}`)],
     });
   }
-  if (stage(e, "invoice") === "Sent" && stage(e, "paid") !== "Paid") {
+  if (stage(e, "invoice") === "Sent" && stage(e, "paid") !== "Paid" && reached("invoice")) {
     const reminder = stage(e, "followUps");
     out.push({
       title: "Waiting on payment",
@@ -1930,11 +1953,19 @@ function Profile({
           ))}
         </div>
       )}
-      {!steps.some((s) => s.startsReport) && (
-        <Button full variant={steps.length ? "secondary" : "primary"} onClick={onStartReport} className="mt-4">
-          Start inspection
-        </Button>
-      )}
+      {!steps.some((s) => s.startsReport) &&
+        (inspectWhy(e) === null ? (
+          <Button full variant={steps.length ? "secondary" : "primary"} onClick={onStartReport} className="mt-4">
+            Start inspection
+          </Button>
+        ) : (
+          <>
+            <Button full variant="secondary" disabled className="mt-4">
+              Start inspection
+            </Button>
+            <p className="mt-1.5 px-1 text-sm text-ink-3">Opens once the visit is booked — {inspectWhy(e)}.</p>
+          </>
+        ))}
       {/* The newest finished report, in Google Drive (only once there is one). */}
       {e.lastReport && (
         <a href={e.lastReport} target="_blank" rel="noopener noreferrer" className="btn btn-secondary mt-2.5 w-full">
@@ -2809,7 +2840,7 @@ function App() {
   let screen: React.ReactNode;
   if (stage === "new") {
     screen = <NewElevator onBack={() => to("tabs")} onCreated={(e) => to("report", e)} />;
-  } else if (stage === "profile" && live) {
+  } else if ((stage === "profile" || (stage === "report" && !!live && inspectWhy(live) !== null)) && live) {
     screen = (
       <Profile
         key={live.okla}

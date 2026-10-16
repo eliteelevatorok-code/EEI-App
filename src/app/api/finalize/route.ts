@@ -3,7 +3,8 @@ import path from "node:path";
 import { fillReport, type FinalizePayload } from "@/lib/fillForm";
 import { uploadFile } from "@/lib/google";
 import { findRowByOkla, markInspected, setReportFile } from "@/lib/roster";
-import { requireElevatorRow } from "@/lib/sheet";
+import { cell, readRow, requireElevatorRow } from "@/lib/sheet";
+import { inspectionBlocked } from "@/lib/inOrder";
 import { dispositionFor, reportFileName } from "@/lib/reportName";
 
 export const runtime = "nodejs";
@@ -35,6 +36,28 @@ export async function POST(req: Request) {
   e.carried = Array.isArray(e.carried) ? e.carried : [];
   r.added = Array.isArray(r.added) ? r.added : [];
   for (const k of ["inspType", "cycle", "test1", "test5", "certIssue", "condition", "notes"] as const) r[k] = String(r[k] ?? "");
+
+  // Every step before the inspection must be done (src/lib/inOrder.ts) — checked
+  // on the dashboard itself, so an out-of-order report is never made or sent.
+  try {
+    const at = e.row ? await requireElevatorRow(e.row, e.okla).catch(() => null) : await findRowByOkla(e.okla);
+    if (at) {
+      const rw = await readRow(at);
+      const why = inspectionBlocked({
+        moneyPath: cell(rw, "moneyPath"),
+        twoMoEmail: cell(rw, "twoMoEmail"),
+        quote: cell(rw, "quote"),
+        po: cell(rw, "po"),
+        maintConfirm: cell(rw, "maintConfirm"),
+        scheduling: cell(rw, "scheduling"),
+        visit: cell(rw, "visit"),
+        report: cell(rw, "report"),
+      });
+      if (why) return Response.json({ error: `Can't finish yet — ${why}. Every step before the inspection has to be done first.` }, { status: 409 });
+    }
+  } catch {
+    return Response.json({ error: "Couldn't check the dashboard just now — try again in a minute." }, { status: 502 });
+  }
 
   const templatePath = path.join(process.cwd(), "templates", "inspection-form.pdf");
   const templateBytes = new Uint8Array(await readFile(templatePath));
