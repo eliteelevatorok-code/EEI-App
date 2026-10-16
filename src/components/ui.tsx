@@ -163,10 +163,15 @@ export function Toggle({ on, onClick, label }: { on: boolean; onClick: () => voi
 }
 
 // Label above a form field.
-export function Field({ label, children }: { label: string; children: React.ReactNode }) {
+// `missing`: still needs filling in (Finish report was tapped) — the label turns
+// red and says so. `id`: so the screen can scroll to it.
+export function Field({ label, children, missing, id }: { label: string; children: React.ReactNode; missing?: boolean; id?: string }) {
   return (
-    <label className="mb-4 block last:mb-0">
-      <span className="field-label">{label}</span>
+    <label id={id} className="mb-4 block scroll-mt-24 last:mb-0">
+      <span className={cx("field-label", missing && "text-danger")}>
+        {label}
+        {missing && " — needed"}
+      </span>
       {children}
     </label>
   );
@@ -322,6 +327,15 @@ export function CheckIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" aria-hidden>
       <path d="m5 12 5 5 9-10" />
+    </svg>
+  );
+}
+
+export function ReloadIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+      <path d="M20 4v7h-7" />
     </svg>
   );
 }

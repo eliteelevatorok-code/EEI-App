@@ -73,4 +73,6 @@ export type Account = { name: string; units: Elevator[] };
 export const INSPECTION_TYPES = ["Initial", "Periodic", "Reinsp", "Follow-up", "Witness", "Alteration"];
 export const CYCLES = ["1", "2", "3", "Res"];
 export const CERT_ISSUE = ["Yes", "No"];
-export const CONDITIONS = ["No adverse conditions", "Red Tag", "Inactive", "Scrapped"];
+// "Violations found" ticks no box on the state form (the form only has boxes for
+// the other four); "No adverse conditions" means no violations at all.
+export const CONDITIONS = ["No adverse conditions", "Violations found", "Red Tag", "Inactive", "Scrapped"];

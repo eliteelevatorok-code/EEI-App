@@ -15,7 +15,6 @@ import {
   type AddedViolation,
   type Elevator,
   type LifecycleStage,
-  type LineKind,
 } from "@/lib/data";
 import { VHEAD, VIOLATIONS, parseViolation } from "@/lib/violations";
 import { FONT_SCALES, FONT_SCALE_LABELS, currentFontScale, saveFontScale } from "@/lib/prefs";
@@ -64,6 +63,7 @@ import {
   TopBar,
   buzz,
   go,
+  ReloadIcon,
 } from "@/components/ui";
 
 // All styling comes from the style guide (src/app/globals.css) and the pieces in
@@ -149,10 +149,14 @@ type ReportDraft = {
   test1: string;
   test5: string;
   certIssue: string;
+  tempCert?: string; // "No" | "30 days" | "60 days" (older drafts don't have it)
   condition: string;
   notes: string;
-  added: AddedViolation[];
+  added: AddedViolation[]; // violations from the list, each with an optional comment
+  recommendations?: string[]; // typed (older drafts don't have these)
+  comments?: string[];
 };
+const TEMP_CERT = ["No", "30 days", "60 days"];
 
 // "Save for later" keeps the draft on this phone under this key, one per elevator.
 const draftKey = (okla: string) => `eei_draft_${okla}`;
@@ -161,7 +165,16 @@ const draftKey = (okla: string) => `eei_draft_${okla}`;
 function loadDraft(okla: string): ReportDraft | null {
   try {
     const d = JSON.parse(localStorage.getItem(draftKey(okla)) || "null") as ReportDraft | null;
-    return d && Array.isArray(d.added) ? d : null;
+    if (!d || !Array.isArray(d.added)) return null;
+    // Older drafts could mark a list item as a recommendation or comment — those
+    // become typed recommendations / comments now.
+    const words = (a: AddedViolation) => [a.violation, a.comment].filter((x) => x?.trim()).join(" — ");
+    return {
+      ...d,
+      added: d.added.filter((a) => a.kind === "V"),
+      recommendations: [...(d.recommendations ?? []), ...d.added.filter((a) => a.kind === "R").map(words)],
+      comments: [...(d.comments ?? []), ...d.added.filter((a) => a.kind === "C").map(words)],
+    };
   } catch {
     return null;
   }
@@ -176,9 +189,12 @@ function freshReport(e: Elevator): ReportDraft {
     test1: e.lastYear.test1,
     test5: e.lastYear.test5,
     certIssue: e.lastYear.certIssue,
+    tempCert: "No",
     condition: e.lastYear.condition,
     notes: "",
     added: [],
+    recommendations: [],
+    comments: [],
   };
 }
 
@@ -2125,8 +2141,6 @@ function ViolationSheet({
   );
 }
 
-const KIND_LABEL: Record<LineKind, string> = { V: "Violation", R: "Recommend", C: "Comment" };
-const KINDS: LineKind[] = ["V", "R", "C"];
 
 function Report({
   elevator,
@@ -2148,15 +2162,33 @@ function Report({
   const [finished, setFinished] = useState<{ view: string } | null>(null);
 
   const set = <K extends keyof ReportDraft,>(k: K, v: ReportDraft[K]) => setR((p) => ({ ...p, [k]: v }));
+  // Every answer is kept on this phone as it's typed, so a reload (or the app
+  // closing) never loses it. Cleared once the report is finished and saved.
+  useEffect(() => {
+    if (finished) return;
+    try {
+      localStorage.setItem(draftKey(elevator.okla), JSON.stringify(r));
+    } catch {
+      /* storage may be unavailable */
+    }
+  }, [r, finished, elevator.okla]);
+  // "No adverse conditions" = no violations: picking it removes any (after asking
+  // once if there are some), and violations can't be added while it's picked.
+  const noAdverse = r.condition === "No adverse conditions";
+  const [confirmClear, setConfirmClear] = useState(false);
+  function pickCondition(v: string) {
+    if (v === "No adverse conditions" && r.added.length > 0) setConfirmClear(true);
+    else set("condition", v);
+  }
 
   const addedRaws = useMemo(() => new Set(r.added.map((a) => a.raw)), [r.added]);
   const tally = useMemo(
     () => ({
-      V: r.added.filter((a) => a.kind === "V").length,
-      R: r.added.filter((a) => a.kind === "R").length,
-      C: r.added.filter((a) => a.kind === "C").length,
+      V: r.added.length,
+      R: (r.recommendations ?? []).length,
+      C: (r.comments ?? []).length,
     }),
-    [r.added],
+    [r.added, r.recommendations, r.comments],
   );
 
   function toggleViolation(raw: string) {
@@ -2172,6 +2204,24 @@ function Report({
     });
   }
 
+  // A typed recommendation or comment: { kind, index } — index -1 = a new one.
+  const [noteEdit, setNoteEdit] = useState<{ kind: "R" | "C"; index: number } | null>(null);
+  const noteList = (k: "R" | "C") => (k === "R" ? (r.recommendations ?? []) : (r.comments ?? []));
+  function saveNote(k: "R" | "C", index: number, text: string | null) {
+    setR((p) => {
+      const list = [...(k === "R" ? (p.recommendations ?? []) : (p.comments ?? []))];
+      if (text === null) list.splice(index, 1);
+      else if (index < 0) list.push(text);
+      else list[index] = text;
+      return k === "R" ? { ...p, recommendations: list } : { ...p, comments: list };
+    });
+    setNoteEdit(null);
+  }
+  // Lines the state form will get (it has 36): each violation, each violation's
+  // comment, each recommendation, each comment.
+  const formLineCount =
+    r.added.length + r.added.filter((a) => a.comment.trim()).length + (r.recommendations ?? []).length + (r.comments ?? []).length;
+
   function setLine(raw: string, patch: Partial<AddedViolation>) {
     setR((p) => ({
       ...p,
@@ -2179,11 +2229,29 @@ function Report({
     }));
   }
 
+  // What Finish needs before it can build the report. Tapping Finish with any of
+  // these empty marks each one red ("— needed") and scrolls to the first.
+  const required: { key: string; label: string; empty: boolean }[] = [
+    { key: "date", label: "Date inspected", empty: !r.date },
+    { key: "inspType", label: "Inspection type", empty: !r.inspType },
+    { key: "cycle", label: "Inspection cycle", empty: !r.cycle },
+    { key: "certIssue", label: "Certificate issued", empty: !r.certIssue },
+    { key: "condition", label: "Condition", empty: !r.condition },
+    { key: "violations", label: "At least one violation", empty: r.condition === "Violations found" && r.added.length === 0 },
+    { key: "violations", label: "36 lines or fewer for the state form", empty: formLineCount > 36 },
+  ];
+  const [showMissing, setShowMissing] = useState(false);
+  const missing = new Set(showMissing ? required.filter((q) => q.empty).map((q) => q.key) : []);
+
   async function finalize() {
-    if (!r.date) {
-      setStatus("Add the inspection date before finishing.");
+    const gaps = required.filter((q) => q.empty);
+    if (gaps.length) {
+      setShowMissing(true);
+      setStatus(`Still needed: ${gaps.map((g) => g.label).join(", ")}.`);
+      document.getElementById(`req-${gaps[0].key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
+    setShowMissing(false);
     setBusy(true);
     setStatus("Building the report PDF…");
     try {
@@ -2245,6 +2313,31 @@ function Report({
   return (
     <>
       {sheet && <ViolationSheet addedRaws={addedRaws} onToggle={toggleViolation} onClose={() => setSheet(false)} />}
+      {noteEdit && (
+        <NoteSheet
+          kind={noteEdit.kind}
+          initial={noteEdit.index >= 0 ? noteList(noteEdit.kind)[noteEdit.index] : ""}
+          isNew={noteEdit.index < 0}
+          onClose={() => setNoteEdit(null)}
+          onSave={(t) => saveNote(noteEdit.kind, noteEdit.index, t)}
+          onDelete={() => saveNote(noteEdit.kind, noteEdit.index, null)}
+        />
+      )}
+      {confirmClear && (
+        <ConfirmDialog
+          danger
+          title="No adverse conditions?"
+          confirmLabel={`Remove ${tally.V} ${tally.V === 1 ? "violation" : "violations"}`}
+          onCancel={() => setConfirmClear(false)}
+          onConfirm={() => {
+            setR((p) => ({ ...p, condition: "No adverse conditions", added: [] }));
+            setConfirmClear(false);
+          }}
+        >
+          This report has {tally.V} {tally.V === 1 ? "violation" : "violations"}. Picking &quot;No adverse conditions&quot; removes
+          {tally.V === 1 ? " it" : " them"}.
+        </ConfirmDialog>
+      )}
 
       <Screen bottomSpace>
         <TopBar back={{ label: "Profile", onClick: onBack }} />
@@ -2258,13 +2351,13 @@ function Report({
 
         <SectionLabel>This visit</SectionLabel>
         <Glass pad>
-          <Field label="Date inspected">
+          <Field label="Date inspected" id="req-date" missing={missing.has("date")}>
             <input type="date" className="input" value={r.date} onChange={(e) => set("date", e.target.value)} />
           </Field>
-          <Field label="Inspection type">
+          <Field label="Inspection type" id="req-inspType" missing={missing.has("inspType")}>
             <Chips options={INSPECTION_TYPES} value={r.inspType} onChange={(v) => set("inspType", v)} />
           </Field>
-          <Field label="Inspection cycle">
+          <Field label="Inspection cycle" id="req-cycle" missing={missing.has("cycle")}>
             <Chips options={CYCLES} value={r.cycle} onChange={(v) => set("cycle", v)} />
           </Field>
           <div className="grid grid-cols-2 gap-3">
@@ -2275,25 +2368,45 @@ function Report({
               <input className="input" placeholder="MM/YYYY" value={r.test5} onChange={(e) => set("test5", e.target.value)} />
             </Field>
           </div>
-          <Field label="Certificate issued">
+          <Field label="Certificate issued" id="req-certIssue" missing={missing.has("certIssue")}>
             <Chips options={CERT_ISSUE} value={r.certIssue} onChange={(v) => set("certIssue", v)} />
           </Field>
-          <Field label="Condition">
-            <Chips options={CONDITIONS} value={r.condition} onChange={(v) => set("condition", v)} />
+          <Field label="Temporary certificate of operation">
+            <Chips options={TEMP_CERT} value={r.tempCert || "No"} onChange={(v) => set("tempCert", v)} />
+          </Field>
+          <Field label="Condition" id="req-condition" missing={missing.has("condition")}>
+            <Chips options={CONDITIONS} value={r.condition} onChange={pickCondition} />
           </Field>
         </Glass>
 
         <SectionLabel>Findings</SectionLabel>
-        <Glass pad>
+        <Glass pad className={missing.has("violations") ? "ring-2 ring-danger/50" : ""}>
+          <div id="req-violations" className="scroll-mt-24" />
+          {missing.has("violations") && (
+            <p className="mb-3 text-sm font-semibold text-danger">&quot;Violations found&quot; is picked — add at least one violation.</p>
+          )}
+          {/* The three counters are the buttons: violations open the list; a
+              recommendation or comment opens a box to type it in. */}
           <div className="grid grid-cols-3 gap-2.5">
-            <Tally n={tally.V} label="Violations" tone="text-danger" />
-            <Tally n={tally.R} label="Recommend" tone="text-warn" />
-            <Tally n={tally.C} label="Comments" tone="text-ink-2" />
+            <Tally n={tally.V} label="Violations" tone="text-danger" onClick={() => setSheet(true)} disabled={noAdverse} />
+            <Tally n={tally.R} label="Recommend" tone="text-warn" onClick={() => setNoteEdit({ kind: "R", index: -1 })} />
+            <Tally n={tally.C} label="Comments" tone="text-ink-2" onClick={() => setNoteEdit({ kind: "C", index: -1 })} />
           </div>
-          {r.added.length === 0 && <p className="mt-4 text-center text-sm text-ink-3">None added yet.</p>}
-          <div className="mt-3 flex flex-col gap-3">
+          {noAdverse && (
+            <p className="mt-2 text-center text-sm text-ink-3">
+              &quot;No adverse conditions&quot; is picked — pick &quot;Violations found&quot; above to add violations.
+            </p>
+          )}
+          {formLineCount > 36 && (
+            <p className="mt-2 text-sm font-semibold text-danger">
+              The state form has 36 lines — this report needs {formLineCount}. Remove or combine some.
+            </p>
+          )}
+
+          {r.added.length > 0 && <div className="mt-5 text-sm font-medium text-ink-2">Violations</div>}
+          <div className="mt-2 flex flex-col gap-3">
             {r.added.map((a) => (
-              <div key={a.raw} className={"finding " + (a.kind !== "V" ? "finding-" + a.kind : "")}>
+              <div key={a.raw} className="finding">
                 <div className="flex items-start gap-3 px-3.5 pt-3">
                   <p className="flex-1 text-[15px] leading-snug">{a.violation}</p>
                   <button onClick={() => toggleViolation(a.raw)} className="text-sm font-semibold text-danger">
@@ -2304,28 +2417,35 @@ function Report({
                 <textarea
                   className="w-full resize-none bg-fill px-3.5 py-2.5 text-[15px] outline-none placeholder:text-ink-3"
                   rows={2}
-                  placeholder="Comment (optional)"
+                  placeholder="Comment on this violation (optional)"
                   value={a.comment}
                   onChange={(e) => setLine(a.raw, { comment: e.target.value })}
                 />
-                <div className="flex flex-wrap gap-2 px-3 py-2.5">
-                  {KINDS.map((k) => (
+              </div>
+            ))}
+          </div>
+
+          {(["R", "C"] as const).map((k) =>
+            noteList(k).length > 0 ? (
+              <div key={k}>
+                <div className="mt-5 text-sm font-medium text-ink-2">{k === "R" ? "Recommendations" : "Comments"}</div>
+                <div className="mt-2 flex flex-col gap-2.5">
+                  {noteList(k).map((t, i) => (
                     <button
-                      key={k}
-                      onClick={() => setLine(a.raw, { kind: k })}
-                      className={"chip py-1.5 text-[13px] " + (a.kind === k ? "chip-on" : "")}
+                      key={i}
+                      onClick={() => setNoteEdit({ kind: k, index: i })}
+                      className={"finding finding-" + k + " px-3.5 py-3 text-left text-[15px] leading-snug"}
                     >
-                      {KIND_LABEL[k]}
+                      {t}
                     </button>
                   ))}
                 </div>
               </div>
-            ))}
-          </div>
-          <Button variant="soft" full onClick={() => setSheet(true)} className="mt-4">
-            <PlusIcon />
-            Add from the list
-          </Button>
+            ) : null,
+          )}
+          {r.added.length + tally.R + tally.C === 0 && (
+            <p className="mt-4 text-center text-sm text-ink-3">None added yet — tap a counter above.</p>
+          )}
         </Glass>
 
         <SectionLabel>Field notes</SectionLabel>
@@ -2381,12 +2501,66 @@ function Report({
   );
 }
 
-function Tally({ n, label, tone }: { n: number; label: string; tone: string }) {
+function Tally({ n, label, tone, onClick, disabled }: { n: number; label: string; tone: string; onClick: () => void; disabled?: boolean }) {
   return (
-    <div className="rounded-control bg-fill py-2.5 text-center">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded-control bg-fill py-2.5 text-center transition-transform active:scale-95 disabled:opacity-40"
+      aria-label={`${label}: ${n} — tap to add`}
+    >
       <div className={"text-2xl font-bold tabular-nums tracking-tight " + tone}>{n}</div>
       <div className="text-xs text-ink-2">{label}</div>
-    </div>
+      <div className="mt-0.5 text-[11px] font-semibold text-accent-ink">+ Add</div>
+    </button>
+  );
+}
+
+// Type a recommendation or comment for the report (it prints as its own line on
+// the state form). Tapping an existing one reopens it to change or delete.
+function NoteSheet({
+  kind,
+  initial,
+  isNew,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  kind: "R" | "C";
+  initial: string;
+  isNew: boolean;
+  onClose: () => void;
+  onSave: (text: string) => void;
+  onDelete: () => void;
+}) {
+  const [text, setText] = useState(initial);
+  const what = kind === "R" ? "recommendation" : "comment";
+  return (
+    <Sheet onClose={onClose}>
+      <h3 className="text-[21px] font-bold tracking-tight">{isNew ? `Add a ${what}` : `Change ${what}`}</h3>
+      <textarea
+        className="input mt-4 min-h-28 resize-y"
+        placeholder={kind === "R" ? "e.g. Replace worn hoist ropes within the year" : "e.g. Machine room was clean and well lit"}
+        value={text}
+        maxLength={300}
+        onChange={(e) => setText(e.target.value)}
+        autoFocus
+      />
+      <div className="mt-5 flex flex-col gap-2.5">
+        <Button full onClick={() => onSave(text.trim())} disabled={!text.trim()}>
+          Save
+        </Button>
+        {!isNew && (
+          <Button variant="secondary" full onClick={onDelete}>
+            Delete it
+          </Button>
+        )}
+        <Button variant="secondary" full onClick={onClose}>
+          Cancel
+        </Button>
+      </div>
+    </Sheet>
   );
 }
 
@@ -2417,19 +2591,29 @@ function App() {
   // Where each tab was scrolled to, so coming back from an elevator lands you
   // where you were in the list.
   const scrollSpots = useRef<Record<string, number>>({});
-  // A phone alert deep-links here as /?open=<okla>: open that elevator once the
-  // list is available, then forget it so Back doesn't re-open it.
-  const [openOkla, setOpenOkla] = useState(() =>
-    typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("open") || "",
-  );
-  if (openOkla && roster.accounts) {
-    const hit = roster.accounts.flatMap((a) => a.units).find((u) => u.okla === openOkla);
+  // The address bar always says which screen is open (?tab=… plus &open=<okla>
+  // for an elevator, &report=<okla> for its report — see the effect below), so a
+  // reload — or a phone alert linking to /?open=<okla> — lands on that screen
+  // once the list is available.
+  const [openAt, setOpenAt] = useState(() => {
+    const q = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
+    return { okla: q?.get("report") || q?.get("open") || "", report: !!q?.get("report") };
+  });
+  if (openAt.okla && roster.accounts) {
+    const hit = roster.accounts.flatMap((a) => a.units).find((u) => u.okla === openAt.okla);
+    setOpenAt({ okla: "", report: false });
     if (hit) {
-      setOpenOkla("");
       setSelected(hit);
-      setStage("profile");
+      setStage(openAt.report ? "report" : "profile");
     }
   }
+  useEffect(() => {
+    if (openAt.okla) return; // still waiting to open the screen from the address
+    const q = new URLSearchParams({ tab });
+    if ((stage === "profile" || stage === "report") && selected) q.set(stage === "report" ? "report" : "open", selected.okla);
+    const url = `${window.location.pathname}?${q}`;
+    if (url !== window.location.pathname + window.location.search) window.history.replaceState(null, "", url);
+  }, [tab, stage, selected, openAt.okla]);
 
   const logout = () => signOut({ redirectUrl: "/sign-in" });
 
@@ -2509,6 +2693,15 @@ function App() {
   return (
     <>
       {screen}
+      {/* Reload, opposite the assistant button — comes back to this same screen. */}
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        className={"reload-fab glass-strong " + (showTabs ? "ask-fab-tabs" : stage === "report" ? "ask-fab-bar" : "")}
+        aria-label="Reload"
+      >
+        <ReloadIcon />
+      </button>
       <AssistantButton
         context={(stage === "profile" || stage === "report") && live ? { okla: live.okla, building: live.building } : null}
         lift={showTabs ? "tabs" : stage === "report" ? "bar" : "none"}

@@ -630,6 +630,23 @@
   .ask-fab:active {
     transform: scale(0.92);
   }
+  /* The reload button: same size and height as the assistant button, on the left. */
+  .reload-fab {
+    position: fixed;
+    left: max(1rem, calc(50vw - 13.5rem));
+    bottom: calc(1.25rem + env(safe-area-inset-bottom));
+    z-index: 45;
+    display: grid;
+    place-items: center;
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 999px;
+    color: var(--color-accent-ink);
+    transition: transform 200ms var(--ease-standard);
+  }
+  .reload-fab:active {
+    transform: scale(0.92);
+  }
   .ask-fab-tabs {
     bottom: calc(5.4rem + env(safe-area-inset-bottom)); /* above the tab bar */
   }
