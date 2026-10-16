@@ -1117,7 +1117,9 @@ const IN_PROGRESS = new Set(["Waiting", "Awaiting", "Booked", "Review", "No answ
 //   tl-todo  gray        — not done yet
 //   tl-out   amber       — has a value although an earlier step is still empty
 //                          (a mix-up to look at, e.g. a stray booking)
-// Steps that don't apply count as done: quote + PO on "Invoice only"; the access
+// "Invoice only" elevators have no quote or PO steps at all (they're hidden; see
+// the "Quote and PO first" switch on the elevator page). Steps that don't apply
+// count as done: the access
 // reminder once the visit is inspected without one; payment reminders once paid
 // (they're only ever needed when a bill is late, so they never hold others back).
 type StepLook = { look: "tl-done" | "tl-now" | "tl-todo" | "tl-out"; note: string };
@@ -1125,12 +1127,12 @@ function lifecycleLooks(e: Elevator): Map<string, StepLook> {
   const invoiceOnly = e.moneyPath === "Invoice only";
   const inspected = stage(e, "visit") === "Inspected";
   const paid = stage(e, "paid") === "Paid";
-  const notNeeded = (key: string) =>
-    ((key === "quote" || key === "po") && invoiceOnly) || (key === "accessReminder" && inspected) || (key === "followUps" && paid);
+  const notNeeded = (key: string) => (key === "accessReminder" && inspected) || (key === "followUps" && paid);
   const optional = (key: string) => key === "followUps" || key === "newTimer";
   const out = new Map<string, StepLook>();
   let gap = false;
   for (const s of e.lifecycle) {
+    if (invoiceOnly && (s.key === "quote" || s.key === "po")) continue; // not shown
     // The quote went out and the customer hasn't sent a PO yet: that's waiting
     // on them (the visit can still be scheduled meanwhile), not a missing step.
     if (s.key === "po" && !s.value && !invoiceOnly && stage(e, "quote") === "Sent") {
@@ -1710,6 +1712,32 @@ function Profile({
   const steps = nextSteps(e, onStartReport, () => setEnteringSafety(true));
   const looks = lifecycleLooks(e);
   const [swStep, setSwStep] = useState<null | "pause1" | "pause2" | "resume">(null);
+  // "Quote and PO first" — the elevator's billing type (on = quote + PO before the
+  // visit, off = invoice only). Each way asks once more before it saves.
+  const quotePO = e.moneyPath !== "Invoice only";
+  const [qpStep, setQpStep] = useState<null | boolean>(null); // the value being confirmed
+  const [qpBusy, setQpBusy] = useState(false);
+  const [qpErr, setQpErr] = useState("");
+  async function setQuotePO(next: boolean) {
+    setQpBusy(true);
+    setQpErr("");
+    try {
+      const r = await fetch("/api/switches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: "quotePO", row: e.row, okla: e.okla, on: next }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(d.error || "Save failed");
+      buzz();
+      onChange({ ...e, moneyPath: next ? "Quote to PO to invoice" : "Invoice only" });
+      setQpStep(null);
+    } catch (err) {
+      setQpErr(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setQpBusy(false);
+    }
+  }
   const [swBusy, setSwBusy] = useState(false);
   const [swErr, setSwErr] = useState("");
   const closeSw = () => { setSwStep(null); setSwErr(""); };
@@ -1849,8 +1877,8 @@ function Profile({
 
       <SectionLabel>Customer lifecycle</SectionLabel>
       <Glass className="px-4 py-1.5">
-        {e.lifecycle.map((s) => {
-          const { look: state, note } = looks.get(s.key) ?? { look: "tl-todo", note: s.value };
+        {e.lifecycle.filter((s) => looks.has(s.key)).map((s) => {
+          const { look: state, note } = looks.get(s.key)!;
           const fk = fastStepForStage(s.key);
           const ft = fk ? fastTimes[fk] : undefined;
           return (
@@ -1920,7 +1948,31 @@ function Profile({
           </div>
           <Toggle label="Automatic steps" on={swOn} onClick={() => setSwStep(swOn ? "pause1" : "resume")} />
         </div>
+        <div className="row justify-between">
+          <div>
+            <div className="text-[15px]">Quote and PO first</div>
+            <div className="text-sm text-ink-3">
+              {quotePO ? "Price quote email and purchase order before the visit" : "Invoice only — no quote or PO"}
+            </div>
+          </div>
+          <Toggle label="Quote and PO first" on={quotePO} onClick={() => { setQpErr(""); setQpStep(!quotePO); }} />
+        </div>
       </List>
+      {qpStep !== null && (
+        <ConfirmDialog
+          title={qpStep ? `Quote and PO for ${e.building}?` : `Make ${e.building} invoice only?`}
+          confirmLabel={qpStep ? "Turn on" : "Make invoice only"}
+          busyLabel="Saving…"
+          busy={qpBusy}
+          error={qpErr}
+          onCancel={() => setQpStep(null)}
+          onConfirm={() => setQuotePO(qpStep)}
+        >
+          {qpStep
+            ? "The price quote email and the purchase order step come back for this elevator."
+            : "The price quote email and the purchase order step go away for this elevator — it's billed after the visit."}
+        </ConfirmDialog>
+      )}
       {swErr && !swStep && <p className="mt-2 px-1 text-sm font-semibold text-danger">{swErr}</p>}
 
       {/* pausing takes two confirmations; resuming takes one */}
