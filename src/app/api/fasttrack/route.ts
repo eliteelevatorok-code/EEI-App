@@ -53,6 +53,7 @@ export async function POST(req: Request) {
         moneyPath: cell(r, "moneyPath"),
         twoMoEmail: cell(r, "twoMoEmail"),
         quote: cell(r, "quote"),
+        po: cell(r, "po"),
         maintConfirm: cell(r, "maintConfirm"),
         scheduling: cell(r, "scheduling"),
         accessReminder: cell(r, "accessReminder"),

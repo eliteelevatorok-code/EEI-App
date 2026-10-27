@@ -1,4 +1,4 @@
-import { FAST_ORDER, FAST_STEPS } from "@/lib/fasttrack";
+import { FAST_ORDER, FAST_STEPS, type FastStepKey } from "@/lib/fasttrack";
 import { FAST_COL, cell, readRows, type Col } from "@/lib/sheet";
 import { isRowPaused } from "@/lib/switches";
 
@@ -25,8 +25,27 @@ export function isNormalCheck(now = new Date()): boolean {
   return hour >= 7 && hour <= 18 && minute < 15;
 }
 
-// A fast-tracked step is due: its time has come and the step hasn't gone yet
-// (the automation clears the time once it sends the step).
+// The step before each fast-trackable step is done (the automation won't send
+// a step before that — src/lib/inOrder.ts), so a fast track that's still
+// waiting on an earlier step doesn't wake the automation every 15 minutes.
+function readyFor(r: string[], k: FastStepKey): boolean {
+  const moneyDone = cell(r, "moneyPath") === "Invoice only" || (cell(r, "quote") === "Sent" && ["Received", "N/A"].includes(cell(r, "po")));
+  switch (k) {
+    case "heads-up":
+      return true;
+    case "quote":
+      return cell(r, "twoMoEmail") === "Sent";
+    case "safety":
+      return cell(r, "twoMoEmail") === "Sent" && moneyDone;
+    case "scheduling":
+      return cell(r, "twoMoEmail") === "Sent" && moneyDone && !!cell(r, "maintConfirm");
+    case "access":
+      return cell(r, "scheduling") === "Sent" && cell(r, "visit") === "Booked";
+  }
+}
+
+// A fast-tracked step is due: its time has come, the step before it is done,
+// and it hasn't gone yet (the automation clears the time once it sends it).
 export async function fastTrackDue(now = new Date()): Promise<boolean> {
   const rows = await readRows();
   return rows.some(
@@ -36,7 +55,7 @@ export async function fastTrackDue(now = new Date()): Promise<boolean> {
       FAST_ORDER.some((k) => {
         const t = Date.parse(cell(r, FAST_COL[k]));
         const done = cell(r, FAST_STEPS[k].stage as Col);
-        return Number.isFinite(t) && t <= now.getTime() && (k === "safety" ? !done : done !== "Sent");
+        return Number.isFinite(t) && t <= now.getTime() && (k === "safety" ? !done : done !== "Sent") && readyFor(r, k);
       }),
   );
 }

@@ -40,7 +40,7 @@ export const COL = {
   // report" button. Unlike reportFile (AO), the yearly reset never clears it.
   lastReport: 63,
   // BM–BQ: fast track — each pre-visit step's own early time (ISO UTC, stored as
-  // plain text). The automation sends that step at the first hourly run after
+  // plain text). The automation sends that step at the first check (every 15 min) after
   // its time and clears just that cell. See src/lib/fasttrack.ts.
   ftHeadsUp: 64, ftQuote: 65, ftSafety: 66, ftScheduling: 67, ftAccess: 68,
   // BR–BS: the Calendly booking (see src/lib/booking.ts) — the booked time (ISO

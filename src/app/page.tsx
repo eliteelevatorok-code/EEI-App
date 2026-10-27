@@ -1211,6 +1211,7 @@ const fastInputs = (e: Elevator): FastInputs => ({
   moneyPath: e.moneyPath ?? "",
   twoMoEmail: stage(e, "twoMoEmail"),
   quote: stage(e, "quote"),
+  po: stage(e, "po"),
   maintConfirm: stage(e, "maintConfirm"),
   scheduling: stage(e, "scheduling"),
   accessReminder: stage(e, "accessReminder"),
@@ -1987,7 +1988,7 @@ function Profile({
               </button>
             ))}
           </div>
-          <p className="mt-1 text-sm text-ink-3">Each goes at the first automatic check after its time. Tap one to change it.</p>
+          <p className="mt-1 text-sm text-ink-3">Each goes within 15 minutes of its time, any hour. Tap one to change it.</p>
         </Glass>
       )}
       {"step" in fastNext ? (

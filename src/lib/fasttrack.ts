@@ -1,13 +1,13 @@
 // FAST TRACK, per step. Each of the five automatic pre-visit steps can be given
 // its OWN date and time (tap the step in the elevator's Customer lifecycle list,
 // pick a time, Save, "Are you sure?"). The app saves it in that step's column
-// (BM–BQ, ISO UTC). At the first hourly automation run after that time, the step
+// (BM–BQ, ISO UTC). Within 15 minutes after that time (any hour — see tick.ts), the step
 // goes regardless of its usual due-date window, and the automation clears just
 // that step's time (see archive/break-testing/fast-track-per-step.js).
 //
 // Order and spacing: a step's time must be at least an hour from now AND at
 // least an hour after the step before it — so a whole chain can be set at once
-// (8am, 9am, 10am…), one step per hourly run at the most. A step can only be
+// (8am, 9am, 10am…), one step per check at the most. A step can only be
 // fast-tracked once every earlier step has gone or has its own time (otherwise
 // it would just sit waiting for that earlier step).
 //
@@ -38,6 +38,7 @@ export type FastInputs = {
   moneyPath: string;
   twoMoEmail: string;
   quote: string;
+  po: string;
   maintConfirm: string;
   scheduling: string;
   accessReminder: string;
@@ -61,6 +62,10 @@ function stepState(v: FastInputs, k: FastStepKey): StepState {
       break;
     case "safety":
       if (v.maintConfirm) return { s: "sent" };
+      // Every step waits for the one before it (src/lib/inOrder.ts): with a
+      // quote, the customer's purchase order has to be in first.
+      if (v.moneyPath !== "Invoice only" && v.po !== "Received" && v.po !== "N/A")
+        return { s: "blocked", why: "The purchase order (PO) has to come in first (or mark it N/A) — the safety test question waits for it." };
       break;
     case "scheduling":
       if (v.scheduling === "Sent") return { s: "sent" };
