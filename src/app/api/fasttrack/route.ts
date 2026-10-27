@@ -1,5 +1,5 @@
 import { writeCells } from "@/lib/google";
-import { FAST_ORDER, FAST_STEPS, fastCancelSet, fastWindow, type FastStepKey, type FastTimes } from "@/lib/fasttrack";
+import { FAST_ORDER, FAST_STEPS, fastCancelSet, fastWindow, onQuarterHour, type FastStepKey, type FastTimes } from "@/lib/fasttrack";
 import { COL, FAST_COL, FIRST_ROW, NoSuchRow, TAB, cell, letter, readRow, requireElevatorRow } from "@/lib/sheet";
 
 export const runtime = "nodejs";
@@ -68,6 +68,8 @@ export async function POST(req: Request) {
     const when = new Date(String(body.at ?? ""));
     const ms = when.getTime();
     if (Number.isNaN(ms)) return Response.json({ error: "Pick a date and time." }, { status: 400 });
+    if (!onQuarterHour(when))
+      return Response.json({ error: "Pick a time on the quarter hour (:00, :15, :30 or :45) — that's when the automation checks." }, { status: 400 });
     if (ms < win.min) {
       const prev = FAST_ORDER.slice(0, FAST_ORDER.indexOf(step)).reverse().find((k) => times[k]);
       const why = prev && new Date(times[prev]!).getTime() + 3_600_000 >= win.min

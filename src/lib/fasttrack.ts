@@ -80,6 +80,12 @@ function stepState(v: FastInputs, k: FastStepKey): StepState {
 }
 
 export const FAST_MIN_LEAD_MS = 60 * 60 * 1000; // at least an hour out, and an hour between steps
+// The automation checks on the quarter hour (:00, :15, :30, :45 — see tick.ts),
+// so a fast-track time can only be one of those: the step goes at that time.
+export const FAST_STEP_MIN = 15;
+export const onQuarterHour = (d: Date) => !d.getUTCSeconds() && !d.getUTCMilliseconds() && d.getUTCMinutes() % FAST_STEP_MIN === 0;
+// The first quarter-hour at or after `ms`.
+export const upToQuarterHour = (ms: number) => Math.ceil(ms / (FAST_STEP_MIN * 60_000)) * FAST_STEP_MIN * 60_000;
 export const FAST_MAX_LEAD_MS = 366 * 24 * 60 * 60 * 1000;
 const t = (iso?: string) => (iso ? new Date(iso).getTime() : NaN);
 

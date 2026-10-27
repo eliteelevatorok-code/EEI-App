@@ -25,6 +25,7 @@ import { FORM_BASICS, TECH, TECH_KEYS, missingForForm, type BasicKey, type TechK
 import { DASHBOARD_URL } from "@/lib/dashboard";
 import {
   FAST_MIN_LEAD_MS,
+  upToQuarterHour,
   FAST_ORDER,
   FAST_STEPS,
   fastCancelSet,
@@ -1245,16 +1246,11 @@ function FastTrackSheet({
   const now = useNow();
   // The allowed range, ignoring this step's own old time.
   const win = fastWindow(fastInputs(e), { ...times, [step]: undefined }, step, now);
-  // Default: the time already set, or the first whole hour the rules allow —
-  // moved to 7am if that falls outside the automation's 7am–6pm checks.
-  const [start] = useState(() => {
-    if (current) return new Date(current);
-    const d = new Date("min" in win ? win.min : Date.now() + FAST_MIN_LEAD_MS);
-    if (d.getMinutes() || d.getSeconds() || d.getMilliseconds()) d.setHours(d.getHours() + 1, 0, 0, 0);
-    if (d.getHours() > 18) d.setDate(d.getDate() + 1);
-    if (d.getHours() < 7 || d.getHours() > 18) d.setHours(7, 0, 0, 0);
-    return d;
-  });
+  // Default: the time already set, or the first quarter hour the rules allow
+  // (the automation checks every quarter hour, any time of day).
+  const [start] = useState(() =>
+    new Date(upToQuarterHour(current ? new Date(current).getTime() : "min" in win ? win.min : Date.now() + FAST_MIN_LEAD_MS)),
+  );
   const [date, setDate] = useState(localDate(start));
   const [time, setTime] = useState(localTime(start));
   const [mode, setMode] = useState<"edit" | "confirm" | "cancel">("edit");
@@ -1343,8 +1339,8 @@ function FastTrackSheet({
                 Set for <span className="font-semibold text-ink">{whenText(current)}</span>.{" "}
               </>
             ) : null}
-            Sends {FAST_STEPS[step].what} early. The automation checks once an hour (7am–6pm), so it goes at the
-            first check after the time you pick. Each step needs at least an hour after the one before it.
+            Sends {FAST_STEPS[step].what} early, at the time you pick — any time of day, on the quarter hour (the
+            automation checks at :00, :15, :30 and :45). Each step needs at least an hour after the one before it.
           </p>
           {"none" in win ? (
             <p className="text-sm font-semibold text-danger">{win.none}</p>
@@ -1352,7 +1348,20 @@ function FastTrackSheet({
             <>
               <div className="flex gap-2.5">
                 <input type="date" className="input flex-1" value={date} min={localDate(new Date(win.min))} onChange={(ev) => setDate(ev.target.value)} />
-                <input type="time" className="input flex-1" value={time} onChange={(ev) => setTime(ev.target.value)} />
+                <select className="input flex-1" aria-label="Hour" value={time.slice(0, 2)} onChange={(ev) => setTime(ev.target.value + time.slice(2))}>
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={String(h).padStart(2, "0")}>
+                      {h % 12 || 12} {h < 12 ? "AM" : "PM"}
+                    </option>
+                  ))}
+                </select>
+                <select className="input w-24" aria-label="Minute" value={time.slice(3, 5)} onChange={(ev) => setTime(time.slice(0, 3) + ev.target.value)}>
+                  {["00", "15", "30", "45"].map((m) => (
+                    <option key={m} value={m}>
+                      :{m}
+                    </option>
+                  ))}
+                </select>
               </div>
               {problem && <p className="mt-2 text-sm font-semibold text-danger">{problem}</p>}
             </>
