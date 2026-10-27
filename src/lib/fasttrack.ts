@@ -62,10 +62,6 @@ function stepState(v: FastInputs, k: FastStepKey): StepState {
       break;
     case "safety":
       if (v.maintConfirm) return { s: "sent" };
-      // Every step waits for the one before it (src/lib/inOrder.ts): with a
-      // quote, the customer's purchase order has to be in first.
-      if (v.moneyPath !== "Invoice only" && v.po !== "Received" && v.po !== "N/A")
-        return { s: "blocked", why: "The purchase order (PO) has to come in first (or mark it N/A) — the safety test question waits for it." };
       break;
     case "scheduling":
       if (v.scheduling === "Sent") return { s: "sent" };

@@ -1173,11 +1173,10 @@ function lifecycleLooks(e: Elevator): Map<string, StepLook> {
   let gap = false;
   for (const s of e.lifecycle) {
     if (invoiceOnly && (s.key === "quote" || s.key === "po")) continue; // not shown
-    // The quote went out and the customer hasn't sent a PO yet: waiting on them —
-    // and, like any step not done, everything after it waits too.
+    // The quote went out and the customer hasn't sent a PO yet: waiting on them.
+    // The PO is out of our hands, so it doesn't hold up the steps after it.
     if (s.key === "po" && (!s.value || s.value === "Awaiting") && !invoiceOnly && stage(e, "quote") === "Sent") {
       out.set(s.key, { look: gap ? "tl-todo" : "tl-now", note: gap ? "" : "Waiting for PO" });
-      gap = true;
       continue;
     }
     if (!s.value) {

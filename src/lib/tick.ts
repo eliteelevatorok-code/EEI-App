@@ -29,7 +29,8 @@ export function isNormalCheck(now = new Date()): boolean {
 // a step before that — src/lib/inOrder.ts), so a fast track that's still
 // waiting on an earlier step doesn't wake the automation every 15 minutes.
 function readyFor(r: string[], k: FastStepKey): boolean {
-  const moneyDone = cell(r, "moneyPath") === "Invoice only" || (cell(r, "quote") === "Sent" && ["Received", "N/A"].includes(cell(r, "po")));
+  // The PO is the customer's and holds nothing up — only the quote email going out.
+  const moneyDone = cell(r, "moneyPath") === "Invoice only" || cell(r, "quote") === "Sent";
   switch (k) {
     case "heads-up":
       return true;
