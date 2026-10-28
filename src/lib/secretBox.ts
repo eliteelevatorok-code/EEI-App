@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 
 // Encrypts the QuickBooks sign-in (refresh token + company id) before it's saved
 // in the dashboard's Config tab, as Intuit's security rules require (AES, with
-// the key kept apart from the stored data).
+// the key kept apart from the stored data). Since 2026-10-28 the other secrets
+// in Config are scrambled the same way (see SECRET in config.ts).
 //
 // The key is derived from the app's Google robot private key — already a secret
 // on the server (GOOGLE_SERVICE_ACCOUNT_JSON) and on this computer

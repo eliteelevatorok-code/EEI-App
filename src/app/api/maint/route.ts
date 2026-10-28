@@ -1,4 +1,5 @@
 import { findForMaint, recordMaint } from "@/lib/maint";
+import { MAINT_CLOSED } from "@/lib/oldLinks";
 import { checkSafetyDate } from "@/lib/records";
 
 export const runtime = "nodejs";
@@ -15,6 +16,7 @@ export async function GET(req: Request) {
     maintCo: el.maintCo,
     alreadyResult: el.alreadyResult,
     alreadyDate: el.alreadyDate,
+    closed: !el.open,
   });
 }
 
@@ -40,6 +42,8 @@ export async function POST(req: Request) {
   if (bad) return Response.json({ error: bad }, { status: 400 });
   const el = await findForMaint(String(body.token ?? ""));
   if (!el) return Response.json({ error: "This link isn't recognized." }, { status: 404 });
+  // A link from an earlier cycle's question (the link code never changes).
+  if (!el.open) return Response.json({ error: MAINT_CLOSED }, { status: 409 });
   try {
     await recordMaint(el.row, result, result === "Yes" ? date : "");
   } catch {

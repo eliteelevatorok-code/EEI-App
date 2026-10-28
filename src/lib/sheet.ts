@@ -137,11 +137,18 @@ export async function findByToken(token: string): Promise<{ row: number; cells: 
 // automation run (/api/switches/master); the automation's emails that carry a
 // link also wait for the token, so a hand-typed elevator never gets a dead link.
 // One caller only, so two runs can't hand the same row different tokens.
+//
+// Same pass: an Active cell typed as "off", "OFF", " Off " … is rewritten as
+// exactly "Off". The app treats any of those as paused, but the automation's
+// filters only match "Off" exactly — so without this, a hand-typed "off" would
+// pause the app's side while the automation kept sending (Robert, 2026-10-28).
 export async function fillMissingTokens(): Promise<number> {
   const rows = await readRows();
   const cells: [string, string][] = [];
   rows.forEach((r, i) => {
     if (cell(r, "okla") && !cell(r, "token")) cells.push([`${TAB}!${letter(COL.token)}${FIRST_ROW + i}`, randomBytes(16).toString("hex")]);
+    const active = r[COL.active] ?? "";
+    if (active !== "Off" && active.trim().toLowerCase() === "off") cells.push([`${TAB}!${letter(COL.active)}${FIRST_ROW + i}`, "Off"]);
   });
   await writeCells(cells);
   return cells.length;

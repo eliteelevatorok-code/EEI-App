@@ -13,6 +13,10 @@ export type MaintElevator = {
   maintCo: string;
   alreadyResult: string;
   alreadyDate: string;
+  // This cycle's safety-test question has gone out (Maint. confirm is set). The
+  // link code never changes, so last year's link still finds the elevator — but
+  // after the yearly reset it must not answer (and so skip) this year's question.
+  open: boolean;
 };
 
 export async function findForMaint(token: string): Promise<MaintElevator | null> {
@@ -26,6 +30,7 @@ export async function findForMaint(token: string): Promise<MaintElevator | null>
     maintCo: cell(r, "maintCo"),
     alreadyResult: cell(r, "safetyTest"),
     alreadyDate: cell(r, "safetyTestDate"),
+    open: !!cell(r, "maintConfirm"),
   };
 }
 

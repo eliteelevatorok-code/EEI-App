@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button, Field, Notice, PublicPage } from "@/components/ui";
+import { PO_CLOSED } from "@/lib/oldLinks";
 
-type Info = { building: string; okla: string; alreadyPO?: string; invoiced?: boolean };
+type Info = { building: string; okla: string; alreadyPO?: string; invoiced?: boolean; closed?: boolean };
 
 // The "Send us your PO" screen. The customer sees only their building name, a PO
 // box, and an optional attach button. Submitting drops the PO into the dashboard row.
@@ -67,6 +68,8 @@ export default function PoForm({ token }: { token: string }) {
   }
   if (loadErr) return <PublicPage title="Link not found">{loadErr}</PublicPage>;
   if (!info) return <PublicPage><p className="text-center text-sm text-ink-3">Loading…</p></PublicPage>;
+
+  if (info.closed) return <PublicPage title="This link has expired">{PO_CLOSED}</PublicPage>;
 
   if (done) {
     return (

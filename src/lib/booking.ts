@@ -80,6 +80,10 @@ export async function syncBookings(): Promise<{ booked: string[]; cancelled: str
     if (cell(r, "visit") === "Booked") {
       set(i, "visit", "");
       set(i, "tripDay", "");
+      // The access reminder was for the cancelled day: clear it (and any fast
+      // track of it) so a new booking gets its own reminder (Robert, 2026-10-28).
+      set(i, "accessReminder", "");
+      set(i, "ftAccess", "");
       out.cancelled.push(cell(r, "building"));
       r[COL.visit] = "";
     }

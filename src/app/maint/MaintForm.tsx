@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { Button, Field, Notice, PublicPage } from "@/components/ui";
 import { APRIL, WHERE_TO_FIND, isoToday, safetyAnswer, toIsoDate } from "@/lib/records";
+import { MAINT_CLOSED } from "@/lib/oldLinks";
 
-type Info = { building: string; okla: string; maintCo?: string; alreadyResult?: string; alreadyDate?: string };
+type Info = { building: string; okla: string; maintCo?: string; alreadyResult?: string; alreadyDate?: string; closed?: boolean };
 
 // The records form, opened from the "Records needed" email (sent to American
 // Elevator, or straight to the customer for other maintenance companies — see
@@ -79,6 +80,8 @@ export default function MaintForm({ token }: { token: string }) {
   }
   if (loadErr) return <PublicPage title="Link not found">{loadErr}</PublicPage>;
   if (!info) return <PublicPage><p className="text-center text-sm text-ink-3">Loading…</p></PublicPage>;
+
+  if (info.closed) return <PublicPage title="This link has expired">{MAINT_CLOSED}</PublicPage>;
 
   if (done) {
     return (

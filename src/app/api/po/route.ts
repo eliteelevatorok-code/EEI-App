@@ -1,5 +1,6 @@
 import { uploadFile } from "@/lib/google";
 import { findForPO, recordPO } from "@/lib/po";
+import { PO_CLOSED } from "@/lib/oldLinks";
 
 export const runtime = "nodejs";
 
@@ -13,7 +14,7 @@ export async function GET(req: Request) {
   const token = new URL(req.url).searchParams.get("t") ?? "";
   const el = await findForPO(token);
   if (!el) return Response.json({ error: "not-found" }, { status: 404 });
-  return Response.json({ building: el.building, okla: el.okla, alreadyPO: el.alreadyPO, invoiced: el.invoiced });
+  return Response.json({ building: el.building, okla: el.okla, alreadyPO: el.alreadyPO, invoiced: el.invoiced, closed: !el.open });
 }
 
 // POST (multipart form): token, po, optional file → writes the PO into the row
@@ -35,6 +36,8 @@ export async function POST(req: Request) {
 
   const el = await findForPO(token);
   if (!el) return Response.json({ error: "This link isn't recognized." }, { status: 404 });
+  // A link from an earlier cycle's quote (the link code never changes).
+  if (!el.open) return Response.json({ error: PO_CLOSED }, { status: 409 });
   // Once the invoice has gone out with a PO on it, the link can't change it.
   if (el.invoiced && el.alreadyPO && el.alreadyPO !== po) {
     return Response.json({ error: "Your invoice has already gone out with PO " + el.alreadyPO + ". To change it, please reply to our email or call (405) 213-9779." }, { status: 409 });

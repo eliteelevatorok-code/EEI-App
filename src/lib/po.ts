@@ -4,7 +4,10 @@ import { cell, findByToken, writeRow } from "@/lib/sheet";
 // /po?t=<token>; the token is the only thing that identifies the elevator.
 
 // invoiced: the invoice has gone out (it carries the PO) — after that the PO can't be changed from the link.
-export type POElevator = { row: number; okla: string; building: string; account: string; alreadyPO: string; invoiced: boolean };
+// open: this cycle's quote email has gone out. The link code never changes, so a
+// link from last year's quote still finds the elevator — but after the yearly
+// reset it must not drop an old PO into the new cycle.
+export type POElevator = { row: number; okla: string; building: string; account: string; alreadyPO: string; invoiced: boolean; open: boolean };
 
 export async function findForPO(token: string): Promise<POElevator | null> {
   const hit = await findByToken(token);
@@ -17,6 +20,7 @@ export async function findForPO(token: string): Promise<POElevator | null> {
     account: cell(r, "account") || "Unassigned",
     alreadyPO: cell(r, "poNumber"),
     invoiced: cell(r, "invoice") === "Sent",
+    open: cell(r, "quote") === "Sent",
   };
 }
 
