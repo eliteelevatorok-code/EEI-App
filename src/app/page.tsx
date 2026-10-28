@@ -39,7 +39,7 @@ import {
 } from "@/lib/fasttrack";
 import { APRIL, WHERE_TO_FIND, checkSafetyDate, isAmerican, isoToday, toIsoDate } from "@/lib/records";
 import { formLines } from "@/lib/formLines";
-import { failed, monthYearProblem, typeMonthYear } from "@/lib/reportRules";
+import { monthYearProblem, noCertificate, noDueDate, typeMonthYear } from "@/lib/reportRules";
 import { AssistantButton } from "@/components/Assistant";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
@@ -1970,6 +1970,13 @@ function Profile({
           Last report
         </a>
       )}
+      {/* The dashboard's Notes — including each finished report's field notes. */}
+      {e.notes?.trim() && (
+        <Glass pad className="mt-2.5">
+          <div className="text-sm font-medium text-ink-2">Notes</div>
+          <p className="mt-1 whitespace-pre-wrap text-[15px] leading-snug">{e.notes.trim()}</p>
+        </Glass>
+      )}
 
       {/* Fast track: the steps already set (tap one to change or cancel it), and a
           shortcut to the next step that still needs a time. Each step can also be
@@ -2289,10 +2296,10 @@ function Report({
 
   const set = <K extends keyof ReportDraft,>(k: K, v: ReportDraft[K]) => setR((p) => ({ ...p, [k]: v }));
   // A temporary certificate means no certificate is issued (as on Robert's own
-  // reports), so picking one sets the other. Red Tag / Scrapped means no
-  // certificate of either kind, so picking a certificate clears that condition
+  // reports), so picking one sets the other. Red Tag / Scrapped / Inactive means
+  // no certificate of either kind, so picking a certificate clears that condition
   // (to be picked again) — only one of fail or pass can be on (Robert, 2026-10-28).
-  const clearFailed = (c: string) => (failed(c) ? "" : c);
+  const clearFailed = (c: string) => (noCertificate(c) ? "" : c);
   function pickCert(v: string) {
     setR((p) => ({ ...p, certIssue: v, tempCert: v === "Yes" ? "No" : p.tempCert, condition: v === "Yes" ? clearFailed(p.condition) : p.condition }));
   }
@@ -2321,8 +2328,8 @@ function Report({
   const [confirmClear, setConfirmClear] = useState(false);
   function pickCondition(v: string) {
     if (v === "No adverse conditions" && r.added.length > 0) setConfirmClear(true);
-    // Red Tag / Scrapped: no certificate of either kind.
-    else if (failed(v)) setR((p) => ({ ...p, condition: v, certIssue: "No", tempCert: "No" }));
+    // Red Tag / Scrapped / Inactive: no certificate of either kind.
+    else if (noCertificate(v)) setR((p) => ({ ...p, condition: v, certIssue: "No", tempCert: "No" }));
     else set("condition", v);
   }
 
@@ -2391,8 +2398,8 @@ function Report({
     { key: "condition", label: "Condition", empty: !r.condition },
     {
       key: "condition",
-      label: "Red Tag / Scrapped can't have a certificate",
-      empty: failed(r.condition) && (r.certIssue === "Yes" || (!!r.tempCert && r.tempCert !== "No")),
+      label: `${r.condition} can't have a certificate`,
+      empty: noCertificate(r.condition) && (r.certIssue === "Yes" || (!!r.tempCert && r.tempCert !== "No")),
     },
     { key: "violations", label: "At least one violation", empty: r.condition === "Violations found" && r.added.length === 0 },
     { key: "violations", label: "36 lines or fewer for the state form", empty: formLineCount > 36 },
@@ -2549,8 +2556,10 @@ function Report({
           </Field>
           <Field label="Condition" id="req-condition" missing={missing.has("condition")}>
             <Chips options={CONDITIONS} value={r.condition} onChange={pickCondition} />
-            {failed(r.condition) && (
-              <p className="mt-2 text-sm text-ink-3">{r.condition}: no certificate, and no next due date is set.</p>
+            {noCertificate(r.condition) && (
+              <p className="mt-2 text-sm text-ink-3">
+                {r.condition}: no certificate{noDueDate(r.condition) ? ", and no next due date is set" : ""}.
+              </p>
             )}
           </Field>
         </Glass>
@@ -2626,7 +2635,7 @@ function Report({
 
         <SectionLabel>Field notes</SectionLabel>
         <Glass pad>
-          <Field label="Anything to fix on the computer later">
+          <Field label="Anything to fix on the computer later (saved to the elevator's notes, not printed on the report)">
             <textarea
               className="input min-h-24 resize-y"
               placeholder="Owner changed hands, serial on file is wrong, new gate code…"

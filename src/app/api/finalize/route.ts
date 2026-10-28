@@ -6,7 +6,7 @@ import { findRowByOkla, markInspected, setReportFile } from "@/lib/roster";
 import { NoSuchRow, cell, readRow, requireElevatorRow } from "@/lib/sheet";
 import { inspectionBlocked } from "@/lib/inOrder";
 import { dispositionFor, reportFileName } from "@/lib/reportName";
-import { failed, monthYearProblem } from "@/lib/reportRules";
+import { monthYearProblem, noCertificate, noDueDate } from "@/lib/reportRules";
 
 export const runtime = "nodejs";
 
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     const bad = r[k].trim() && monthYearProblem(r[k]);
     if (bad) return Response.json({ error: `${name}: ${bad}.` }, { status: 400 });
   }
-  if (failed(r.condition) && (r.certIssue === "Yes" || (r.tempCert && r.tempCert !== "No"))) {
+  if (noCertificate(r.condition) && (r.certIssue === "Yes" || (r.tempCert && r.tempCert !== "No"))) {
     return Response.json({ error: `${r.condition} can't have a certificate — set Certificate issued to No.` }, { status: 400 });
   }
 
@@ -54,6 +54,7 @@ export async function POST(req: Request) {
   // skipped check.
   let sheetRow: number | null;
   let dueNow = "";
+  let notesNow = "";
   try {
     sheetRow = e.row
       ? await requireElevatorRow(e.row, e.okla).catch((err) => {
@@ -64,6 +65,7 @@ export async function POST(req: Request) {
     if (!sheetRow) return Response.json({ error: `OK # ${e.okla} isn't on the dashboard, so its report can't be finished.` }, { status: 404 });
     const rw = await readRow(sheetRow);
     dueNow = cell(rw, "due");
+    notesNow = cell(rw, "notes");
     const why = inspectionBlocked({
       moneyPath: cell(rw, "moneyPath"),
       twoMoEmail: cell(rw, "twoMoEmail"),
@@ -93,7 +95,7 @@ export async function POST(req: Request) {
   // passes: inspection date + its cycle in years — the same date the automation
   // sets when the cycle restarts (it keeps a blank one blank).
   let due: string | undefined;
-  if (failed(r.condition)) due = "";
+  if (noDueDate(r.condition)) due = "";
   else if (!dueNow.trim()) {
     const md = dateText.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     const years = /res/i.test(r.cycle) ? 1 : Math.max(1, parseInt(r.cycle, 10) || 1);
@@ -104,7 +106,13 @@ export async function POST(req: Request) {
   // failing never blocks the other or loses the finished PDF.
   let writeback = "ok";
   try {
-    await markInspected(sheetRow, dateText, due);
+    // The report's field notes are added to the elevator's Notes (dashboard col
+    // AF, shown on its profile), dated — they're never printed on the report.
+    const note = r.notes.trim() ? `${dateText}: ${r.notes.trim()}` : "";
+    await markInspected(sheetRow, dateText, {
+      ...(due === undefined ? {} : { due }),
+      ...(note && !notesNow.includes(note) ? { notes: notesNow.trim() ? `${notesNow.trim()}\n${note}` : note } : {}),
+    });
   } catch (err) {
     writeback = "failed: " + (err instanceof Error ? err.message : "unknown");
   }

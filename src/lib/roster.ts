@@ -72,6 +72,7 @@ function rowToElevator(r: string[], row: number): Elevator {
     active: !isRowPaused(r),
     reportDone: !!cell(r, "reportFile"),
     lastReport: cell(r, "lastReport") || cell(r, "reportFile"),
+    notes: cell(r, "notes"),
     fastTrack: Object.fromEntries(FAST_ORDER.filter((k) => cell(r, FAST_COL[k])).map((k) => [k, cell(r, FAST_COL[k])])),
     row, // the sheet row, so later writes land on the right line
     lifecycle: LIFECYCLE_DEFS.map((d): LifecycleStage => ({
@@ -159,13 +160,13 @@ export async function setTechDetails(row: number, values: Partial<Record<TechKey
 // Leave Report alone: the automation's "Report filed" step (route 6) waits for
 // Visit = Inspected AND Report ≠ Sent, emails the report to the customer and
 // ODOL, and only then sets Report = Sent — which is what starts billing.
-// `due`: a new next due date, when the report changes it ("" clears it).
-export async function markInspected(row: number, dateText: string, due?: string): Promise<void> {
+// `extra`: other cells the finished report changes (next due date, notes).
+export async function markInspected(row: number, dateText: string, extra: Partial<Record<Col, string>> = {}): Promise<void> {
   // The visit happened, so any fast track waiting is moot.
   await writeRow(row, {
     visit: "Inspected",
     tripDay: dateText,
-    ...(due === undefined ? {} : { due }),
+    ...extra,
     ...Object.fromEntries(FAST_ORDER.map((k) => [FAST_COL[k], ""])),
   });
 }

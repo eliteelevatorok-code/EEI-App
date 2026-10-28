@@ -21,7 +21,8 @@ export const COL = {
   // the customer lifecycle (S–AE), one status cell per stage
   twoMoEmail: 18, quote: 19, po: 20, scheduling: 21, maintConfirm: 22, accessReminder: 23,
   visit: 24, tripDay: 25, report: 26, invoice: 27, followUps: 28, paid: 29, newTimer: 30,
-  // notes (AF) and the sheet's own "Next action" formula (AG) — the app doesn't write these
+  // notes (AF; a finished report adds its field notes) and the sheet's own
+  // "Next action" formula (AG — the app never writes it)
   notes: 31, nextAction: 32,
   // app/automation bookkeeping (AH–AP), then the state-form details (AQ–BK)
   token: 33, // random code in every emailed link (/po, /maint, /pay) — the only "login" those pages use

@@ -3,9 +3,11 @@ import { isoToday } from "@/lib/records";
 // Rules for a finished report, checked on the report screen and again by the
 // server when it builds the PDF, so both always agree.
 
-// A red-tagged or scrapped elevator fails: no certificate (full or temporary),
-// and no next due date (Robert, 2026-10-28).
-export const failed = (condition: string) => condition === "Red Tag" || condition === "Scrapped";
+// No certificate (full or temporary) for a red-tagged, scrapped or inactive
+// elevator — only when none of those is picked (Robert, 2026-10-28).
+export const noCertificate = (condition: string) => condition === "Red Tag" || condition === "Scrapped" || condition === "Inactive";
+// No next due date for a red-tagged or scrapped one.
+export const noDueDate = (condition: string) => condition === "Red Tag" || condition === "Scrapped";
 
 // A test date typed as MM/YYYY. Digits only, the slash goes in by itself, and it
 // stops at 6 digits (a box that took any number of digits printed

@@ -52,6 +52,7 @@ export type Elevator = {
   moneyPath?: string; // col Q
   active?: boolean; // the on/off switch (col AL); false = paused
   fastTrack?: FastTimes; // cols BM–BQ: each pre-visit step's early time (ISO), if set — see fasttrack.ts
+  notes?: string; // the dashboard's Notes (col AF); a finished report's field notes are added here
   lastReport?: string; // Drive link to the newest finished report (col BL, never cleared)
   reportDone?: boolean; // a finished report is saved for this visit (col AO holds its Drive link; cleared each new cycle)
   row?: number; // the dashboard sheet row this came from (for write-back)
