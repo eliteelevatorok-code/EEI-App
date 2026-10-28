@@ -171,6 +171,7 @@ function AssistantPanel({ context, onClose }: { context: AskContext; onClose: ()
 
   async function post(body: Record<string, unknown>, optimistic: Msg[]) {
     const id = chat.id; // the chat this reply belongs to, even if the person switches away
+    const before = pending; // a change card waiting on Confirm — put back if this fails
     setBusy(true);
     setError("");
     setArmed(false);
@@ -180,6 +181,7 @@ function AssistantPanel({ context, onClose }: { context: AskContext; onClose: ()
         "/api/assistant",
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, context }) },
         70_000, // the server allows itself 60s (maxDuration in api/assistant/route.ts), plus a little for the trip
+        !!body.resume, // only a Confirm / Cancel changes anything
       );
       const data = (await res.json().catch(() => ({}))) as {
         messages?: Msg[];
@@ -191,9 +193,10 @@ function AssistantPanel({ context, onClose }: { context: AskContext; onClose: ()
         buzz();
         void refreshRoster(); // every screen shows the change
       }
-      saveChat(id, data.messages ?? optimistic, data.pending ?? null);
+      saveChat(id, data.messages ?? optimistic, data.pending ?? (res.ok ? null : before));
       if (!res.ok) setError(data.error || "The assistant couldn't answer. Try again.");
     } catch (e) {
+      saveChat(id, optimistic, before); // so Confirm can be tapped again
       setError(e instanceof Error ? e.message : "Couldn't reach the assistant — check your signal and try again.");
     } finally {
       setBusy(false);

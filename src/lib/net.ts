@@ -13,8 +13,10 @@ const SLOW_READ = "That's taking too long — check your signal and try again.";
 export const SLOW_SAVE = "No answer in time — it may still have saved. Reload to check before trying again.";
 
 // fetch, but gives up after `ms` (default 30s) — counting the whole answer, not
-// just its first bytes. Throws an Error whose message is ready to show.
-export async function call(url: string, init: RequestInit = {}, ms = 30_000): Promise<Response> {
+// just its first bytes. Throws an Error whose message is ready to show. `save`:
+// does this request change something? (Decides what a timeout says; by default
+// anything but a GET does.)
+export async function call(url: string, init: RequestInit = {}, ms = 30_000, save?: boolean): Promise<Response> {
   const stop = new AbortController();
   const timer = setTimeout(() => stop.abort(), ms);
   try {
@@ -23,8 +25,8 @@ export async function call(url: string, init: RequestInit = {}, ms = 30_000): Pr
     const empty = [204, 205, 304].includes(res.status); // these may not carry a body
     return new Response(empty ? null : body, { status: res.status, statusText: res.statusText, headers: res.headers });
   } catch {
-    const save = (init.method ?? "GET").toUpperCase() !== "GET";
-    throw new Error(stop.signal.aborted ? (save ? SLOW_SAVE : SLOW_READ) : OFFLINE_MSG);
+    const changes = save ?? (init.method ?? "GET").toUpperCase() !== "GET";
+    throw new Error(stop.signal.aborted ? (changes ? SLOW_SAVE : SLOW_READ) : OFFLINE_MSG);
   } finally {
     clearTimeout(timer);
   }

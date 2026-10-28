@@ -3,7 +3,7 @@ import path from "node:path";
 import { fillReport, type FinalizePayload } from "@/lib/fillForm";
 import { uploadFile } from "@/lib/google";
 import { findRowByOkla, markInspected, setReportFile } from "@/lib/roster";
-import { cell, readRow, requireElevatorRow } from "@/lib/sheet";
+import { NoSuchRow, cell, readRow, requireElevatorRow } from "@/lib/sheet";
 import { inspectionBlocked } from "@/lib/inOrder";
 import { dispositionFor, reportFileName } from "@/lib/reportName";
 
@@ -37,24 +37,33 @@ export async function POST(req: Request) {
   r.added = Array.isArray(r.added) ? r.added : [];
   for (const k of ["inspType", "cycle", "test1", "test5", "certIssue", "condition", "notes"] as const) r[k] = String(r[k] ?? "");
 
-  // Every step before the inspection must be done (src/lib/inOrder.ts) — checked
-  // on the dashboard itself, so an out-of-order report is never made or sent.
+  // Find the elevator's row — the one the phone sent if it still holds this
+  // elevator (rows shift when the sheet is edited), otherwise by OK # — and check
+  // every step before the inspection is done (src/lib/inOrder.ts), on the
+  // dashboard itself, so an out-of-order report is never made or sent. Only "no
+  // such elevator" counts as not found; a busy Google is a "try again", never a
+  // skipped check.
+  let sheetRow: number | null;
   try {
-    const at = e.row ? await requireElevatorRow(e.row, e.okla).catch(() => null) : await findRowByOkla(e.okla);
-    if (at) {
-      const rw = await readRow(at);
-      const why = inspectionBlocked({
-        moneyPath: cell(rw, "moneyPath"),
-        twoMoEmail: cell(rw, "twoMoEmail"),
-        quote: cell(rw, "quote"),
-        po: cell(rw, "po"),
-        maintConfirm: cell(rw, "maintConfirm"),
-        scheduling: cell(rw, "scheduling"),
-        visit: cell(rw, "visit"),
-        report: cell(rw, "report"),
-      });
-      if (why) return Response.json({ error: `Can't finish yet — ${why}. Every step before the inspection has to be done first.` }, { status: 409 });
-    }
+    sheetRow = e.row
+      ? await requireElevatorRow(e.row, e.okla).catch((err) => {
+          if (err instanceof NoSuchRow) return null;
+          throw err;
+        })
+      : await findRowByOkla(e.okla);
+    if (!sheetRow) return Response.json({ error: `OK # ${e.okla} isn't on the dashboard, so its report can't be finished.` }, { status: 404 });
+    const rw = await readRow(sheetRow);
+    const why = inspectionBlocked({
+      moneyPath: cell(rw, "moneyPath"),
+      twoMoEmail: cell(rw, "twoMoEmail"),
+      quote: cell(rw, "quote"),
+      po: cell(rw, "po"),
+      maintConfirm: cell(rw, "maintConfirm"),
+      scheduling: cell(rw, "scheduling"),
+      visit: cell(rw, "visit"),
+      report: cell(rw, "report"),
+    });
+    if (why) return Response.json({ error: `Can't finish yet — ${why}. Every step before the inspection has to be done first.` }, { status: 409 });
   } catch {
     return Response.json({ error: "Couldn't check the dashboard just now — try again in a minute." }, { status: 502 });
   }
@@ -63,7 +72,7 @@ export async function POST(req: Request) {
   const templateBytes = new Uint8Array(await readFile(templatePath));
   const pdf = await fillReport(templateBytes, payload);
 
-  const { okla, row, account, building } = payload.elevator;
+  const { okla, account, building } = payload.elevator;
   const dateText = displayDate(payload.report.date);
   // "Lawton City: Oct 9, 2026 (TV Civic center).pdf" — see reportName.ts.
   const fileName = reportFileName(account ?? "", dateText, building ?? "", okla ?? "");
@@ -71,13 +80,8 @@ export async function POST(req: Request) {
   // Flip the dashboard cells and save the PDF to Drive independently, so one
   // failing never blocks the other or loses the finished PDF.
   let writeback = "ok";
-  let sheetRow: number | null = null;
   try {
-    // Use the row the phone sent, but only if it still holds this elevator (rows
-    // shift if the sheet is edited); otherwise find it by OK #.
-    sheetRow = row ? await requireElevatorRow(row, okla).catch(() => null) : okla ? await findRowByOkla(okla) : null;
-    if (sheetRow) await markInspected(sheetRow, dateText);
-    else writeback = "no-matching-row";
+    await markInspected(sheetRow, dateText);
   } catch (err) {
     writeback = "failed: " + (err instanceof Error ? err.message : "unknown");
   }
@@ -87,7 +91,7 @@ export async function POST(req: Request) {
   try {
     driveLink = await uploadFile(fileName, pdf, "application/pdf", account);
     // Keep the report's Drive link on the row (col AO) so the file is easy to find later.
-    if (sheetRow && driveLink) await setReportFile(sheetRow, driveLink);
+    if (driveLink) await setReportFile(sheetRow, driveLink);
   } catch (err) {
     drive = "failed: " + (err instanceof Error ? err.message : "unknown");
   }

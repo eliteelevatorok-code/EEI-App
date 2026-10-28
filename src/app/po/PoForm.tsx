@@ -36,7 +36,7 @@ export default function PoForm({ token }: { token: string }) {
   useEffect(() => {
     if (!token) return;
     startPageLog("po", token);
-    fetch(`/api/po?t=${encodeURIComponent(token)}`)
+    call(`/api/po?t=${encodeURIComponent(token)}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(`answer ${r.status}`);
         return (await r.json()) as Info;

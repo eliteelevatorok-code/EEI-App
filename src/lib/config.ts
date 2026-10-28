@@ -1,4 +1,4 @@
-import { readRange, writeCells } from "@/lib/google";
+import { appendRow, readRange, writeCells } from "@/lib/google";
 import { isSealed, seal, unseal } from "@/lib/secretBox";
 
 // The dashboard's private Config tab: one setting per row — name in column A,
@@ -46,9 +46,8 @@ export async function writeConfig(name: string, value: string): Promise<void> {
   const stored = SECRET.has(name) && value && !isSealed(value) ? seal(value) : value;
   const rows = await readRange(NAMES);
   const i = rows.findIndex((r) => (r[0] ?? "").trim() === name);
-  const row = (i === -1 ? rows.length : i) + 1; // sheet rows start at 1
-  await writeCells([
-    ...(i === -1 ? ([[`Config!A${row}`, name]] as [string, string][]) : []),
-    [`Config!B${row}`, stored],
-  ]);
+  // A new setting is appended (Google picks the row), so two new settings saved
+  // at the same moment can't both land on — and overwrite — the same row.
+  if (i === -1) await appendRow("Config!A:B", [name, stored]);
+  else await writeCells([[`Config!B${i + 1}`, stored]]); // sheet rows start at 1
 }

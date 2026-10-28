@@ -88,6 +88,9 @@ export async function reconcileRow(row: number): Promise<{ paid: boolean; skippe
   const a = await activeRow(row);
   if ("skip" in a) return { paid: false, skipped: a.skip };
   const { r } = a;
+  // This cycle's bill must be out: the yearly reset clears the Invoice step but
+  // leaves last year's (paid) invoice id in its column.
+  if (cell(r, "invoice") !== "Sent") return { paid: false, skipped: "no invoice out this cycle" };
   const id = cell(r, "invoiceId");
   if (!id) return { paid: false, skipped: "no invoice id" };
   if (cell(r, "paid") === "Paid") return { paid: false, skipped: "already paid" };

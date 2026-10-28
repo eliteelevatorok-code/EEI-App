@@ -5,7 +5,7 @@ import { Button, Field, Notice, PublicPage } from "@/components/ui";
 import { APRIL, WHERE_TO_FIND, isoToday, safetyAnswer, toIsoDate } from "@/lib/records";
 import { MAINT_CLOSED } from "@/lib/oldLinks";
 import { logEvent, startPageLog } from "@/lib/pageLog";
-import { postJson } from "@/lib/net";
+import { call, postJson } from "@/lib/net";
 
 type Info = { building: string; okla: string; maintCo?: string; alreadyResult?: string; alreadyDate?: string; closed?: boolean };
 
@@ -27,7 +27,7 @@ export default function MaintForm({ token }: { token: string }) {
   useEffect(() => {
     if (!token) return;
     startPageLog("maint", token);
-    fetch(`/api/maint?t=${encodeURIComponent(token)}`)
+    call(`/api/maint?t=${encodeURIComponent(token)}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(`answer ${r.status}`);
         return (await r.json()) as Info;

@@ -1053,8 +1053,9 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
     try {
       const payload = { ...f, cycle, price: price == null ? "" : `$${price}` };
       const data = await postJson<{ row?: number }>("/api/elevators", payload);
-      // Hand the new elevator (with technical details + its sheet row) to the
-      // first inspection, so the first PDF gets everything.
+      // Open the new elevator's profile right away (with its details and sheet
+      // row) — its yearly cycle starts from the dashboard like any other. (Its
+      // inspection opens once the steps before it are done; see inOrder.ts.)
       const cycleNum = cycle.match(/\d/)?.[0] || "1";
       const elevator: Elevator = {
         okla: f.okla.trim(),
@@ -1159,11 +1160,11 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
       {err && <p className="mt-5 px-1 text-sm font-semibold text-danger">{err}</p>}
 
       <Button full onClick={create} disabled={busy} className="mt-6">
-        {busy ? "Saving…" : "Save & start first inspection"}
+        {busy ? "Saving…" : "Save elevator"}
       </Button>
       <p className="mt-3 px-1 text-sm text-ink-3">
-        Adds the elevator to your dashboard, then opens its first inspection so its first report is saved to Drive —
-        a new account gets its own Drive folder automatically.
+        Adds the elevator to your dashboard and opens its profile. The automatic emails start from its due date;
+        the inspection opens once the visit is booked.
       </p>
     </Screen>
   );
@@ -2273,7 +2274,8 @@ function Report({
 }) {
   // Start from a draft saved earlier on this phone, if there is one.
   const [saved] = useState(() => loadDraft(elevator.okla));
-  const [r, setR] = useState<ReportDraft>(() => saved ?? freshReport(elevator));
+  const [start] = useState<ReportDraft>(() => saved ?? freshReport(elevator));
+  const [r, setR] = useState<ReportDraft>(start);
   const [sheet, setSheet] = useState(false);
   const [status, setStatus] = useState(saved ? "Picked up the draft you saved on this phone." : "");
   const [busy, setBusy] = useState(false);
@@ -2296,14 +2298,16 @@ function Report({
   const [fillDetails, setFillDetails] = useState(false);
   // Every answer is kept on this phone as it's typed, so a reload (or the app
   // closing) never loses it. Cleared once the report is finished and saved.
+  // Nothing is kept until something is typed: an opened-and-closed report must
+  // not leave a stale draft that hides answers entered since (e.g. the safety test).
   useEffect(() => {
-    if (finished) return;
+    if (finished || r === start) return;
     try {
       localStorage.setItem(draftKey(elevator.okla), JSON.stringify(r));
     } catch {
       /* storage may be unavailable */
     }
-  }, [r, finished, elevator.okla]);
+  }, [r, start, finished, elevator.okla]);
   // "No adverse conditions" = no violations: picking it removes any (after asking
   // once if there are some), and violations can't be added while it's picked.
   const noAdverse = r.condition === "No adverse conditions";
@@ -2848,7 +2852,7 @@ function App() {
 
   let screen: React.ReactNode;
   if (stage === "new") {
-    screen = <NewElevator onBack={() => to("tabs")} onCreated={(e) => to("report", e)} />;
+    screen = <NewElevator onBack={() => to("tabs")} onCreated={(e) => to("profile", e)} />;
   } else if ((stage === "profile" || (stage === "report" && !!live && inspectWhy(live) !== null)) && live) {
     screen = (
       <Profile

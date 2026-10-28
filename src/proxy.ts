@@ -10,25 +10,28 @@ import { isAllowed } from "@/lib/allowlist";
 // schedulerKey.ts. /privacy is public for Google (and Intuit), /terms for Intuit; /api/push/ack only writes a
 // log line when an alert reaches a phone (the app may be closed then); /api/pagelog only logs a line for a real
 // link code (customer page tracker, src/lib/pageLog.ts).
+// Exact paths only. A pattern like "/api/pay(.*)" also matches "/api/payments"
+// — which once left the payments list readable without signing in (2026-10-28).
+// (The ?t=… link code is a query string, not part of the path.)
 const isPublic = createRouteMatcher([
-  "/sign-in(.*)",
+  "/sign-in(.*)", // Clerk's sign-in pages live under this one
   "/not-authorized",
   "/privacy",
   "/terms",
-  "/po(.*)",
-  "/api/po(.*)",
-  "/maint(.*)",
-  "/api/maint(.*)",
-  "/api/report(.*)",
-  "/pay(.*)",
-  "/api/pay(.*)",
-  "/api/push/run(.*)",
-  "/api/push/problem(.*)",
-  "/api/push/ack(.*)",
-  "/api/invoice/run(.*)",
-  "/api/switches/master(.*)",
-  "/api/payments/log(.*)",
-  "/api/pagelog(.*)",
+  "/po",
+  "/api/po",
+  "/maint",
+  "/api/maint",
+  "/api/report",
+  "/pay",
+  "/api/pay",
+  "/api/push/run",
+  "/api/push/problem",
+  "/api/push/ack",
+  "/api/invoice/run",
+  "/api/switches/master",
+  "/api/payments/log",
+  "/api/pagelog",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

@@ -106,9 +106,14 @@ async function qbSetup(): Promise<Setup> {
   };
 }
 
-// True while billing runs against the fake test company.
+// True while billing runs against the fake test company. Which company is
+// connected only changes when Robert connects one, so it's looked up at most
+// once a minute — not on every QuickBooks call (each look is a Sheets read, and
+// Sheets allows 60 a minute; one invoice makes several QuickBooks calls).
+let companyCache: { real: boolean; at: number } | null = null;
 export async function isSandbox(): Promise<boolean> {
-  return !(await qbSetup()).real;
+  if (!companyCache || Date.now() - companyCache.at > 60_000) companyCache = { real: (await qbSetup()).real, at: Date.now() };
+  return !companyCache.real;
 }
 
 // The keys for the Connect sign-in: production keys for the real company (empty
@@ -150,6 +155,7 @@ export async function finishConnect(code: string, realmId: string, redirectUri: 
   await writeConfig(test ? "qbRefreshToken" : "qbRealRefreshToken", seal(tok.refresh_token));
   await writeConfig(NEEDS_RECONNECT, "");
   accessCache = null; // the next call signs in with the new connection
+  companyCache = null;
 }
 
 // Cache the short-lived access token in memory (it lasts ~60 min) — per company,
