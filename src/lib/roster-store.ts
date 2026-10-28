@@ -1,6 +1,7 @@
 "use client";
 
 import type { Account, Elevator } from "@/lib/data";
+import { call } from "@/lib/net";
 
 // The elevator list, kept on the phone so every screen opens instantly.
 //
@@ -60,7 +61,7 @@ let inFlight: Promise<void> | null = null;
 export function refreshRoster(): Promise<void> {
   inFlight ??= (async () => {
     try {
-      const res = await fetch("/api/roster", { cache: "no-store" });
+      const res = await call("/api/roster", { cache: "no-store" });
       const data = (await res.json()) as { accounts?: Account[]; error?: string };
       if (!res.ok || !data.accounts) throw new Error(data.error || `Error ${res.status}`);
       save(data.accounts);

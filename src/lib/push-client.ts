@@ -1,5 +1,7 @@
 "use client";
 
+import { call } from "@/lib/net";
+
 // Browser side of push alerts: ask permission, sign this phone up with Google's
 // push service, and hand that sign-up to the server so the hourly check can buzz
 // it later.
@@ -29,7 +31,7 @@ const supported = () =>
 // The server's current public alert key (null if it can't be fetched).
 async function serverKey(): Promise<Uint8Array | null> {
   try {
-    const res = await fetch("/api/push/key");
+    const res = await call("/api/push/key");
     if (!res.ok) return null;
     const { publicKey } = (await res.json()) as { publicKey?: string };
     return publicKey ? urlBase64ToUint8Array(publicKey) : null;
@@ -48,7 +50,7 @@ const sameBytes = (a: ArrayBuffer | null | undefined, b: Uint8Array) => {
 // null = couldn't reach the server (e.g. offline).
 async function sendToServer(sub: PushSubscription): Promise<{ ok: boolean; renew: boolean } | null> {
   try {
-    const res = await fetch("/api/push/subscribe", {
+    const res = await call("/api/push/subscribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ subscription: sub.toJSON() }),
@@ -113,7 +115,7 @@ export async function resyncAlerts(): Promise<void> {
   // Running as the installed app (its alerts show as "EEI Field") or in a Chrome
   // tab (alerts show as "Chrome")?
   const installedApp = window.matchMedia?.("(display-mode: standalone)").matches ?? false;
-  await fetch("/api/push/state", {
+  await call("/api/push/state", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ supported: ok, permission, signedUp: result, saved: result === "on", installedApp }),

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { refreshRoster } from "@/lib/roster-store";
+import { call } from "@/lib/net";
 import { contactHref } from "@/lib/assistant/contact";
 import { AskIcon, Button, Chevron, Glass, SendIcon, buzz } from "@/components/ui";
 
@@ -118,6 +119,7 @@ function AssistantPanel({ context, onClose }: { context: AskContext; onClose: ()
   const chat = store.chats.find((c) => c.id === store.current) ?? blank(store.current);
   const { messages, pending } = chat;
   const [text, setText] = useState("");
+  const box = useRef<HTMLTextAreaElement>(null); // the typing box itself (see send)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [connected, setConnected] = useState<boolean | null>(null);
@@ -126,7 +128,7 @@ function AssistantPanel({ context, onClose }: { context: AskContext; onClose: ()
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch("/api/assistant")
+    call("/api/assistant")
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { connected?: boolean; reason?: string } | null) => {
         setConnected(d ? Boolean(d.connected) : null);
@@ -174,11 +176,11 @@ function AssistantPanel({ context, onClose }: { context: AskContext; onClose: ()
     setArmed(false);
     saveChat(id, optimistic, null);
     try {
-      const res = await fetch("/api/assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...body, context }),
-      });
+      const res = await call(
+        "/api/assistant",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, context }) },
+        120_000, // a long answer (several looks at the dashboard) takes a while
+      );
       const data = (await res.json().catch(() => ({}))) as {
         messages?: Msg[];
         pending?: Pending;
@@ -191,16 +193,22 @@ function AssistantPanel({ context, onClose }: { context: AskContext; onClose: ()
       }
       saveChat(id, data.messages ?? optimistic, data.pending ?? null);
       if (!res.ok) setError(data.error || "The assistant couldn't answer. Try again.");
-    } catch {
-      setError("Couldn't reach the assistant — check your signal and try again.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't reach the assistant — check your signal and try again.");
     } finally {
       setBusy(false);
     }
   }
 
-  function send(q: string) {
-    const question = q.trim();
-    if (!question || busy) return;
+  // `q` from a suggestion chip; otherwise what's in the box — read from the box
+  // itself, in case the phone's keyboard hadn't passed the last letters on yet.
+  function send(q?: string) {
+    const question = (q ?? box.current?.value ?? text).trim();
+    if (!question) {
+      box.current?.focus();
+      return;
+    }
+    if (busy) return;
     setText("");
     const next: Msg[] = [...messages, { role: "user", content: question }];
     void post({ messages: next }, next);
@@ -386,10 +394,11 @@ function AssistantPanel({ context, onClose }: { context: AskContext; onClose: ()
               className="composer"
               onSubmit={(e) => {
                 e.preventDefault();
-                send(text);
+                send();
               }}
             >
               <textarea
+                ref={box}
                 rows={1}
                 value={text}
                 placeholder={pending ? "Or type something else…" : "Ask or tell it what to change…"}
@@ -397,12 +406,22 @@ function AssistantPanel({ context, onClose }: { context: AskContext; onClose: ()
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    send(text);
+                    send();
                   }
                 }}
                 disabled={connected === false}
               />
-              <button type="submit" className="icon-btn btn-primary" disabled={busy || !text.trim()} aria-label="Send">
+              {/* Sends from the tap itself, not the form's submit event. */}
+              <button
+                type="submit"
+                className="icon-btn btn-primary"
+                disabled={busy || connected === false}
+                aria-label="Send"
+                onClick={(e) => {
+                  e.preventDefault();
+                  send();
+                }}
+              >
                 <SendIcon />
               </button>
             </form>

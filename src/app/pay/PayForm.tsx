@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button, PublicPage } from "@/components/ui";
 import { logEvent, startPageLog } from "@/lib/pageLog";
+import { call } from "@/lib/net";
 
 type Info = { building: string; price?: string; alreadyPaid?: boolean; real?: boolean; payUrl?: string };
 
@@ -20,7 +21,7 @@ export default function PayForm({ token }: { token: string }) {
   useEffect(() => {
     if (!token) return;
     startPageLog("pay", token);
-    fetch(`/api/pay?t=${encodeURIComponent(token)}`)
+    call(`/api/pay?t=${encodeURIComponent(token)}`)
       .then(async (r) => {
         if (!r.ok) throw new Error();
         return (await r.json()) as Info;
@@ -41,7 +42,7 @@ export default function PayForm({ token }: { token: string }) {
     setBusy(true);
     setSubmitErr("");
     try {
-      const r = await fetch("/api/pay", {
+      const r = await call("/api/pay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),

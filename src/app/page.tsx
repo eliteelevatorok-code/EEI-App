@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import Link from "next/link";
 import { getRoster, getServerRoster, patchElevator, refreshRoster, subscribeRoster } from "@/lib/roster-store";
 import { useClerk } from "@clerk/nextjs";
+import { call } from "@/lib/net";
 import { getInstallState, subscribeInstall, triggerInstall } from "@/lib/pwa-install";
 import { alertsState, enableAlerts, type AlertState } from "@/lib/push-client";
 import {
@@ -116,13 +117,19 @@ const money = (n: number) => "$" + n.toLocaleString(undefined, { maximumFraction
 
 // Shown by a tab while the list hasn't arrived yet, or if it can't be reached.
 function RosterStatus({ error }: { error: string }) {
+  const [trying, setTrying] = useState(false);
   if (!error) return <p className="mt-10 text-center text-sm text-ink-3">Loading your list…</p>;
+  const retry = async () => {
+    setTrying(true);
+    await refreshRoster();
+    setTrying(false);
+  };
   return (
     <Glass pad className="mt-6">
       <p className="font-semibold text-danger">Couldn&apos;t load your elevator list.</p>
-      <p className="mt-1 text-sm text-ink-2">{error}</p>
-      <Button className="mt-4" onClick={() => void refreshRoster()}>
-        Try again
+      <p className="mt-1 text-sm text-ink-2">{trying ? "Trying again…" : error}</p>
+      <Button className="mt-4" onClick={retry} disabled={trying}>
+        {trying ? "Trying…" : "Try again"}
       </Button>
     </Glass>
   );
@@ -221,10 +228,14 @@ function freshReport(e: Elevator): ReportDraft {
 function useInstall() {
   const [state, setState] = useState(getInstallState);
   useEffect(() => subscribeInstall(() => setState(getInstallState())), []);
+  const [installMsg, setInstallMsg] = useState("");
   const install = () => {
-    void triggerInstall();
+    setInstallMsg("");
+    triggerInstall()
+      .then((ok) => setInstallMsg(ok ? "" : "Not installed. Tap Install again whenever you're ready."))
+      .catch(() => setInstallMsg("Chrome couldn't open the install window. Use Chrome's ⋮ menu → Install app instead."));
   };
-  return { installed: state.installed, canInstall: state.canInstall, install };
+  return { installed: state.installed, canInstall: state.canInstall, install, installMsg };
 }
 
 // Settings → Calendly: is the booking page in the scheduling email offering
@@ -249,7 +260,7 @@ function CalendlyCard() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   useEffect(() => {
-    fetch("/api/calendly")
+    call("/api/calendly")
       .then((r) => (r.ok ? r.json() : null))
       .then(setC)
       .catch(() => setC(null));
@@ -258,7 +269,7 @@ function CalendlyCard() {
     setBusy(true);
     setErr("");
     try {
-      const r = await fetch("/api/calendly", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fix: true }) });
+      const r = await call("/api/calendly", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fix: true }) });
       const d = (await r.json().catch(() => ({}))) as { error?: string; check?: CalCheck };
       if (!r.ok || !d.check) throw new Error(d.error || `Error ${r.status}`);
       buzz();
@@ -334,13 +345,13 @@ function CalendlyCard() {
 }
 
 function SettingsTab({ onLogout }: { onLogout: () => void }) {
-  const { installed, canInstall, install } = useInstall();
+  const { installed, canInstall, install, installMsg } = useInstall();
   const [scale, setScale] = useState(currentFontScale);
 
   // Live master-switch state, so the System card shows on/off at a glance.
   const [master, setMaster] = useState<boolean | null>(null);
   useEffect(() => {
-    fetch("/api/switches?only=master") // just the master switch — one small read
+    call("/api/switches?only=master") // just the master switch — one small read
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { master?: boolean } | null) => setMaster(d && typeof d.master === "boolean" ? d.master : null))
       .catch(() => setMaster(null));
@@ -356,7 +367,7 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
     typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("drive") || "",
   );
   useEffect(() => {
-    fetch("/api/google/status")
+    call("/api/google/status")
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { connected?: boolean } | null) => setDrive(d ? Boolean(d.connected) : null))
       .catch(() => setDrive(null));
@@ -372,7 +383,7 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
     typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("qb") || "",
   );
   useEffect(() => {
-    fetch("/api/quickbooks/status")
+    call("/api/quickbooks/status")
       .then((r) => (r.ok ? r.json() : null))
       .then((d: Partial<QbState> | null) =>
         setQb(d ? { real: Boolean(d.real), haveKeys: Boolean(d.haveKeys), reconnect: d.reconnect === "real" || d.reconnect === "test" ? d.reconnect : "" } : null),
@@ -383,13 +394,22 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
   // null = still checking (so nothing flashes up and disappears).
   const [alerts, setAlerts] = useState<AlertState | null>(null);
   const [alertBusy, setAlertBusy] = useState(false);
+  const [alertMsg, setAlertMsg] = useState("");
   useEffect(() => {
-    alertsState().then(setAlerts);
+    alertsState().then(setAlerts).catch(() => setAlerts("off"));
   }, []);
   const turnOnAlerts = async () => {
     setAlertBusy(true);
-    setAlerts(await enableAlerts());
-    setAlertBusy(false);
+    setAlertMsg("");
+    try {
+      const next = await enableAlerts();
+      setAlerts(next);
+      if (next === "off") setAlertMsg("Alerts didn't turn on. Tap again, and choose Allow when your phone asks.");
+    } catch {
+      setAlertMsg("Alerts didn't turn on — check your signal and tap again.");
+    } finally {
+      setAlertBusy(false);
+    }
   };
 
   const sizeLabels = FONT_SCALES.map((s) => FONT_SCALE_LABELS[s]);
@@ -415,6 +435,7 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
             <Button full onClick={install}>
               Install the app
             </Button>
+            {installMsg && <p className="mt-2 text-sm font-semibold text-danger">{installMsg}</p>}
           </Glass>
         </>
       )}
@@ -440,6 +461,7 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
                 <Button full onClick={turnOnAlerts} disabled={alertBusy}>
                   {alertBusy ? "Turning on…" : "Turn on alerts"}
                 </Button>
+                {alertMsg && <p className="mt-2 text-sm font-semibold text-danger">{alertMsg}</p>}
               </>
             )}
           </Glass>
@@ -786,7 +808,7 @@ function MoneyRow({ u, note, onPick }: { u: Elevator; note: string; onPick: (e: 
 function useMasterOn(): boolean | null {
   const [on, setOn] = useState<boolean | null>(null);
   useEffect(() => {
-    fetch("/api/switches?only=master")
+    call("/api/switches?only=master")
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { master?: boolean } | null) => setOn(d && typeof d.master === "boolean" ? d.master : null))
       .catch(() => setOn(null));
@@ -802,7 +824,7 @@ function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; err
   const master = useMasterOn();
   const [payments, setPayments] = useState<PaymentLine[] | null>(null);
   useEffect(() => {
-    fetch("/api/payments")
+    call("/api/payments")
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { payments?: PaymentLine[] } | null) => setPayments(d?.payments ?? []))
       .catch(() => setPayments([]));
@@ -896,19 +918,25 @@ function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; err
           {logged.map((p, i) => {
             const u = byOkla.get(p.okla);
             return (
-              <button
-                key={`${p.okla}-${p.invoice}-${i}`}
-                onClick={() => u && onPick(u)}
-                disabled={!u}
-                className="row"
-                aria-label={`${p.building}: paid ${p.paidOn}`}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-semibold">{p.building}</div>
-                  <div className="mt-0.5 truncate text-sm text-ink-2">Paid {humanDate(p.paidOn)}</div>
+              // An elevator no longer on the dashboard has no profile to open, so its
+              // line is plain text, not a button that does nothing.
+              u ? (
+                <button key={`${p.okla}-${p.invoice}-${i}`} onClick={() => onPick(u)} className="row" aria-label={`${p.building}: paid ${p.paidOn}`}>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-semibold">{p.building}</div>
+                    <div className="mt-0.5 truncate text-sm text-ink-2">Paid {humanDate(p.paidOn)}</div>
+                  </div>
+                  <span className="font-semibold tabular-nums">{money(p.amount)}</span>
+                </button>
+              ) : (
+                <div key={`${p.okla}-${p.invoice}-${i}`} className="row">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-semibold">{p.building}</div>
+                    <div className="mt-0.5 truncate text-sm text-ink-2">Paid {humanDate(p.paidOn)} · no longer on the dashboard</div>
+                  </div>
+                  <span className="font-semibold tabular-nums">{money(p.amount)}</span>
                 </div>
-                <span className="font-semibold tabular-nums">{money(p.amount)}</span>
-              </button>
+              )
             );
           })}
         </List>
@@ -1021,7 +1049,7 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
     setErr("");
     try {
       const payload = { ...f, cycle, price: price == null ? "" : `$${price}` };
-      const res = await fetch("/api/elevators", {
+      const res = await call("/api/elevators", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -1274,7 +1302,7 @@ function FastTrackSheet({
     setBusy(true);
     setErr("");
     try {
-      const res = await fetch("/api/fasttrack", {
+      const res = await call("/api/fasttrack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ row: e.row, okla: e.okla, step, ...body }),
@@ -1422,7 +1450,7 @@ function LifecycleEditor({
     setBusy(true);
     setErr("");
     try {
-      const res = await fetch("/api/lifecycle", {
+      const res = await call("/api/lifecycle", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ row, okla, col: stage.col, value: choice }),
@@ -1633,7 +1661,7 @@ function SafetyEditor({ elevator, onClose, onSaved }: { elevator: Elevator; onCl
     setBusy(true);
     setErr("");
     try {
-      const r = await fetch("/api/records", {
+      const r = await call("/api/records", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ row: elevator.row, okla: elevator.okla, result: answer, date }),
@@ -1702,7 +1730,7 @@ function TechEditor({ elevator, onClose, onSaved }: { elevator: Elevator; onClos
     setBusy(true);
     setErr("");
     try {
-      const r = await fetch("/api/details", {
+      const r = await call("/api/details", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ row: elevator.row, okla: elevator.okla, values: changed }),
@@ -1769,7 +1797,7 @@ function MissingDetailsSheet({
     setBusy(true);
     setErr("");
     try {
-      const r = await fetch("/api/details", {
+      const r = await call("/api/details", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ row: elevator.row, okla: elevator.okla, values }),
@@ -1831,6 +1859,7 @@ function Profile({
 }) {
   const e = elevator;
   const [editing, setEditing] = useState<LifecycleStage | null>(null);
+  const [lockedTap, setLockedTap] = useState(""); // a step that's set automatically, just tapped
 
   // This elevator's on/off switch. Pausing takes two confirmations (a warning,
   // then a final yes); resuming takes one.
@@ -1855,10 +1884,11 @@ function Profile({
   const [qpBusy, setQpBusy] = useState(false);
   const [qpErr, setQpErr] = useState("");
   async function setQuotePO(next: boolean) {
+    if (e.row == null) { setQpErr("This elevator has no saved row yet."); return; }
     setQpBusy(true);
     setQpErr("");
     try {
-      const r = await fetch("/api/switches", {
+      const r = await call("/api/switches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target: "quotePO", row: e.row, okla: e.okla, on: next }),
@@ -1882,7 +1912,7 @@ function Profile({
     setSwBusy(true);
     setSwErr("");
     try {
-      const r = await fetch("/api/switches", {
+      const r = await call("/api/switches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target: "elevator", row: e.row, okla: e.okla, on: next }),
@@ -2028,8 +2058,11 @@ function Profile({
           return (
             <button
               key={s.key}
-              onClick={() => !s.locked && setEditing(s)}
-              disabled={s.locked}
+              onClick={() => {
+                if (s.locked) return setLockedTap(s.label);
+                setLockedTap("");
+                setEditing(s);
+              }}
               aria-label={`${s.label}: ${s.value || "not yet"}${s.locked ? " (set automatically)" : " — tap to change"}`}
               className={"tl-step " + state}
             >
@@ -2043,6 +2076,11 @@ function Profile({
           );
         })}
       </Glass>
+      {lockedTap && (
+        <p className="mt-2 px-1 text-sm font-semibold text-accent-ink" role="status">
+          {lockedTap} is set automatically once the finished report has been emailed — there&apos;s nothing to change by hand.
+        </p>
+      )}
       <p className="mt-2 px-1 text-sm text-ink-3">
         Green check = done · green ring = waiting on someone · gray = not yet. Tap a step to change it — you&apos;ll confirm before it saves. Report is set automatically once the
         finished report has been emailed.
@@ -2406,11 +2444,11 @@ function Report({
     setBusy(true);
     setStatus("Building the report PDF…");
     try {
-      const res = await fetch("/api/finalize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ elevator, report: r }),
-      });
+      const res = await call(
+        "/api/finalize",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ elevator, report: r }) },
+        120_000, // builds the PDF and saves it to Drive
+      );
       if (!res.ok) {
         const e = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(e.error || `Server error ${res.status}`);
@@ -2799,7 +2837,10 @@ function App() {
     if (url !== window.location.pathname + window.location.search) window.history.replaceState(null, "", url);
   }, [tab, stage, selected, openAt.okla]);
 
-  const logout = () => signOut({ redirectUrl: "/sign-in" });
+  // If Clerk can't sign out (no signal), go to the sign-in page anyway.
+  const logout = () => {
+    Promise.resolve(signOut({ redirectUrl: "/sign-in" })).catch(() => window.location.assign(new URL("/sign-in", window.location.origin).href));
+  };
 
   // Every change glides (see go() in components/ui.tsx). Leaving the tabs saves
   // the scroll spot; returning to them restores it; anything else starts at the top.

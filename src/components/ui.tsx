@@ -167,7 +167,18 @@ export function Toggle({ on, onClick, label }: { on: boolean; onClick: () => voi
 // red and says so. `id`: so the screen can scroll to it.
 export function Field({ label, children, missing, id }: { label: string; children: React.ReactNode; missing?: boolean; id?: string }) {
   return (
-    <label id={id} className="mb-4 block scroll-mt-24 last:mb-0">
+    <label
+      id={id}
+      className="mb-4 block scroll-mt-24 last:mb-0"
+      // Tapping a label "clicks" the first control inside it. Fine for a text box
+      // (it gets the cursor) — but where the choices are buttons (Yes / No, the
+      // chips), tapping the question's words would pick the first answer by
+      // itself. So a tap on the words, not on a control, does nothing there.
+      onClick={(e) => {
+        const onControl = (e.target as HTMLElement).closest("button, input, select, textarea, a");
+        if (!onControl && e.currentTarget.querySelector("button")) e.preventDefault();
+      }}
+    >
       <span className={cx("field-label", missing && "text-danger")}>
         {label}
         {missing && " — needed"}

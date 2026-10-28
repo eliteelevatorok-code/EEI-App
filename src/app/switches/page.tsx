@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { call } from "@/lib/net";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button, Glass, Pill, Screen, Title, TopBar } from "@/components/ui";
 
@@ -20,7 +21,7 @@ export default function SwitchesPage() {
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    fetch("/api/switches")
+    call("/api/switches")
       .then(async (r) => {
         if (!r.ok) throw new Error();
         return (await r.json()) as State;
@@ -35,7 +36,7 @@ export default function SwitchesPage() {
     setBusy(true);
     setErr("");
     try {
-      const r = await fetch("/api/switches", {
+      const r = await call("/api/switches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target: "master", on, confirm: on ? undefined : "STOP" }),
