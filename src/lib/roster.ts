@@ -159,9 +159,15 @@ export async function setTechDetails(row: number, values: Partial<Record<TechKey
 // Leave Report alone: the automation's "Report filed" step (route 6) waits for
 // Visit = Inspected AND Report ≠ Sent, emails the report to the customer and
 // ODOL, and only then sets Report = Sent — which is what starts billing.
-export async function markInspected(row: number, dateText: string): Promise<void> {
+// `due`: a new next due date, when the report changes it ("" clears it).
+export async function markInspected(row: number, dateText: string, due?: string): Promise<void> {
   // The visit happened, so any fast track waiting is moot.
-  await writeRow(row, { visit: "Inspected", tripDay: dateText, ...Object.fromEntries(FAST_ORDER.map((k) => [FAST_COL[k], ""])) });
+  await writeRow(row, {
+    visit: "Inspected",
+    tripDay: dateText,
+    ...(due === undefined ? {} : { due }),
+    ...Object.fromEntries(FAST_ORDER.map((k) => [FAST_COL[k], ""])),
+  });
 }
 
 // Keep the finished report's Drive link on the row.

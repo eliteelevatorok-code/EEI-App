@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button, Field, Notice, PublicPage } from "@/components/ui";
-import { APRIL, WHERE_TO_FIND, isoToday, safetyAnswer, toIsoDate } from "@/lib/records";
+import { APRIL, checkSafetyDate, WHERE_TO_FIND, isoToday, safetyAnswer, toIsoDate } from "@/lib/records";
 import { MAINT_CLOSED } from "@/lib/oldLinks";
 import { logEvent, startPageLog } from "@/lib/pageLog";
 import { call, postJson } from "@/lib/net";
@@ -56,6 +56,12 @@ export default function MaintForm({ token }: { token: string }) {
     }
     if (result === "Yes" && !date.trim()) {
       setSubmitErr("Please enter the date of the safety test.");
+      return;
+    }
+    // (Some date boxes let the year run past 4 digits — same check the server makes.)
+    const bad = result === "Yes" ? checkSafetyDate(date) : "";
+    if (bad) {
+      setSubmitErr(bad);
       return;
     }
     sending.current = true;

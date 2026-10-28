@@ -37,7 +37,9 @@ import {
   type FastStepKey,
   type FastTimes,
 } from "@/lib/fasttrack";
-import { APRIL, WHERE_TO_FIND, isAmerican, isoToday, toIsoDate } from "@/lib/records";
+import { APRIL, WHERE_TO_FIND, checkSafetyDate, isAmerican, isoToday, toIsoDate } from "@/lib/records";
+import { formLines } from "@/lib/formLines";
+import { failed, monthYearProblem, typeMonthYear } from "@/lib/reportRules";
 import { AssistantButton } from "@/components/Assistant";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
@@ -1642,6 +1644,8 @@ function SafetyEditor({ elevator, onClose, onSaved }: { elevator: Elevator; onCl
   async function save() {
     if (answer !== "Yes" && answer !== "No") return setErr("Choose Yes or No.");
     if (answer === "Yes" && !date) return setErr("Enter the date of the safety test.");
+    // A typed year can run past 4 digits in some date boxes — the same check the server makes.
+    if (answer === "Yes" && checkSafetyDate(date)) return setErr(checkSafetyDate(date));
     if (elevator.row == null) return setErr("This elevator has no saved row yet.");
     setBusy(true);
     setErr("");
@@ -2285,12 +2289,15 @@ function Report({
 
   const set = <K extends keyof ReportDraft,>(k: K, v: ReportDraft[K]) => setR((p) => ({ ...p, [k]: v }));
   // A temporary certificate means no certificate is issued (as on Robert's own
-  // reports), so picking one sets the other.
+  // reports), so picking one sets the other. Red Tag / Scrapped means no
+  // certificate of either kind, so picking a certificate clears that condition
+  // (to be picked again) — only one of fail or pass can be on (Robert, 2026-10-28).
+  const clearFailed = (c: string) => (failed(c) ? "" : c);
   function pickCert(v: string) {
-    setR((p) => ({ ...p, certIssue: v, tempCert: v === "Yes" ? "No" : p.tempCert }));
+    setR((p) => ({ ...p, certIssue: v, tempCert: v === "Yes" ? "No" : p.tempCert, condition: v === "Yes" ? clearFailed(p.condition) : p.condition }));
   }
   function pickTemp(v: string) {
-    setR((p) => ({ ...p, tempCert: v, certIssue: v === "No" ? p.certIssue : "No" }));
+    setR((p) => ({ ...p, tempCert: v, certIssue: v === "No" ? p.certIssue : "No", condition: v === "No" ? p.condition : clearFailed(p.condition) }));
   }
   // The elevator's details the state form needs that are still blank (see
   // missingForForm in lib/tech.ts) — filled in right here, saved to the dashboard.
@@ -2314,6 +2321,8 @@ function Report({
   const [confirmClear, setConfirmClear] = useState(false);
   function pickCondition(v: string) {
     if (v === "No adverse conditions" && r.added.length > 0) setConfirmClear(true);
+    // Red Tag / Scrapped: no certificate of either kind.
+    else if (failed(v)) setR((p) => ({ ...p, condition: v, certIssue: "No", tempCert: "No" }));
     else set("condition", v);
   }
 
@@ -2354,9 +2363,8 @@ function Report({
     setNoteEdit(null);
   }
   // Lines the state form will get (it has 36): each violation, each violation's
-  // comment, each recommendation, each comment.
-  const formLineCount =
-    r.added.length + r.added.filter((a) => a.comment.trim()).length + (r.recommendations ?? []).length + (r.comments ?? []).length;
+  // comment, each recommendation, each comment — a long one takes more than one.
+  const formLineCount = formLines(r).lines.length;
 
   function setLine(raw: string, patch: Partial<AddedViolation>) {
     setR((p) => ({
@@ -2376,9 +2384,16 @@ function Report({
     { key: "inspType", label: "Inspection type", empty: !r.inspType },
     { key: "cycle", label: "Inspection cycle", empty: !r.cycle },
     { key: "test1", label: "One-year test", empty: !outOfService && !r.test1.trim() },
+    { key: "test1", label: `One-year test (${monthYearProblem(r.test1)})`, empty: !!r.test1.trim() && !!monthYearProblem(r.test1) },
     { key: "test5", label: "Five-year test", empty: !outOfService && isCable && !r.test5.trim() },
+    { key: "test5", label: `Five-year test (${monthYearProblem(r.test5)})`, empty: !!r.test5.trim() && !!monthYearProblem(r.test5) },
     { key: "certIssue", label: "Certificate issued", empty: !r.certIssue },
     { key: "condition", label: "Condition", empty: !r.condition },
+    {
+      key: "condition",
+      label: "Red Tag / Scrapped can't have a certificate",
+      empty: failed(r.condition) && (r.certIssue === "Yes" || (!!r.tempCert && r.tempCert !== "No")),
+    },
     { key: "violations", label: "At least one violation", empty: r.condition === "Violations found" && r.added.length === 0 },
     { key: "violations", label: "36 lines or fewer for the state form", empty: formLineCount > 36 },
     {
@@ -2520,10 +2535,10 @@ function Report({
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="One-year test" id="req-test1" missing={missing.has("test1")}>
-              <input className="input" placeholder="MM/YYYY" value={r.test1} onChange={(e) => set("test1", e.target.value)} />
+              <input className="input" placeholder="MM/YYYY" inputMode="numeric" maxLength={7} value={r.test1} onChange={(e) => set("test1", typeMonthYear(e.target.value))} />
             </Field>
             <Field label={isCable ? "Five-year test" : "Five-year test (cable only)"} id="req-test5" missing={missing.has("test5")}>
-              <input className="input" placeholder="MM/YYYY" value={r.test5} onChange={(e) => set("test5", e.target.value)} />
+              <input className="input" placeholder="MM/YYYY" inputMode="numeric" maxLength={7} value={r.test5} onChange={(e) => set("test5", typeMonthYear(e.target.value))} />
             </Field>
           </div>
           <Field label="Certificate issued" id="req-certIssue" missing={missing.has("certIssue")}>
@@ -2534,13 +2549,16 @@ function Report({
           </Field>
           <Field label="Condition" id="req-condition" missing={missing.has("condition")}>
             <Chips options={CONDITIONS} value={r.condition} onChange={pickCondition} />
+            {failed(r.condition) && (
+              <p className="mt-2 text-sm text-ink-3">{r.condition}: no certificate, and no next due date is set.</p>
+            )}
           </Field>
         </Glass>
 
         <SectionLabel>Findings</SectionLabel>
         <Glass pad className={missing.has("violations") ? "ring-2 ring-danger/50" : ""}>
           <div id="req-violations" className="scroll-mt-24" />
-          {missing.has("violations") && (
+          {missing.has("violations") && r.added.length === 0 && (
             <p className="mb-3 text-sm font-semibold text-danger">&quot;Violations found&quot; is picked — add at least one violation.</p>
           )}
           {/* The three counters are the buttons: violations open the list; a

@@ -6,6 +6,7 @@ import { findRowByOkla, markInspected, setReportFile } from "@/lib/roster";
 import { NoSuchRow, cell, readRow, requireElevatorRow } from "@/lib/sheet";
 import { inspectionBlocked } from "@/lib/inOrder";
 import { dispositionFor, reportFileName } from "@/lib/reportName";
+import { failed, monthYearProblem } from "@/lib/reportRules";
 
 export const runtime = "nodejs";
 
@@ -36,6 +37,14 @@ export async function POST(req: Request) {
   e.carried = Array.isArray(e.carried) ? e.carried : [];
   r.added = Array.isArray(r.added) ? r.added : [];
   for (const k of ["inspType", "cycle", "test1", "test5", "certIssue", "condition", "notes"] as const) r[k] = String(r[k] ?? "");
+  // The same rules the report screen checks (src/lib/reportRules.ts).
+  for (const [k, name] of [["test1", "One-year test"], ["test5", "Five-year test"]] as const) {
+    const bad = r[k].trim() && monthYearProblem(r[k]);
+    if (bad) return Response.json({ error: `${name}: ${bad}.` }, { status: 400 });
+  }
+  if (failed(r.condition) && (r.certIssue === "Yes" || (r.tempCert && r.tempCert !== "No"))) {
+    return Response.json({ error: `${r.condition} can't have a certificate — set Certificate issued to No.` }, { status: 400 });
+  }
 
   // Find the elevator's row — the one the phone sent if it still holds this
   // elevator (rows shift when the sheet is edited), otherwise by OK # — and check
@@ -44,6 +53,7 @@ export async function POST(req: Request) {
   // such elevator" counts as not found; a busy Google is a "try again", never a
   // skipped check.
   let sheetRow: number | null;
+  let dueNow = "";
   try {
     sheetRow = e.row
       ? await requireElevatorRow(e.row, e.okla).catch((err) => {
@@ -53,6 +63,7 @@ export async function POST(req: Request) {
       : await findRowByOkla(e.okla);
     if (!sheetRow) return Response.json({ error: `OK # ${e.okla} isn't on the dashboard, so its report can't be finished.` }, { status: 404 });
     const rw = await readRow(sheetRow);
+    dueNow = cell(rw, "due");
     const why = inspectionBlocked({
       moneyPath: cell(rw, "moneyPath"),
       twoMoEmail: cell(rw, "twoMoEmail"),
@@ -77,11 +88,23 @@ export async function POST(req: Request) {
   // "Lawton City: Oct 9, 2026 (TV Civic center).pdf" — see reportName.ts.
   const fileName = reportFileName(account ?? "", dateText, building ?? "", okla ?? "");
 
+  // Next due date (Robert, 2026-10-28): none for a red-tagged or scrapped
+  // elevator. One with no due date (red-tagged last time) gets one again when it
+  // passes: inspection date + its cycle in years — the same date the automation
+  // sets when the cycle restarts (it keeps a blank one blank).
+  let due: string | undefined;
+  if (failed(r.condition)) due = "";
+  else if (!dueNow.trim()) {
+    const md = dateText.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    const years = /res/i.test(r.cycle) ? 1 : Math.max(1, parseInt(r.cycle, 10) || 1);
+    if (md) due = `${+md[1]}/${+md[1] === 2 && +md[2] === 29 ? 28 : +md[2]}/${+md[3] + years}`; // Feb 29 → Feb 28
+  }
+
   // Flip the dashboard cells and save the PDF to Drive independently, so one
   // failing never blocks the other or loses the finished PDF.
   let writeback = "ok";
   try {
-    await markInspected(sheetRow, dateText);
+    await markInspected(sheetRow, dateText, due);
   } catch (err) {
     writeback = "failed: " + (err instanceof Error ? err.message : "unknown");
   }

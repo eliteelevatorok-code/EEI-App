@@ -22,6 +22,7 @@ import {
 import type { Elevator, AddedViolation } from "@/lib/data";
 import { DEVICE_TYPE_CODE, ENTITY_TYPE_CODE, MACHINE_TYPE_CODE } from "@/lib/formCodes";
 import { TECH } from "@/lib/tech";
+import { FORM_LINES, formLines } from "@/lib/formLines";
 
 // Fills Oklahoma DOL's official third-party inspection form
 // (templates/inspection-form.pdf) from one finished report. Field names below are
@@ -44,26 +45,6 @@ export type FinalizePayload = {
     comments?: string[]; // typed by the inspector
   };
 };
-
-// The form's 36 numbered lines (8 on page 1, 28 on page 2): each has a type box
-// (V1…, R1…, C1…) and a line that takes a list item or typed text.
-export const FORM_LINES = 36;
-type FormLine = { tag: string; text: string };
-export function formLines(r: FinalizePayload["report"]): { lines: FormLine[]; v: number; rec: number; com: number } {
-  const lines: FormLine[] = [];
-  let v = 0, rec = 0, com = 0;
-  const comment = (t: string) => t.trim() && lines.push({ tag: `C${++com}`, text: t.trim() });
-  for (const a of r.added) {
-    // Older drafts could mark a list item as a recommendation or comment.
-    if (a.kind === "R") lines.push({ tag: `R${++rec}`, text: a.raw });
-    else if (a.kind === "C") comment(a.raw);
-    else lines.push({ tag: `V${++v}`, text: a.raw });
-    comment(a.comment); // a line's own comment goes right under it
-  }
-  for (const t of r.recommendations ?? []) if (t.trim()) lines.push({ tag: `R${++rec}`, text: t.trim() });
-  for (const t of r.comments ?? []) comment(t);
-  return { lines, v, rec, com };
-}
 
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
 
@@ -233,11 +214,12 @@ export async function fillReport(templateBytes: Uint8Array, p: FinalizePayload):
   // Violations / recommendations / comments, one per numbered line: the type box
   // (VRC.0–7 on page 1, VRC9.0–27 on page 2) gets V1/R1/C1…, the line itself
   // (combo0–35) the list item's exact wording or the typed text — both boxes
-  // accept typed values. A violation's comment is its own C line right under it.
+  // accept typed values. A violation's comment is its own C line right under it;
+  // text too long for one line carries on to the next (formLines.ts).
   const { lines, v: nV, rec: nR } = formLines(r);
   lines.slice(0, FORM_LINES).forEach((l, i) => {
     pick("combo" + i, l.text);
-    pick(i < 8 ? `VRC.${i}` : `VRC9.${i - 8}`, l.tag);
+    if (l.tag) pick(i < 8 ? `VRC.${i}` : `VRC9.${i - 8}`, l.tag);
   });
   text("VIOLATIONS", String(nV));
   text("RECOMMENDATIONS", String(nR));
