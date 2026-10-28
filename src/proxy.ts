@@ -8,7 +8,8 @@ import { isAllowed } from "@/lib/allowlist";
 // random link token in the address; the scheduler endpoints (push/run,
 // push/problem, invoice/run, switches/master, payments/log) are authorized by the secret in
 // schedulerKey.ts. /privacy is public for Google (and Intuit), /terms for Intuit; /api/push/ack only writes a
-// log line when an alert reaches a phone (the app may be closed then).
+// log line when an alert reaches a phone (the app may be closed then); /api/pagelog only logs a line for a real
+// link code (customer page tracker, src/lib/pageLog.ts).
 const isPublic = createRouteMatcher([
   "/sign-in(.*)",
   "/not-authorized",
@@ -27,6 +28,7 @@ const isPublic = createRouteMatcher([
   "/api/invoice/run(.*)",
   "/api/switches/master(.*)",
   "/api/payments/log(.*)",
+  "/api/pagelog(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

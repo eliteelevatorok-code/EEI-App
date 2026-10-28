@@ -141,6 +141,24 @@ export async function appendRow(range: string, values: string[]): Promise<number
   return m ? parseInt(m[1], 10) : null;
 }
 
+// Make sure a tab exists on the dashboard (adding it, with its header row, if
+// not). Remembered for the life of the server, so it's checked once.
+const knownTabs = new Set<string>();
+export async function ensureTab(title: string, header: string[]): Promise<void> {
+  if (knownTabs.has(title)) return;
+  const res = await sheets<{ sheets?: { properties?: { title?: string } }[] }>({ url: `${SHEET_URL}?fields=sheets.properties.title` });
+  if (!(res.sheets ?? []).some((s) => s.properties?.title === title)) {
+    try {
+      await sheets({ url: `${SHEET_URL}:batchUpdate`, method: "POST", data: { requests: [{ addSheet: { properties: { title } } }] } }, false);
+    } catch (err) {
+      // Two requests at once: the other one just added it — that's fine.
+      if (!/already exists/i.test(err instanceof Error ? err.message : String(err))) throw err;
+    }
+    await writeCells(header.map((h, i) => [`'${title}'!${String.fromCharCode(65 + i)}1`, h] as [string, string]), true);
+  }
+  knownTabs.add(title);
+}
+
 // Find a folder by name under a parent, or create it. Runs as Robert (owner).
 async function findOrCreateFolder(name: string, parentId: string): Promise<string> {
   const client = await driveOwner();

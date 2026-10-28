@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Field, Notice, PublicPage } from "@/components/ui";
 import { APRIL, WHERE_TO_FIND, isoToday, safetyAnswer, toIsoDate } from "@/lib/records";
 import { MAINT_CLOSED } from "@/lib/oldLinks";
+import { logEvent, startPageLog } from "@/lib/pageLog";
+
+const SEND_TIMEOUT_MS = 30_000;
 
 type Info = { building: string; okla: string; maintCo?: string; alreadyResult?: string; alreadyDate?: string; closed?: boolean };
 
@@ -20,12 +23,14 @@ export default function MaintForm({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [submitErr, setSubmitErr] = useState("");
+  const sending = useRef(false); // a second tap while sending does nothing
 
   useEffect(() => {
     if (!token) return;
+    startPageLog("maint", token);
     fetch(`/api/maint?t=${encodeURIComponent(token)}`)
       .then(async (r) => {
-        if (!r.ok) throw new Error();
+        if (!r.ok) throw new Error(`answer ${r.status}`);
         return (await r.json()) as Info;
       })
       .then((d) => {
@@ -33,12 +38,19 @@ export default function MaintForm({ token }: { token: string }) {
         const prev = safetyAnswer(d.alreadyResult);
         if (prev) setResult(prev);
         if (d.alreadyDate) setDate(toIsoDate(d.alreadyDate));
+        logEvent("form shown", d.closed ? "link expired" : d.alreadyResult ? `already answered ${d.alreadyResult}` : "");
       })
-      .catch(() => setLoadErr(`We couldn't find this link. Please use the link from our email, or call ${APRIL.name} at ${APRIL.phone}.`));
+      .catch((e) => {
+        logEvent("page didn't load", e instanceof Error ? e.message : String(e));
+        setLoadErr(`We couldn't find this link. Please use the link from our email, or call ${APRIL.name} at ${APRIL.phone}.`);
+      });
   }, [token]);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  // Sends from the tap itself (the form's submit event is only the keyboard's
+  // Go/Enter) — see the note in src/app/po/PoForm.tsx.
+  async function submit(how: string) {
+    if (sending.current) return;
+    logEvent("Send answers tapped", `${how}; ${result || "no choice"} ${date}`);
     if (result !== "Yes" && result !== "No") {
       setSubmitErr("Please choose Yes or No.");
       return;
@@ -47,20 +59,33 @@ export default function MaintForm({ token }: { token: string }) {
       setSubmitErr("Please enter the date of the safety test.");
       return;
     }
+    sending.current = true;
     setBusy(true);
     setSubmitErr("");
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), SEND_TIMEOUT_MS);
     try {
-      const r = await fetch("/api/maint", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, result, date: date.trim() }),
-      });
+      let r: Response;
+      try {
+        r = await fetch("/api/maint", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token, result, date: date.trim() }),
+          signal: stop.signal,
+        });
+      } catch (err) {
+        const timedOut = stop.signal.aborted;
+        logEvent(timedOut ? "send timed out" : "send failed", timedOut ? `${SEND_TIMEOUT_MS / 1000}s` : err instanceof Error ? err.message : String(err));
+        setSubmitErr(`We couldn't reach our site just now — please check your signal and try again, or call ${APRIL.name} at ${APRIL.phone}.`);
+        return;
+      }
       const data = (await r.json().catch(() => ({}))) as { error?: string };
-      if (!r.ok) throw new Error(data.error || "Something went wrong. Please try again.");
-      setDone(true);
-    } catch (err) {
-      setSubmitErr(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      logEvent("server answered", `${r.status}${data.error ? ": " + data.error : ""}`);
+      if (r.ok) setDone(true);
+      else setSubmitErr(data.error || `Something went wrong (code ${r.status}). Please try again.`);
     } finally {
+      clearTimeout(timer);
+      sending.current = false;
       setBusy(false);
     }
   }
@@ -97,7 +122,12 @@ export default function MaintForm({ token }: { token: string }) {
     <PublicPage title="Before your inspection" subtitle={<>For {info.building} (Elevator #{info.okla})</>}>
       <p className="mb-4 text-[15px] text-ink-2">We need two quick answers before the state inspection.</p>
       <Notice>{WHERE_TO_FIND}</Notice>
-      <form onSubmit={submit}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit("keyboard");
+        }}
+      >
         <Field label="Has the elevator had a passing safety test in the last 12 months?">
           <div className="grid grid-cols-2 gap-2.5">
             {["Yes", "No"].map((v) => (
@@ -112,8 +142,21 @@ export default function MaintForm({ token }: { token: string }) {
             <input type="date" className="input" value={date} max={isoToday()} onChange={(e) => setDate(e.target.value)} />
           </Field>
         )}
-        {submitErr ? <p className="mt-3 text-sm font-semibold text-danger">{submitErr}</p> : null}
-        <Button type="submit" full className="mt-5" disabled={busy}>
+        {submitErr ? (
+          <div className="mt-4" role="alert">
+            <Notice tone="warn">{submitErr}</Notice>
+          </div>
+        ) : null}
+        <Button
+          type="submit"
+          full
+          className="mt-5"
+          disabled={busy}
+          onClick={(e) => {
+            e.preventDefault();
+            submit("tap");
+          }}
+        >
           {busy ? "Sending…" : "Send answers"}
         </Button>
       </form>

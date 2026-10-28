@@ -1,4 +1,6 @@
+import { after } from "next/server";
 import { uploadFile } from "@/lib/google";
+import { sendAlert } from "@/lib/push";
 import { findForPO, recordPO } from "@/lib/po";
 import { PO_CLOSED } from "@/lib/oldLinks";
 
@@ -65,5 +67,15 @@ export async function POST(req: Request) {
     // Public page: never show outsiders the internal error.
     return Response.json({ error: "Couldn't save just now — please try again in a minute." }, { status: 502 });
   }
+  // Tell Robert's phone (Robert, 2026-10-28: a PO used to land on the dashboard
+  // with nobody told). After the answer goes back, so the customer never waits on it.
+  after(() =>
+    sendAlert(
+      `PO received: ${el.building}`,
+      `PO ${po}${fileLink ? " (file attached)" : ""}${el.alreadyPO && el.alreadyPO !== po ? ` — replaces ${el.alreadyPO}` : ""}`,
+      `/?open=${encodeURIComponent(el.okla)}`,
+      `eei-po-${el.okla}`,
+    ).catch((e) => console.error("[po] alert failed:", e)),
+  );
   return Response.json({ ok: true, fileSaved: Boolean(fileLink) });
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button, PublicPage } from "@/components/ui";
+import { logEvent, startPageLog } from "@/lib/pageLog";
 
 type Info = { building: string; price?: string; alreadyPaid?: boolean; real?: boolean; payUrl?: string };
 
@@ -18,6 +19,7 @@ export default function PayForm({ token }: { token: string }) {
 
   useEffect(() => {
     if (!token) return;
+    startPageLog("pay", token);
     fetch(`/api/pay?t=${encodeURIComponent(token)}`)
       .then(async (r) => {
         if (!r.ok) throw new Error();
@@ -26,11 +28,16 @@ export default function PayForm({ token }: { token: string }) {
       .then((d) => {
         setInfo(d);
         if (d.alreadyPaid) setDone(true);
+        logEvent("page shown", d.alreadyPaid ? "already paid" : d.real ? (d.payUrl ? "Pay online button" : "no pay link (QuickBooks email only)") : "test Pay now button");
       })
-      .catch(() => setLoadErr("We couldn't find this link. Please use the link from your invoice email."));
+      .catch((e) => {
+        logEvent("page didn't load", e instanceof Error ? e.message : String(e));
+        setLoadErr("We couldn't find this link. Please use the link from your invoice email.");
+      });
   }, [token]);
 
   async function pay() {
+    logEvent("Pay now tapped");
     setBusy(true);
     setSubmitErr("");
     try {
@@ -40,6 +47,7 @@ export default function PayForm({ token }: { token: string }) {
         body: JSON.stringify({ token }),
       });
       const data = (await r.json().catch(() => ({}))) as { error?: string };
+      logEvent("server answered", `${r.status}${data.error ? ": " + data.error : ""}`);
       if (!r.ok) throw new Error(data.error || "Something went wrong. Please try again.");
       setDone(true);
     } catch (err) {
@@ -73,7 +81,7 @@ export default function PayForm({ token }: { token: string }) {
       ) : null}
       {info.real ? (
         info.payUrl ? (
-          <a href={info.payUrl} className="btn btn-primary mt-5 w-full">
+          <a href={info.payUrl} className="btn btn-primary mt-5 w-full" onClick={() => logEvent("Pay online tapped")}>
             Pay online
           </a>
         ) : (
