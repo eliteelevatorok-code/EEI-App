@@ -123,13 +123,20 @@ export async function resyncAlerts(): Promise<void> {
 }
 
 // Turn alerts on for this phone (the Settings button). Returns the resulting state.
+// "off" means the person didn't allow alerts when the phone asked. Once they
+// have, anything that stops the sign-up throws, with words the screen can show.
 export async function enableAlerts(): Promise<AlertState> {
   if (!supported()) return "unsupported";
   const perm = await Notification.requestPermission();
   if (perm !== "granted") return perm === "denied" ? "blocked" : "off";
+  const giveUp = new Promise<never>((_, no) => setTimeout(() => no(new Error("timeout")), 20_000));
+  let result: "on" | "off" | null;
   try {
-    return (await ensureSignedUp()) === "on" ? "on" : "off";
+    result = await Promise.race([ensureSignedUp(), giveUp]);
   } catch {
-    return "off";
+    throw new Error("Alerts didn't finish turning on — check your signal and tap again.");
   }
+  if (result === null) throw new Error("Couldn't reach the app — check your signal and tap again.");
+  if (result === "off") throw new Error("Alerts didn't finish turning on — tap again.");
+  return "on";
 }

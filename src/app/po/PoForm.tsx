@@ -4,12 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Field, Notice, PublicPage } from "@/components/ui";
 import { PO_CLOSED } from "@/lib/oldLinks";
 import { logEvent, startPageLog } from "@/lib/pageLog";
+import { call } from "@/lib/net";
 
 type Info = { building: string; okla: string; alreadyPO?: string; invoiced?: boolean; closed?: boolean };
 
 // How long to wait for the server before telling the customer something's wrong
 // (a PO with a photo attached on a slow phone signal can take a while).
-const SEND_TIMEOUT_MS = 45_000;
+const SEND_TIMEOUT_MS = 60_000;
 const CALL_US = "If it keeps happening, please reply to our email or call (405) 213-9779.";
 
 // The "Send us your PO" screen. The customer sees only their building name, a PO
@@ -79,32 +80,18 @@ export default function PoForm({ token }: { token: string }) {
     fd.set("token", token);
     fd.set("po", value);
     if (f) fd.set("file", f);
-    const stop = new AbortController();
-    const timer = setTimeout(() => stop.abort(), SEND_TIMEOUT_MS);
-    let r: Response;
     try {
-      r = await fetch("/api/po", { method: "POST", body: fd, signal: stop.signal });
-    } catch (err) {
-      // Never reached the server (or gave up waiting).
-      const timedOut = stop.signal.aborted;
-      logEvent(timedOut ? "send timed out" : "send failed", timedOut ? `${SEND_TIMEOUT_MS / 1000}s` : err instanceof Error ? err.message : String(err));
-      setSubmitErr(
-        timedOut
-          ? `That's taking too long — please check your signal and tap Submit PO again. ${CALL_US}`
-          : `We couldn't reach our site just now — please check your signal and try again. ${CALL_US}`,
-      );
-      clearTimeout(timer);
-      sending.current = false;
-      setBusy(false);
-      return;
-    }
-    try {
+      const r = await call("/api/po", { method: "POST", body: fd }, SEND_TIMEOUT_MS);
       const data = (await r.json().catch(() => ({}))) as { error?: string };
       logEvent("server answered", `${r.status}${data.error ? ": " + data.error : ""}`);
       if (r.ok) setDone(true);
       else setSubmitErr(data.error || `Something went wrong (code ${r.status}). Please try again. ${CALL_US}`);
+    } catch (err) {
+      // Never reached the server, or no answer in time.
+      const msg = err instanceof Error ? err.message : String(err);
+      logEvent("send failed", msg);
+      setSubmitErr(`${msg} ${CALL_US}`);
     } finally {
-      clearTimeout(timer);
       sending.current = false;
       setBusy(false);
     }

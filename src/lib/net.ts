@@ -1,22 +1,30 @@
-// Every button that talks to the server goes through `call` (Robert, 2026-10-28:
-// "none of the buttons should ever look like they did nothing"). It's fetch with
-// a time limit, so a button can never sit on "Saving…" forever on a bad signal,
-// and with failures said in plain words the screen can show as-is.
+// Every button that talks to the server goes through `call` or `postJson`
+// (Robert, 2026-10-28: "none of the buttons should ever look like they did
+// nothing"). It's fetch with a time limit that covers the whole answer, so a
+// button can never sit on "Saving…" forever on a bad signal, and failures come
+// back in plain words the screen can show as-is.
 //
 // Browser-only (the screens and the customer pages).
 
-export const SLOW_MSG = "That's taking too long — check your signal and try again.";
 export const OFFLINE_MSG = "Couldn't reach the app — check your signal and try again.";
+// A read that ran out of time can simply be tried again. A save can't be so sure:
+// the server may have finished it after the phone stopped waiting.
+const SLOW_READ = "That's taking too long — check your signal and try again.";
+export const SLOW_SAVE = "No answer in time — it may still have saved. Reload to check before trying again.";
 
-// fetch, but gives up after `ms` (default 30s). Throws an Error whose message is
-// ready to show: SLOW_MSG when it timed out, OFFLINE_MSG when it never connected.
+// fetch, but gives up after `ms` (default 30s) — counting the whole answer, not
+// just its first bytes. Throws an Error whose message is ready to show.
 export async function call(url: string, init: RequestInit = {}, ms = 30_000): Promise<Response> {
   const stop = new AbortController();
   const timer = setTimeout(() => stop.abort(), ms);
   try {
-    return await fetch(url, { ...init, signal: stop.signal });
+    const res = await fetch(url, { ...init, signal: stop.signal });
+    const body = await res.arrayBuffer(); // read it all inside the time limit
+    const empty = [204, 205, 304].includes(res.status); // these may not carry a body
+    return new Response(empty ? null : body, { status: res.status, statusText: res.statusText, headers: res.headers });
   } catch {
-    throw new Error(stop.signal.aborted ? SLOW_MSG : OFFLINE_MSG);
+    const save = (init.method ?? "GET").toUpperCase() !== "GET";
+    throw new Error(stop.signal.aborted ? (save ? SLOW_SAVE : SLOW_READ) : OFFLINE_MSG);
   } finally {
     clearTimeout(timer);
   }

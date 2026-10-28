@@ -165,26 +165,18 @@ export function Toggle({ on, onClick, label }: { on: boolean; onClick: () => voi
 // Label above a form field.
 // `missing`: still needs filling in (Finish report was tapped) — the label turns
 // red and says so. `id`: so the screen can scroll to it.
+// A plain group, not a <label>: a <label> "clicks" the first control inside it
+// when its words are tapped — which, around Yes / No or a row of chips, picked
+// the first answer by itself.
 export function Field({ label, children, missing, id }: { label: string; children: React.ReactNode; missing?: boolean; id?: string }) {
   return (
-    <label
-      id={id}
-      className="mb-4 block scroll-mt-24 last:mb-0"
-      // Tapping a label "clicks" the first control inside it. Fine for a text box
-      // (it gets the cursor) — but where the choices are buttons (Yes / No, the
-      // chips), tapping the question's words would pick the first answer by
-      // itself. So a tap on the words, not on a control, does nothing there.
-      onClick={(e) => {
-        const onControl = (e.target as HTMLElement).closest("button, input, select, textarea, a");
-        if (!onControl && e.currentTarget.querySelector("button")) e.preventDefault();
-      }}
-    >
+    <div id={id} role="group" aria-label={label} className="mb-4 block scroll-mt-24 last:mb-0">
       <span className={cx("field-label", missing && "text-danger")}>
         {label}
         {missing && " — needed"}
       </span>
       {children}
-    </label>
+    </div>
   );
 }
 

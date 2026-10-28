@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import Link from "next/link";
 import { getRoster, getServerRoster, patchElevator, refreshRoster, subscribeRoster } from "@/lib/roster-store";
 import { useClerk } from "@clerk/nextjs";
-import { call } from "@/lib/net";
+import { call, postJson } from "@/lib/net";
 import { getInstallState, subscribeInstall, triggerInstall } from "@/lib/pwa-install";
 import { alertsState, enableAlerts, type AlertState } from "@/lib/push-client";
 import {
@@ -232,7 +232,7 @@ function useInstall() {
   const install = () => {
     setInstallMsg("");
     triggerInstall()
-      .then((ok) => setInstallMsg(ok ? "" : "Not installed. Tap Install again whenever you're ready."))
+      .then((ok) => setInstallMsg(ok ? "" : "Not installed. Chrome will offer it again next time you open the app."))
       .catch(() => setInstallMsg("Chrome couldn't open the install window. Use Chrome's ⋮ menu → Install app instead."));
   };
   return { installed: state.installed, canInstall: state.canInstall, install, installMsg };
@@ -269,9 +269,8 @@ function CalendlyCard() {
     setBusy(true);
     setErr("");
     try {
-      const r = await call("/api/calendly", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fix: true }) });
-      const d = (await r.json().catch(() => ({}))) as { error?: string; check?: CalCheck };
-      if (!r.ok || !d.check) throw new Error(d.error || `Error ${r.status}`);
+      const d = await postJson<{ check?: CalCheck }>("/api/calendly", { fix: true });
+      if (!d.check) throw new Error("Calendly didn't answer — try again.");
       buzz();
       setC(d.check);
       setSure(false);
@@ -344,18 +343,13 @@ function CalendlyCard() {
   );
 }
 
-function SettingsTab({ onLogout }: { onLogout: () => void }) {
+function SettingsTab({ onLogout }: { onLogout: () => Promise<void> }) {
+  const [leaving, setLeaving] = useState(false);
   const { installed, canInstall, install, installMsg } = useInstall();
   const [scale, setScale] = useState(currentFontScale);
 
   // Live master-switch state, so the System card shows on/off at a glance.
-  const [master, setMaster] = useState<boolean | null>(null);
-  useEffect(() => {
-    call("/api/switches?only=master") // just the master switch — one small read
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { master?: boolean } | null) => setMaster(d && typeof d.master === "boolean" ? d.master : null))
-      .catch(() => setMaster(null));
-  }, []);
+  const master = useMasterOn();
 
   // Rule for this screen: a card appears only when it needs something from you.
   // Already installed / alerts already on / Drive already connected → nothing shown.
@@ -405,8 +399,8 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
       const next = await enableAlerts();
       setAlerts(next);
       if (next === "off") setAlertMsg("Alerts didn't turn on. Tap again, and choose Allow when your phone asks.");
-    } catch {
-      setAlertMsg("Alerts didn't turn on — check your signal and tap again.");
+    } catch (e) {
+      setAlertMsg(e instanceof Error ? e.message : "Alerts didn't turn on — tap again.");
     } finally {
       setAlertBusy(false);
     }
@@ -435,10 +429,11 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
             <Button full onClick={install}>
               Install the app
             </Button>
-            {installMsg && <p className="mt-2 text-sm font-semibold text-danger">{installMsg}</p>}
           </Glass>
         </>
       )}
+      {/* Outside the card: a dismissed install takes the card away with it. */}
+      {installMsg && !installed && <p className="mt-2 px-1 text-sm font-semibold text-danger">{installMsg}</p>}
 
       {alerts && alerts !== "on" && (
         <>
@@ -544,8 +539,16 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
       </Glass>
 
       <SectionLabel>Account</SectionLabel>
-      <Button variant="secondary" full onClick={onLogout}>
-        Log out
+      <Button
+        variant="secondary"
+        full
+        disabled={leaving}
+        onClick={() => {
+          setLeaving(true);
+          void onLogout();
+        }}
+      >
+        {leaving ? "Logging out…" : "Log out"}
       </Button>
 
       <p className="mt-6 text-center text-xs text-ink-3">
@@ -1049,13 +1052,7 @@ function NewElevator({ onBack, onCreated }: { onBack: () => void; onCreated: (e:
     setErr("");
     try {
       const payload = { ...f, cycle, price: price == null ? "" : `$${price}` };
-      const res = await call("/api/elevators", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; row?: number };
-      if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+      const data = await postJson<{ row?: number }>("/api/elevators", payload);
       // Hand the new elevator (with technical details + its sheet row) to the
       // first inspection, so the first PDF gets everything.
       const cycleNum = cycle.match(/\d/)?.[0] || "1";
@@ -1302,13 +1299,8 @@ function FastTrackSheet({
     setBusy(true);
     setErr("");
     try {
-      const res = await call("/api/fasttrack", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ row: e.row, okla: e.okla, step, ...body }),
-      });
-      const d = (await res.json().catch(() => ({}))) as { error?: string; fastTrack?: FastTimes };
-      if (!res.ok || !d.fastTrack) throw new Error(d.error || `Error ${res.status}`);
+      const d = await postJson<{ fastTrack?: FastTimes }>("/api/fasttrack", { row: e.row, okla: e.okla, step, ...body });
+      if (!d.fastTrack) throw new Error("The fast track didn't save — try again.");
       buzz();
       onSaved(d.fastTrack);
     } catch (x) {
@@ -1450,15 +1442,7 @@ function LifecycleEditor({
     setBusy(true);
     setErr("");
     try {
-      const res = await call("/api/lifecycle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ row, okla, col: stage.col, value: choice }),
-      });
-      if (!res.ok) {
-        const e = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(e.error || `Error ${res.status}`);
-      }
+      await postJson("/api/lifecycle", { row, okla, col: stage.col, value: choice });
       buzz();
       onSaved(choice);
     } catch (e) {
@@ -1564,7 +1548,7 @@ function nextSteps(
   const reached = (key: string) => looks.get(key)?.look !== "tl-todo";
   const canInspect = inspectWhy(e) === null;
   const trip = stage(e, "tripDay");
-  const call = (label: string, phone?: string) => (phone ? [{ label, href: `tel:${phone}` }] : []);
+  const phoneCall = (label: string, phone?: string) => (phone ? [{ label, href: `tel:${phone}` }] : []);
   const mail = (label: string, email?: string, subject?: string) =>
     email ? [{ label, href: `mailto:${email}${subject ? `?subject=${encodeURIComponent(subject)}` : ""}` }] : [];
 
@@ -1588,7 +1572,7 @@ function nextSteps(
       text: `${who} hasn't told us yet whether it had a passing safety test in the last 12 months. If you get the answer by phone, enter it here.`,
       actions: [
         { label: "Enter answer", onClick: onEnterSafety },
-        ...call(american ? "Call them" : "Call customer", phone),
+        ...phoneCall(american ? "Call them" : "Call customer", phone),
         ...mail(american ? "Email them" : "Email customer", email, `Safety test for ${e.building}`),
       ],
     });
@@ -1615,8 +1599,8 @@ function nextSteps(
       title: "No passing safety test",
       text: "The answer was No — it hasn't passed a safety test in the last 12 months. Decide with the customer or maintenance company what happens before the inspection.",
       actions: [
-        ...call("Call customer", e.phone),
-        ...call(american ? "Call American" : "Call maintenance", e.maintPhone),
+        ...phoneCall("Call customer", e.phone),
+        ...phoneCall(american ? "Call American" : "Call maintenance", e.maintPhone),
       ],
     });
   }
@@ -1632,7 +1616,7 @@ function nextSteps(
     out.push({
       title: "Past due",
       text: `It was due ${humanDate(e.due)} and no visit is booked yet.`,
-      actions: [...call("Call customer", e.phone), ...mail("Email customer", e.email, `Scheduling the inspection at ${e.building}`)],
+      actions: [...phoneCall("Call customer", e.phone), ...mail("Email customer", e.email, `Scheduling the inspection at ${e.building}`)],
     });
   }
   if (stage(e, "invoice") === "Sent" && stage(e, "paid") !== "Paid" && reached("invoice")) {
@@ -1640,7 +1624,7 @@ function nextSteps(
     out.push({
       title: "Waiting on payment",
       text: `The ${e.price || "invoice"} bill is out${reminder ? ` and reminder ${reminder.replace(" sent", "")} has gone out` : ""}. Nothing to do unless it drags on.`,
-      actions: call("Call customer", e.phone),
+      actions: phoneCall("Call customer", e.phone),
     });
   }
   return out;
@@ -1661,13 +1645,7 @@ function SafetyEditor({ elevator, onClose, onSaved }: { elevator: Elevator; onCl
     setBusy(true);
     setErr("");
     try {
-      const r = await call("/api/records", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ row: elevator.row, okla: elevator.okla, result: answer, date }),
-      });
-      const d = (await r.json().catch(() => ({}))) as { error?: string };
-      if (!r.ok) throw new Error(d.error || "Save failed");
+      await postJson("/api/records", { row: elevator.row, okla: elevator.okla, result: answer, date });
       buzz();
       // Show the answer everywhere right away (and move the records step on) —
       // including the report's "one-year test" box, which is filled from it.
@@ -1730,13 +1708,7 @@ function TechEditor({ elevator, onClose, onSaved }: { elevator: Elevator; onClos
     setBusy(true);
     setErr("");
     try {
-      const r = await call("/api/details", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ row: elevator.row, okla: elevator.okla, values: changed }),
-      });
-      const d = (await r.json().catch(() => ({}))) as { error?: string };
-      if (!r.ok) throw new Error(d.error || "Save failed");
+      await postJson("/api/details", { row: elevator.row, okla: elevator.okla, values: changed });
       buzz();
       onSaved({ ...elevator, carried: carriedFromForm(v) });
       void refreshRoster();
@@ -1797,13 +1769,7 @@ function MissingDetailsSheet({
     setBusy(true);
     setErr("");
     try {
-      const r = await call("/api/details", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ row: elevator.row, okla: elevator.okla, values }),
-      });
-      const d = (await r.json().catch(() => ({}))) as { error?: string };
-      if (!r.ok) throw new Error(d.error || "Save failed");
+      await postJson("/api/details", { row: elevator.row, okla: elevator.okla, values });
       buzz();
       const next: Elevator = { ...elevator, carried: carriedFromForm(Object.fromEntries(TECH_KEYS.map((k) => [k, v[k].trim()])) as Record<TechKey, string>) };
       for (const x of basics) if (b[x.key].trim()) next[x.key] = b[x.key].trim();
@@ -1888,13 +1854,7 @@ function Profile({
     setQpBusy(true);
     setQpErr("");
     try {
-      const r = await call("/api/switches", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target: "quotePO", row: e.row, okla: e.okla, on: next }),
-      });
-      const d = (await r.json().catch(() => ({}))) as { error?: string };
-      if (!r.ok) throw new Error(d.error || "Save failed");
+      await postJson("/api/switches", { target: "quotePO", row: e.row, okla: e.okla, on: next });
       buzz();
       onChange({ ...e, moneyPath: next ? "Quote to PO to invoice" : "Invoice only" });
       setQpStep(null);
@@ -1912,13 +1872,7 @@ function Profile({
     setSwBusy(true);
     setSwErr("");
     try {
-      const r = await call("/api/switches", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target: "elevator", row: e.row, okla: e.okla, on: next }),
-      });
-      const d = (await r.json().catch(() => ({}))) as { error?: string };
-      if (!r.ok) throw new Error(d.error || "Save failed");
+      await postJson("/api/switches", { target: "elevator", row: e.row, okla: e.okla, on: next });
       buzz();
       onChange({ ...e, active: next });
       closeSw();
@@ -2837,9 +2791,14 @@ function App() {
     if (url !== window.location.pathname + window.location.search) window.history.replaceState(null, "", url);
   }, [tab, stage, selected, openAt.okla]);
 
-  // If Clerk can't sign out (no signal), go to the sign-in page anyway.
-  const logout = () => {
-    Promise.resolve(signOut({ redirectUrl: "/sign-in" })).catch(() => window.location.assign(new URL("/sign-in", window.location.origin).href));
+  // Always ends on the sign-in page — even if Clerk can't be reached (gives it 5s).
+  const logout = async () => {
+    try {
+      await Promise.race([signOut(), new Promise((done) => setTimeout(done, 5000))]);
+    } catch {
+      /* go anyway */
+    }
+    window.location.assign(new URL("/sign-in", window.location.origin).href);
   };
 
   // Every change glides (see go() in components/ui.tsx). Leaving the tabs saves

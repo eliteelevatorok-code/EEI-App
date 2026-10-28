@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { call } from "@/lib/net";
+import { call, postJson } from "@/lib/net";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button, Glass, Pill, Screen, Title, TopBar } from "@/components/ui";
 
@@ -36,13 +36,7 @@ export default function SwitchesPage() {
     setBusy(true);
     setErr("");
     try {
-      const r = await call("/api/switches", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target: "master", on, confirm: on ? undefined : "STOP" }),
-      });
-      const d = (await r.json().catch(() => ({}))) as { error?: string };
-      if (!r.ok) throw new Error(d.error || "Save failed");
+      await postJson("/api/switches", { target: "master", on, confirm: on ? undefined : "STOP" });
       setState((s) => (s ? { ...s, master: on } : s));
       close();
     } catch (e) {

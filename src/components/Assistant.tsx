@@ -179,7 +179,7 @@ function AssistantPanel({ context, onClose }: { context: AskContext; onClose: ()
       const res = await call(
         "/api/assistant",
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, context }) },
-        120_000, // a long answer (several looks at the dashboard) takes a while
+        70_000, // the server allows itself 60s (maxDuration in api/assistant/route.ts), plus a little for the trip
       );
       const data = (await res.json().catch(() => ({}))) as {
         messages?: Msg[];

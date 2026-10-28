@@ -5,8 +5,7 @@ import { Button, Field, Notice, PublicPage } from "@/components/ui";
 import { APRIL, WHERE_TO_FIND, isoToday, safetyAnswer, toIsoDate } from "@/lib/records";
 import { MAINT_CLOSED } from "@/lib/oldLinks";
 import { logEvent, startPageLog } from "@/lib/pageLog";
-
-const SEND_TIMEOUT_MS = 30_000;
+import { postJson } from "@/lib/net";
 
 type Info = { building: string; okla: string; maintCo?: string; alreadyResult?: string; alreadyDate?: string; closed?: boolean };
 
@@ -62,29 +61,15 @@ export default function MaintForm({ token }: { token: string }) {
     sending.current = true;
     setBusy(true);
     setSubmitErr("");
-    const stop = new AbortController();
-    const timer = setTimeout(() => stop.abort(), SEND_TIMEOUT_MS);
     try {
-      let r: Response;
-      try {
-        r = await fetch("/api/maint", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, result, date: date.trim() }),
-          signal: stop.signal,
-        });
-      } catch (err) {
-        const timedOut = stop.signal.aborted;
-        logEvent(timedOut ? "send timed out" : "send failed", timedOut ? `${SEND_TIMEOUT_MS / 1000}s` : err instanceof Error ? err.message : String(err));
-        setSubmitErr(`We couldn't reach our site just now — please check your signal and try again, or call ${APRIL.name} at ${APRIL.phone}.`);
-        return;
-      }
-      const data = (await r.json().catch(() => ({}))) as { error?: string };
-      logEvent("server answered", `${r.status}${data.error ? ": " + data.error : ""}`);
-      if (r.ok) setDone(true);
-      else setSubmitErr(data.error || `Something went wrong (code ${r.status}). Please try again.`);
+      await postJson("/api/maint", { token, result, date: date.trim() });
+      logEvent("server answered", "saved");
+      setDone(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logEvent("send failed", msg);
+      setSubmitErr(`${msg} Or call ${APRIL.name} at ${APRIL.phone}.`);
     } finally {
-      clearTimeout(timer);
       sending.current = false;
       setBusy(false);
     }
