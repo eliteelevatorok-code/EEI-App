@@ -55,6 +55,10 @@ export const COL = {
   // BU–BX: more state-form details (see src/lib/tech.ts) — boxes Robert fills on
   // every report that the original AQ–BK set didn't cover.
   natureOfBusiness: 72, hoistwayLocation: 73, deviceLocation: 74, ownerAttention: 75,
+  // BY: "Sent" once the "you still need to pick a day" reminder has gone out —
+  // Make sends it 14 days after the scheduling email if no visit is booked
+  // (Robert, 2026-10-29). Cleared by the yearly reset and whenever Scheduling is set.
+  bookingNudge: 76,
 } as const;
 export type Col = keyof typeof COL;
 
@@ -69,7 +73,7 @@ export function letter(i: number): string {
   for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
   return s;
 }
-const LAST = letter(COL.ownerAttention); // read this far to get every column the app uses
+const LAST = letter(COL.bookingNudge); // read this far to get every column the app uses
 
 // One trimmed cell from a row that was read from the sheet.
 export const cell = (row: string[], c: Col) => (row[COL[c]] ?? "").trim();
@@ -113,6 +117,7 @@ export const writeRow = (row: number, values: Partial<Record<Col, string>>) => {
   // Setting Scheduling (by hand, the assistant, …) also stamps or clears when it was sent.
   const v = { ...values };
   if ("scheduling" in v && !("schedSentAt" in v)) v.schedSentAt = v.scheduling === "Sent" ? schedStamp() : "";
+  if ("scheduling" in v && !("bookingNudge" in v)) v.bookingNudge = ""; // a new scheduling email gets its own reminder
   return writeCells(Object.entries(v).map(([c, x]) => [`${TAB}!${letter(COL[c as Col])}${row}`, x ?? ""]));
 };
 // "sent 2026-10-15T23:00:00Z" ↔ the moment.
