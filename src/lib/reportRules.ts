@@ -6,8 +6,8 @@ import { isoToday } from "@/lib/records";
 // No certificate (full or temporary) for a red-tagged, scrapped or inactive
 // elevator — only when none of those is picked (Robert, 2026-10-28).
 export const noCertificate = (condition: string) => condition === "Red Tag" || condition === "Scrapped" || condition === "Inactive";
-// No next due date for a red-tagged or scrapped one.
-export const noDueDate = (condition: string) => condition === "Red Tag" || condition === "Scrapped";
+// No next due date for any of them either (Inactive added by Robert, 2026-10-29).
+export const noDueDate = noCertificate;
 
 // A test date typed as MM/YYYY. Digits only, the slash goes in by itself, and it
 // stops at 6 digits (a box that took any number of digits printed

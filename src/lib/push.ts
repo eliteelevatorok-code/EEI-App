@@ -87,7 +87,7 @@ async function dropSubscription(row: number): Promise<void> {
 //             email, so nothing would ever go out (logic audit, 2026-10-28)
 //   nodue   — no due date on an elevator that has never had a report, so the
 //             yearly emails never start. (A blank due date after a report is
-//             on purpose: a Red Tag / Scrapped finish clears it.)
+//             on purpose: a Red Tag / Scrapped / Inactive finish clears it.)
 //   remind  — a reminder Robert set through the assistant (see reminders.ts)
 // Each alert is ONE short line — what and which building. Tapping it opens the
 // elevator, whose "Next step" card explains and has the button to act.

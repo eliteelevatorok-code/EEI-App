@@ -121,7 +121,7 @@ const hasSheetPrice = (e: Elevator) => Number((e.price ?? "").replace(/[^0-9.]/g
 const emailMissing = (e: Elevator) =>
   !e.email?.trim() && e.lifecycle.find((s) => s.key === "visit")?.value !== "Inspected" && (daysUntil(e.due) ?? 999) <= 60;
 // …and no due date on an elevator that has never had a report. (After a report a
-// blank due date is on purpose: a Red Tag / Scrapped finish clears it.)
+// blank due date is on purpose: a Red Tag / Scrapped / Inactive finish clears it.)
 const dueMissing = (e: Elevator) =>
   !e.due.trim() && e.lifecycle.find((s) => s.key === "visit")?.value !== "Inspected" && !e.lastReport;
 const money = (n: number) => "$" + n.toLocaleString(undefined, { maximumFractionDigits: 2 });
