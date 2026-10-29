@@ -115,6 +115,15 @@ function priceOf(e: Elevator): number {
 }
 // The price actually on the dashboard (what the quote email and invoice use) — no rate-card fallback.
 const hasSheetPrice = (e: Elevator) => Number((e.price ?? "").replace(/[^0-9.]/g, "")) > 0;
+// Gaps that would stop the automation without a word (logic audit, 2026-10-28;
+// the phone alerts use the same rules — lib/push.ts):
+// no customer email once it's inside the 60-day window (every step is an email)…
+const emailMissing = (e: Elevator) =>
+  !e.email?.trim() && e.lifecycle.find((s) => s.key === "visit")?.value !== "Inspected" && (daysUntil(e.due) ?? 999) <= 60;
+// …and no due date on an elevator that has never had a report. (After a report a
+// blank due date is on purpose: a Red Tag / Scrapped finish clears it.)
+const dueMissing = (e: Elevator) =>
+  !e.due.trim() && e.lifecycle.find((s) => s.key === "visit")?.value !== "Inspected" && !e.lastReport;
 const money = (n: number) => "$" + n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 // Shown by a tab while the list hasn't arrived yet, or if it can't be reached.
@@ -665,7 +674,11 @@ function todayLists(accounts: Account[]) {
       out.push({ u, what: "The report isn't finished" });
     if (u.safetyTest === "No" && stage(u, "visit") !== "Inspected") out.push({ u, what: "No passing safety test in the last 12 months" });
     const d = daysUntil(u.due);
-    if (!hasSheetPrice(u) && stage(u, "quote") !== "Sent" && d !== null && d <= 60) out.push({ u, what: "Price missing — the quote can't go out" });
+    if (!hasSheetPrice(u) && stage(u, "quote") !== "Sent" && d !== null && d <= 60)
+      out.push({ u, what: `Price missing — the ${u.moneyPath === "Invoice only" ? "bill" : "quote"} can't go out` });
+    // (The same two checks buzz the phone — see lib/push.ts.)
+    if (emailMissing(u)) out.push({ u, what: "No customer email — none of the emails can go out" });
+    if (dueMissing(u)) out.push({ u, what: "No due date — the yearly emails won't start" });
     return out;
   });
   const days = (u: Elevator) => daysUntil(u.due);
@@ -1610,7 +1623,21 @@ function nextSteps(
   if (!hasSheetPrice(e) && stage(e, "quote") !== "Sent" && (daysUntil(e.due) ?? 999) <= 60) {
     out.push({
       title: "Price missing",
-      text: "There's no price on this elevator, so the quote can't go out. Ask the assistant to set it (it prices by type and floors), or fill it in on the dashboard.",
+      text: `There's no price on this elevator, so the ${e.moneyPath === "Invoice only" ? "bill" : "quote"} can't go out. Ask the assistant to set it (it prices by type and floors), or fill it in on the dashboard.`,
+      actions: [],
+    });
+  }
+  if (emailMissing(e)) {
+    out.push({
+      title: "Customer email missing",
+      text: "Every step (heads-up, quote, scheduling, report, bill) is an email, so nothing can go out until there's an email. Ask the assistant to add it, or fill it in on the dashboard.",
+      actions: phoneCall("Call customer", e.phone),
+    });
+  }
+  if (dueMissing(e)) {
+    out.push({
+      title: "Due date missing",
+      text: "With no due date the yearly emails never start. Ask the assistant to set it, or fill it in on the dashboard.",
       actions: [],
     });
   }

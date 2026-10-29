@@ -371,13 +371,6 @@ export async function getInvoicePayLink(id: string): Promise<string> {
   return link.startsWith("https://") ? link : "";
 }
 
-// The connected company's name — a read-only check that the connection works.
-export async function companyName(): Promise<string> {
-  const { realmId } = await getAccess();
-  const res = await qb<{ CompanyInfo?: { CompanyName?: string } }>(`companyinfo/${realmId}`);
-  return res.CompanyInfo?.CompanyName ?? "";
-}
-
 // Read one invoice's current balance. Balance 0 = fully paid.
 export async function getInvoiceBalance(id: string): Promise<number> {
   const res = await qb<{ Invoice: Invoice }>(`invoice/${id}`);

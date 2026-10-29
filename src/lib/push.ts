@@ -81,7 +81,13 @@ async function dropSubscription(row: number): Promise<void> {
 //   report  — the visit is marked done but its report was never finished (so it can't be emailed)
 //   overdue — past the due date and no visit booked or done
 //   nopass  — the safety-test answer was No (no passing test in 12 months)
-//   noprice — no price on it, inside the 60-day window (the quote can't go out)
+//   noprice — no price on it, inside the 60-day window (the quote — or, for
+//             "Invoice only", the bill — can't go out)
+//   noemail — no customer email, inside the 60-day window: every step is an
+//             email, so nothing would ever go out (logic audit, 2026-10-28)
+//   nodue   — no due date on an elevator that has never had a report, so the
+//             yearly emails never start. (A blank due date after a report is
+//             on purpose: a Red Tag / Scrapped finish clears it.)
 //   remind  — a reminder Robert set through the assistant (see reminders.ts)
 // Each alert is ONE short line — what and which building. Tapping it opens the
 // elevator, whose "Next step" card explains and has the button to act.
@@ -139,6 +145,8 @@ export async function alertItems(ignoreMaster = false): Promise<AlertItem[]> {
     // No price → the quote (and later the bill) can't go out. Flag it once it's inside the 60-day window.
     const dueIn = dateNum(cell(r, "due"));
     if (!/[1-9]/.test(cell(r, "price")) && cell(r, "quote") !== "Sent" && dueIn && dueIn <= addDaysNum(today, 60)) add(`noprice:${okla}`, `Price missing: ${building}`);
+    if (!cell(r, "email") && visit !== "Inspected" && dueIn && dueIn <= addDaysNum(today, 60)) add(`noemail:${okla}`, `Customer email missing: ${building}`);
+    if (!cell(r, "due") && visit !== "Inspected" && !cell(r, "lastReport") && !cell(r, "reportFile")) add(`nodue:${okla}`, `Due date missing: ${building}`);
     if (visit === "Inspected" && cell(r, "report") !== "Sent") {
       // The report email (customer + state) waits for the finished report. If
       // Drive can't be checked right now, say nothing rather than guess.
