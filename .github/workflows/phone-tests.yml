@@ -1,0 +1,44 @@
+# Automatic phone tests on every push (Robert, 2026-10-29). Builds the app, opens
+# it on a simulated Android phone with made-up data, and taps through the customer
+# pages and the app's key screens (tests/phone-test.mjs). A red X on the commit
+# means a button or rule broke. Nothing here touches the real dashboard, emails,
+# Make or QuickBooks, and no secrets are used.
+name: Phone tests
+on:
+  push:
+  pull_request:
+jobs:
+  phone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save playwright@1.63.0
+      - run: npx playwright install --with-deps chromium
+      # Test copy only: let the fake phone past the login wall. This edit is made
+      # inside the test machine and never committed or deployed.
+      - name: Open the login wall for the test build
+        run: |
+          sed -i 's/  if (isPublic(req)) return;/  if (isPublic(req) || process.env.LOCAL_TEST_OPEN === "1") return;/' src/proxy.ts
+          grep -q LOCAL_TEST_OPEN src/proxy.ts
+      - name: Build
+        run: npx next build
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsuZXhhbXBsZS5jb20k # fake (clerk.example.com)
+          CLERK_SECRET_KEY: sk_live_dummy
+      - name: Start the app
+        run: |
+          npx next start -p 3005 &
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:3005/privacy && exit 0; sleep 1; done
+          echo "App didn't start"; exit 1
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsuZXhhbXBsZS5jb20k
+          CLERK_SECRET_KEY: sk_live_dummy
+          LOCAL_TEST_OPEN: "1"
+      - name: Tap through on a simulated phone
+        run: node tests/phone-test.mjs
