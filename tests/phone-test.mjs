@@ -191,6 +191,20 @@ for (const mode of ["ok", "down", "502"]) {
   await ctx.close();
 }
 
+// ---------- app: Money tab shows a bill carried over unpaid ----------
+{
+  const { p, ctx } = await phone((route, path) => {
+    if (path === "/api/roster") return route.fulfill({ json: { accounts: [{ name: "Test Account", units: [elevator()] }] } });
+    if (path === "/api/payments") return route.fulfill({ json: { payments: [], unpaid: [{ billedOn: "10/1/2026", okla: "990001", building: "Test Building", amount: 250, invoice: "77" }] } });
+    return route.fulfill({ json: {} });
+  });
+  await p.goto(`${BASE}/?tab=money`);
+  await p.waitForTimeout(2500);
+  const t = await bodyText(p);
+  check("Money: unpaid bill from last time is listed and counted", /Unpaid from last time/.test(t) && /Waiting on \$250/.test(t), t.slice(0, 300));
+  await ctx.close();
+}
+
 await browser.close();
 const failed = results.filter((x) => !x.ok);
 console.log(`\n${results.length - failed.length} of ${results.length} checks passed.`);

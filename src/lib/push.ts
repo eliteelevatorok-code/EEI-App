@@ -6,6 +6,7 @@ import { isMasterOn, isRowPaused } from "@/lib/switches";
 import { finishedReport } from "@/lib/report";
 import { safetyAnswer } from "@/lib/records";
 import { dueReminders, readReminders } from "@/lib/reminders";
+import { readUnpaid } from "@/lib/payments";
 
 // Phone alerts (web push). The signing keys and the scheduler secret live in the
 // dashboard's private Config tab, which only the app's Google robot account can
@@ -88,6 +89,7 @@ async function dropSubscription(row: number): Promise<void> {
 //   nodue   — no due date on an elevator that has never had a report, so the
 //             yearly emails never start. (A blank due date after a report is
 //             on purpose: a Red Tag / Scrapped / Inactive finish clears it.)
+//   unpaid  — a bill carried over unpaid when next year's cycle started (payments.ts)
 //   remind  — a reminder Robert set through the assistant (see reminders.ts)
 // Each alert is ONE short line — what and which building. Tapping it opens the
 // elevator, whose "Next step" card explains and has the button to act.
@@ -155,6 +157,10 @@ export async function alertItems(ignoreMaster = false): Promise<AlertItem[]> {
     }
     const due = dateNum(cell(r, "due"));
     if (due && due < today && visit !== "Booked" && visit !== "Inspected") add(`overdue:${okla}:${cell(r, "due")}`, `Past due: ${building}`);
+  }
+  // Bills carried over unpaid when next year's cycle started (lib/payments.ts).
+  for (const b of await readUnpaid().catch(() => [])) { // a busy Google never stops the other alerts
+    if (!b.paidOn) out.push({ key: `unpaid:${b.okla}:${b.invoice || b.tripDay}`, okla: b.okla, building: b.building, title: `Still unpaid from last time: ${b.building}` });
   }
   // Robert's own reminders whose time has come (set through the assistant).
   for (const r of dueReminders(await readReminders())) out.push({ key: `remind:${r.id}`, okla: r.okla ?? "", building: "", title: `Reminder: ${r.text}` });

@@ -3,6 +3,7 @@ import { rejectUnlessScheduler } from "@/lib/schedulerKey";
 import { dropReminders } from "@/lib/reminders";
 import { syncBookings } from "@/lib/booking";
 import { isMasterOn } from "@/lib/switches";
+import { reconcileUnpaid } from "@/lib/payments";
 
 export const runtime = "nodejs";
 
@@ -51,6 +52,17 @@ async function handle(req: Request) {
     }
   }
 
+  // Bills carried over unpaid from an earlier cycle: check QuickBooks for each
+  // (src/lib/payments.ts). A QuickBooks problem never stops the alerts.
+  let unpaidPaid: number | { error: string } = 0;
+  if (!dry && (await isMasterOn())) {
+    try {
+      unpaidPaid = await reconcileUnpaid();
+    } catch (err) {
+      unpaidPaid = { error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   const [items, sent] = await Promise.all([alertItems(), readSent()]);
   // The first run of the day (Make starts at 7am Oklahoma time) is the summary.
   const morning = params.has("summary") || sent.day !== todayNum();
@@ -65,7 +77,7 @@ async function handle(req: Request) {
     // Remember today + what's currently waiting (things that went away drop off).
     await saveSent(items.map((i) => i.key));
   }
-  return Response.json({ ok: true, morning, waiting: items.length, alert, dry, calendly, ...result, ...(dry ? { items } : {}) });
+  return Response.json({ ok: true, morning, waiting: items.length, alert, dry, calendly, unpaidPaid, ...result, ...(dry ? { items } : {}) });
 }
 
 // One short line per alert — Robert reads the title and taps. The screen it

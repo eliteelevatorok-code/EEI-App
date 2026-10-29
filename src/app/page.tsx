@@ -837,14 +837,20 @@ function useMasterOn(): boolean | null {
 // One line of the dashboard's Payments tab (src/lib/payments.ts) — every payment
 // ever, kept after the yearly reset clears the elevator's Invoice / Paid steps.
 type PaymentLine = { paidOn: string; okla: string; building: string; account: string; amount: number; invoice: string; tripDay: string };
+// A bill carried over unpaid when next year's cycle started (dashboard "Unpaid bills" tab).
+type CarriedBill = { billedOn: string; okla: string; building: string; amount: number; invoice: string };
 
 function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; error: string; onPick: (e: Elevator) => void }) {
   const master = useMasterOn();
   const [payments, setPayments] = useState<PaymentLine[] | null>(null);
+  const [carried, setCarried] = useState<CarriedBill[]>([]);
   useEffect(() => {
     call("/api/payments")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { payments?: PaymentLine[] } | null) => setPayments(d?.payments ?? []))
+      .then((d: { payments?: PaymentLine[]; unpaid?: CarriedBill[] } | null) => {
+        setPayments(d?.payments ?? []);
+        setCarried(d?.unpaid ?? []);
+      })
       .catch(() => setPayments([]));
   }, []);
   if (!accounts) {
@@ -886,9 +892,11 @@ function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; err
       <div className="mt-6 grid grid-cols-2 gap-3">
         <Glass pad>
           <div className="text-sm text-ink-2">Waiting on</div>
-          <div className="mt-1 text-[26px] font-bold tracking-tight tabular-nums">{money(sum(outstanding))}</div>
+          <div className="mt-1 text-[26px] font-bold tracking-tight tabular-nums">
+            {money(sum(outstanding) + carried.reduce((n, b) => n + b.amount, 0))}
+          </div>
           <div className="text-xs text-ink-3">
-            {outstanding.length} {outstanding.length === 1 ? "bill" : "bills"} out
+            {outstanding.length + carried.length} {outstanding.length + carried.length === 1 ? "bill" : "bills"} out
           </div>
         </Glass>
         <Glass pad>
@@ -900,8 +908,8 @@ function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; err
         </Glass>
       </div>
 
-      <SectionLabel>Waiting on payment · {outstanding.length}</SectionLabel>
-      {outstanding.length > 0 ? (
+      <SectionLabel>Waiting on payment · {outstanding.length + carried.length}</SectionLabel>
+      {outstanding.length + carried.length > 0 ? (
         <List>
           {outstanding.map((u) => (
             <MoneyRow
@@ -911,6 +919,28 @@ function MoneyTab({ accounts, error, onPick }: { accounts: Account[] | null; err
               note={stage(u, "followUps") ? `Reminder ${stage(u, "followUps")}` : "Invoice sent"}
             />
           ))}
+          {/* Unpaid from an earlier cycle — the app checks QuickBooks for these every hour. */}
+          {carried.map((b) => {
+            const u = byOkla.get(b.okla);
+            const inner = (
+              <>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-semibold">{b.building}</div>
+                  <div className="mt-0.5 truncate text-sm text-warn">Unpaid from last time{b.billedOn ? ` · billed ${humanDate(b.billedOn)}` : ""}</div>
+                </div>
+                <span className="font-semibold tabular-nums">{money(b.amount)}</span>
+              </>
+            );
+            return u ? (
+              <button key={`carried-${b.okla}-${b.invoice}`} onClick={() => onPick(u)} className="row" aria-label={`${b.building}: unpaid from last time`}>
+                {inner}
+              </button>
+            ) : (
+              <div key={`carried-${b.okla}-${b.invoice}`} className="row">
+                {inner}
+              </div>
+            );
+          })}
         </List>
       ) : (
         <p className="px-1 text-sm text-ink-3">No unpaid bills.</p>
