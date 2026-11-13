@@ -39,7 +39,9 @@ yarn-error.log*
 # internal handoff docs + machine-specific dev config (keep out of the repo)
 /EEI-SEED.md
 /SEED-NEXT-CHAT.md
-/.claude/
+/.claude/*
+# …except shared Claude skills (e.g. /caveman), so every session on this repo has them
+!/.claude/skills/
 
 # old one-off Make-building scripts and blueprint exports, kept locally for reference only
 /archive/
